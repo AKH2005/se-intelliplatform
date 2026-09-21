@@ -1,7 +1,14 @@
 """Models Package Exporting Declarative Base and Domain Entities."""
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.context_snapshot import ContextSnapshot
 from app.models.project import Project, ProjectStatus
+from app.models.requirement import (
+    Requirement,
+    RequirementPriority,
+    RequirementStatus,
+    RequirementType,
+)
 
 __all__ = [
     "Base",
@@ -9,4 +16,9 @@ __all__ = [
     "UUIDPrimaryKeyMixin",
     "Project",
     "ProjectStatus",
+    "Requirement",
+    "RequirementType",
+    "RequirementPriority",
+    "RequirementStatus",
+    "ContextSnapshot",
 ]

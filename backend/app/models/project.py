@@ -4,7 +4,7 @@ import enum
 from typing import Any
 from sqlalchemy import Enum, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -52,6 +52,20 @@ class Project(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         default=dict,
         nullable=False,
         server_default="{}",
+    )
+
+    # Relationships
+    requirements: Mapped[list["Requirement"]] = relationship(  # noqa: F821
+        "Requirement",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="Requirement.created_at.desc()",
+    )
+    context_snapshots: Mapped[list["ContextSnapshot"]] = relationship(  # noqa: F821
+        "ContextSnapshot",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="ContextSnapshot.version.desc()",
     )
 
     __table_args__ = (

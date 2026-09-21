@@ -109,9 +109,9 @@ The backend is structured according to clean architecture and separation of conc
 
 ---
 
-## 7. Future Extension Points (Phase 2+)
+## 7. Evolution & Phase 2 Implementation
 
-* **Project Context Engine (Phase 2):** Single source of truth with immutable snapshot versioning.
-* **Deterministic Rule Engine (Phase 2):** Architectural constraints and cost estimation validators.
-* **Abstract Agent Interface (Phase 3):** `AbstractBaseAgent` and LLM provider strategy pattern.
-* **Redis Task Bus (Phase 3+):** Asynchronous task orchestration and event streaming.
+* **Project Context Engine (Phase 2):** Implemented. Serves as the single source of truth for structured project specifications, deterministic statistics, and immutable versioned snapshots. See [project_context.md](project_context.md) for full architectural specification.
+* **Deterministic Rule Engine (Phase 3):** Architectural constraints and deterministic validation rule engines [PLANNED].
+* **Abstract Agent Interface (Phase 3):** `AbstractBaseAgent` and LLM provider strategy pattern [PLANNED].
+* **Redis Task Bus (Phase 3+):** Asynchronous task orchestration and event streaming [PLANNED].
