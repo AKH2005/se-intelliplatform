@@ -39,6 +39,13 @@ class Settings(BaseSettings):
         description="Redis connection URL",
     )
 
+    # LLM Provider Settings (Vendor-neutral AI infrastructure)
+    LLM_PROVIDER: str = Field(default="mock", description="Active LLM provider adapter")
+    LLM_MODEL: str = Field(default="mock-model-v1", description="Default model name")
+    LLM_TIMEOUT: float = Field(default=30.0, description="Provider timeout in seconds")
+    LLM_MAX_RETRIES: int = Field(default=3, description="Maximum transient retries")
+    LLM_API_KEY: str | None = Field(default=None, description="Optional provider API key")
+
     # Logging Settings
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
         default="INFO", description="Log verbosity level"

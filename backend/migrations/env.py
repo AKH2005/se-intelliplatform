@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from app.core.config import settings
 from app.models.base import Base
 # Import models to ensure they are registered on Base.metadata
-from app.models import context_snapshot, project, requirement  # noqa: F401
+from app.models import agent_audit, context_snapshot, project, requirement  # noqa: F401
 
 config = context.config
 

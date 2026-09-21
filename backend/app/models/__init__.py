@@ -1,5 +1,6 @@
 """Models Package Exporting Declarative Base and Domain Entities."""
 
+from app.models.agent_audit import AgentExecutionAudit
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from app.models.context_snapshot import ContextSnapshot
 from app.models.project import Project, ProjectStatus
@@ -21,4 +22,5 @@ __all__ = [
     "RequirementPriority",
     "RequirementStatus",
     "ContextSnapshot",
+    "AgentExecutionAudit",
 ]
