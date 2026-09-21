@@ -48,8 +48,10 @@ class ContextTestingAgent(AbstractBaseAgent[ContextConsumerOutput]):
 
 
 @pytest.mark.asyncio
-async def test_agent_consumes_canonical_context():
-    """Verify that agent consumes canonical Phase 2 ProjectContextResponse without schema duplication."""
+async def test_agent_consumes_canonical_context_live_provenance():
+    """Verify that agent consumes canonical Phase 2 ProjectContextResponse without schema duplication,
+    and envelope preserves NULL provenance for live-context execution (no fabrication).
+    """
     project_id = uuid.uuid4()
     req_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
@@ -92,11 +94,58 @@ async def test_agent_consumes_canonical_context():
     agent = ContextTestingAgent()
     provider = MockLLMProvider()
 
+    # Live-context execution (no snapshot provided)
     result = await agent.execute(context=context, provider=provider)
 
     assert result.status.value == "COMPLETED"
-    assert result.context_version == 7
+    # Provenance fields must be None: no fabricated context version in result envelope
+    assert result.context_snapshot_id is None
+    assert result.context_version is None
     assert result.output is not None
     assert result.output.consumed_version == 7
     assert result.output.active_count == 1
     assert result.output.first_req_title == "PCI-DSS Compliance"
+
+
+@pytest.mark.asyncio
+async def test_agent_consumes_canonical_context_snapshot_provenance():
+    """Verify that agent execution with snapshot records explicit snapshot provenance."""
+    project_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    context = ProjectContextResponse(
+        project=ProjectResponse(
+            id=project_id,
+            name="FinTech Microservices",
+            slug="fintech-ms",
+            status="IN_PROGRESS",
+            created_at=now,
+            updated_at=now,
+        ),
+        requirements=[],
+        statistics=RequirementStatistics(
+            total_requirements=0,
+            active_requirements=0,
+            functional_count=0,
+            non_functional_count=0,
+            constraint_count=0,
+            completion_percentage=0.0,
+        ),
+        context_version=7,
+        generated_at=now,
+    )
+
+    agent = ContextTestingAgent()
+    provider = MockLLMProvider()
+
+    snap_id = uuid.uuid4()
+
+    class MockSnapshot:
+        id = snap_id
+        version = 7
+
+    result = await agent.execute(context=context, provider=provider, snapshot=MockSnapshot())
+
+    assert result.status.value == "COMPLETED"
+    assert result.context_snapshot_id == snap_id
+    assert result.context_version == 7

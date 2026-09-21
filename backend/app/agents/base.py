@@ -1,22 +1,16 @@
-"""Abstract Base Agent Defining Identity, Contracts, and Execution Lifecycle."""
+"""Abstract Base Agent Defining Identity, Contracts, and Execution Hooks."""
 
 import logging
-import uuid
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
 from typing import Any, Generic, TypeVar
 from pydantic import BaseModel
 
 from app.agents.contracts import (
-    AgentErrorDetail,
-    AgentExecutionStatus,
     AgentMetadata,
     AgentResult,
     ValidationResult,
 )
-from app.agents.exceptions import AgentError, AgentValidationError, ProviderError
 from app.agents.providers.base import AbstractLLMProvider
-from app.agents.validation import DeterministicValidator
 from app.schemas.context import ProjectContextResponse
 
 logger = logging.getLogger(__name__)
@@ -30,6 +24,16 @@ class AbstractBaseAgent(ABC, Generic[OutputT]):
     All future SDLC intelligence agents (Requirement Analysis, Architecture,
     Code Review, Testing, etc.) inherit from this contract, consuming the canonical
     Project Context and emitting validated, structured domain results.
+    
+    Architectural Authority Invariant:
+    `AbstractBaseAgent` owns ONLY agent-specific domain behavior hooks:
+      - `initialize`: Pre-execution setup
+      - `analyze`: Context feature extraction
+      - `generate`: Structured LLM generation
+      - `validate_output`: Deterministic domain invariants
+      
+    Execution orchestration, lifecycle state transitions, retry loops, audit logging,
+    and error handling are STRICTLY owned by `AgentExecutor`.
     """
 
     @property
@@ -45,7 +49,7 @@ class AbstractBaseAgent(ABC, Generic[OutputT]):
         pass
 
     async def initialize(self) -> None:
-        """Lifecycle Step 1: Pre-execution initialization hook."""
+        """Lifecycle Hook 1: Pre-execution initialization hook."""
         pass
 
     @abstractmethod
@@ -54,7 +58,7 @@ class AbstractBaseAgent(ABC, Generic[OutputT]):
         context: ProjectContextResponse,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Lifecycle Step 2: Extract and prepare domain-specific features from Project Context."""
+        """Lifecycle Hook 2: Extract and prepare domain-specific features from Project Context."""
         pass
 
     @abstractmethod
@@ -64,7 +68,7 @@ class AbstractBaseAgent(ABC, Generic[OutputT]):
         provider: AbstractLLMProvider,
         **kwargs: Any,
     ) -> OutputT:
-        """Lifecycle Step 3: Invoke LLM provider to produce structured proposal adhering to output_schema."""
+        """Lifecycle Hook 3: Invoke LLM provider to produce structured proposal adhering to output_schema."""
         pass
 
     def validate_output(
@@ -72,7 +76,7 @@ class AbstractBaseAgent(ABC, Generic[OutputT]):
         output: OutputT,
         context: ProjectContextResponse,
     ) -> ValidationResult:
-        """Lifecycle Step 4: Deterministic domain validation hook.
+        """Lifecycle Hook 4: Deterministic domain validation hook.
         
         Subclasses override this method to enforce authoritative business logic.
         AI is never the judge of deterministic business invariants.
@@ -83,122 +87,25 @@ class AbstractBaseAgent(ABC, Generic[OutputT]):
         self,
         context: ProjectContextResponse,
         provider: AbstractLLMProvider,
+        session: Any = None,
+        snapshot: Any = None,
+        context_snapshot_id: Any = None,
+        context_version: Any = None,
         **kwargs: Any,
     ) -> AgentResult[OutputT]:
-        """Lifecycle Orchestration Boundary:
-        initialize -> analyze -> generate -> validate -> complete/failed.
+        """Convenience delegation to authoritative AgentExecutor.
+        
+        Guarantees single execution authority across the platform.
         """
-        execution_id = uuid.uuid4()
-        started_at = datetime.now(timezone.utc)
-        meta = self.metadata
-        context_version = context.context_version
+        from app.agents.execution import AgentExecutor
 
-        logger.info(
-            f"Commencing agent execution [{meta.agent_id} v{meta.version}] "
-            f"for project [{context.project.id}] with context v{context_version} "
-            f"[exec_id={execution_id}]"
+        executor = AgentExecutor(provider=provider)
+        return await executor.execute(
+            agent=self,
+            context=context,
+            session=session,
+            snapshot=snapshot,
+            context_snapshot_id=context_snapshot_id,
+            context_version=context_version,
+            **kwargs,
         )
-
-        try:
-            # 1. Initialize
-            await self.initialize()
-
-            # 2. Analyze
-            analysis_data = await self.analyze(context, **kwargs)
-
-            # 3. Generate
-            raw_output = await self.generate(analysis_data, provider, **kwargs)
-
-            # 4. Validate (Two-Stage: Schema + Deterministic Domain Hook)
-            validated_output, validation_res = DeterministicValidator.run_pipeline(
-                raw_output=raw_output,
-                schema=self.output_schema,
-                context=context,
-                domain_validator=self.validate_output,
-            )
-
-            completed_at = datetime.now(timezone.utc)
-            logger.info(
-                f"Agent execution completed successfully [{meta.agent_id} v{meta.version}] "
-                f"[exec_id={execution_id}]"
-            )
-
-            return AgentResult[OutputT](
-                execution_id=execution_id,
-                agent_id=meta.agent_id,
-                agent_version=meta.version,
-                status=AgentExecutionStatus.COMPLETED,
-                output=validated_output,
-                validation=validation_res,
-                error=None,
-                context_version=context_version,
-                started_at=started_at,
-                completed_at=completed_at,
-                metadata={"provider": provider.provider_name},
-            )
-
-        except AgentValidationError as ave:
-            logger.warning(
-                f"Validation failed during agent execution [{meta.agent_id}] [exec_id={execution_id}]: {ave.detail}"
-            )
-            return AgentResult[OutputT](
-                execution_id=execution_id,
-                agent_id=meta.agent_id,
-                agent_version=meta.version,
-                status=AgentExecutionStatus.FAILED,
-                output=None,
-                validation=ValidationResult(is_valid=False, errors=ave.validation_errors),
-                error=AgentErrorDetail(
-                    error_code="VALIDATION_FAILED",
-                    message=ave.detail,
-                    transient=False,
-                ),
-                context_version=context_version,
-                started_at=started_at,
-                completed_at=datetime.now(timezone.utc),
-                metadata={"provider": provider.provider_name},
-            )
-
-        except ProviderError as pe:
-            logger.error(
-                f"Provider error during agent execution [{meta.agent_id}] [exec_id={execution_id}]: {pe.detail}"
-            )
-            return AgentResult[OutputT](
-                execution_id=execution_id,
-                agent_id=meta.agent_id,
-                agent_version=meta.version,
-                status=AgentExecutionStatus.FAILED,
-                output=None,
-                validation=ValidationResult(is_valid=False),
-                error=AgentErrorDetail(
-                    error_code="PROVIDER_ERROR",
-                    message=pe.detail,
-                    transient=pe.transient,
-                ),
-                context_version=context_version,
-                started_at=started_at,
-                completed_at=datetime.now(timezone.utc),
-                metadata={"provider": provider.provider_name},
-            )
-
-        except Exception as exc:
-            logger.exception(
-                f"Unhandled failure during agent execution [{meta.agent_id}] [exec_id={execution_id}]: {exc}"
-            )
-            return AgentResult[OutputT](
-                execution_id=execution_id,
-                agent_id=meta.agent_id,
-                agent_version=meta.version,
-                status=AgentExecutionStatus.FAILED,
-                output=None,
-                validation=ValidationResult(is_valid=False),
-                error=AgentErrorDetail(
-                    error_code="EXECUTION_FAILED",
-                    message="An internal error occurred during agent execution.",
-                    transient=False,
-                ),
-                context_version=context_version,
-                started_at=started_at,
-                completed_at=datetime.now(timezone.utc),
-                metadata={"provider": provider.provider_name},
-            )

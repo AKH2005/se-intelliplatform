@@ -114,9 +114,13 @@ class AgentResult(BaseModel, Generic[OutputT]):
         default=None,
         description="Failure details if status is FAILED",
     )
-    context_version: int = Field(
-        ...,
-        description="Version sequence number of the Project Context consumed",
+    context_snapshot_id: uuid.UUID | None = Field(
+        default=None,
+        description="UUID of the persisted ContextSnapshot if snapshot-backed, else None",
+    )
+    context_version: int | None = Field(
+        default=None,
+        description="Version sequence number of the Project Context if snapshot-backed, else None for live context",
     )
     started_at: datetime = Field(..., description="Timestamp when execution commenced")
     completed_at: datetime = Field(

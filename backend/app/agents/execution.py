@@ -1,4 +1,4 @@
-"""Agent Execution Engine, Controlled Retry Boundary, and Audit Tracking."""
+"""Agent Execution Engine, Authoritative Lifecycle Orchestrator, and Audit Tracking."""
 
 import asyncio
 import logging
@@ -8,13 +8,20 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.base import AbstractBaseAgent
 from app.agents.contracts import (
+    AgentErrorDetail,
     AgentExecutionStatus,
     AgentResult,
+    ValidationResult,
 )
-from app.agents.exceptions import AgentError, AgentValidationError, TransientProviderError
+from app.agents.exceptions import (
+    AgentError,
+    AgentValidationError,
+    ProviderError,
+    TransientProviderError,
+)
 from app.agents.providers.base import AbstractLLMProvider
+from app.agents.validation import DeterministicValidator
 from app.schemas.context import ProjectContextResponse
 
 logger = logging.getLogger(__name__)
@@ -23,7 +30,17 @@ OutputT = TypeVar("OutputT", bound=BaseModel)
 
 
 class AgentExecutor:
-    """Orchestrates agent execution with a controlled retry policy and persistence auditing."""
+    """Sole authoritative execution orchestrator for all platform agents.
+    
+    Owns:
+    - Unique execution ID generation and lifecycle tracking
+    - Authoritative lifecycle state transitions (PENDING -> RUNNING -> VALIDATING -> COMPLETED / FAILED)
+    - Controlled retry policy for transient failures
+    - Schema and deterministic domain validation coordination
+    - Resilient error handling and normalization
+    - Persistent audit recording with exact snapshot / live-context provenance
+    - Production of the final structured AgentResult envelope
+    """
 
     def __init__(
         self,
@@ -37,34 +54,68 @@ class AgentExecutor:
 
     async def execute(
         self,
-        agent: AbstractBaseAgent[OutputT],
+        agent: Any,
         context: ProjectContextResponse,
         session: AsyncSession | None = None,
+        snapshot: Any | None = None,
+        context_snapshot_id: uuid.UUID | None = None,
+        context_version: int | None = None,
         **kwargs: Any,
     ) -> AgentResult[OutputT]:
-        """Execute an agent against the canonical Project Context with retry and audit tracking.
+        """Execute an agent against canonical Project Context under authoritative executor governance.
         
+        Provenance Rules:
+        - Snapshot-backed execution:
+            context_snapshot_id = snapshot.id (or context_snapshot_id)
+            context_version = snapshot.version (or context_version)
+        - Live-context execution:
+            context_snapshot_id = None
+            context_version = None
+          (Never fabricates or assumes a version from ProjectContextResponse).
+          
         Retry Policy:
         - Retries ONLY errors explicitly flagged as transient (e.g. TransientProviderError).
         - NEVER retries schema validation errors or deterministic domain rule rejections.
         """
         meta = agent.metadata
-        context_version = context.context_version
         project_id = context.project.id
         execution_id = uuid.uuid4()
         started_at = datetime.now(timezone.utc)
 
-        # 1. Initialize Audit Record if database session provided
+        # 1. Determine Context Provenance (No fabricated values)
+        actual_snapshot_id: uuid.UUID | None = None
+        actual_context_version: int | None = None
+
+        if snapshot is not None:
+            actual_snapshot_id = getattr(snapshot, "id", None)
+            actual_context_version = getattr(snapshot, "version", None)
+        elif context_snapshot_id is not None:
+            actual_snapshot_id = context_snapshot_id
+            actual_context_version = context_version
+        else:
+            # Live context execution: must explicitly remain NULL
+            actual_snapshot_id = None
+            actual_context_version = None
+
+        logger.info(
+            f"Commencing agent execution [{meta.agent_id} v{meta.version}] "
+            f"for project [{project_id}] [exec_id={execution_id}] "
+            f"provenance=[snapshot_id={actual_snapshot_id}, version={actual_context_version}]"
+        )
+
+        # 2. Authoritative Audit Record (Initial State: PENDING)
         audit_record = None
         if session is not None:
             from app.models.agent_audit import AgentExecutionAudit
+
             audit_record = AgentExecutionAudit(
                 execution_id=execution_id,
                 project_id=project_id,
                 agent_id=meta.agent_id,
                 agent_version=meta.version,
                 status=AgentExecutionStatus.PENDING,
-                context_version=context_version,
+                context_snapshot_id=actual_snapshot_id,
+                context_version=actual_context_version,
                 started_at=started_at,
                 metadata_payload={"provider": self.provider.provider_name},
             )
@@ -73,68 +124,190 @@ class AgentExecutor:
             await session.refresh(audit_record)
 
         result: AgentResult[OutputT] | None = None
-        last_transient_error: Exception | None = None
 
+        # 3. Execution Lifecycle Loop with Controlled Retry Boundary
         for attempt in range(1, self.max_retries + 1):
+            if audit_record is not None:
+                audit_record.status = AgentExecutionStatus.RUNNING
+                await session.commit()
+
             try:
+                # Stage 1: Initialize
+                await agent.initialize()
+
+                # Stage 2: Analyze
+                analysis_data = await agent.analyze(context, **kwargs)
+
+                # Stage 3: Generate
+                raw_output = await agent.generate(analysis_data, self.provider, **kwargs)
+
+                # Stage 4: Validate (Schema + Deterministic Domain Validation Hook)
                 if audit_record is not None:
-                    audit_record.status = AgentExecutionStatus.RUNNING
-                    await session.commit()  # type: ignore[union-attr]
+                    audit_record.status = AgentExecutionStatus.VALIDATING
+                    await session.commit()
 
-                # Execute the agent lifecycle
-                result = await agent.execute(
+                validated_output, validation_res = DeterministicValidator.run_pipeline(
+                    raw_output=raw_output,
+                    schema=agent.output_schema,
                     context=context,
-                    provider=self.provider,
-                    **kwargs,
+                    domain_validator=agent.validate_output,
                 )
-                # Overwrite execution_id to match tracked audit ID
-                result.execution_id = execution_id
 
-                # If result failed due to a transient provider error, trigger retry
-                if (
-                    result.status == AgentExecutionStatus.FAILED
-                    and result.error is not None
-                    and result.error.transient
-                ):
-                    if attempt < self.max_retries:
-                        logger.warning(
-                            f"Transient failure on attempt {attempt}/{self.max_retries} for agent [{meta.agent_id}]: "
-                            f"{result.error.message}. Retrying..."
-                        )
-                        if self.retry_delay_seconds > 0:
-                            await asyncio.sleep(self.retry_delay_seconds)
-                        continue
+                # Successful Execution Outcome
+                completed_at = datetime.now(timezone.utc)
+                logger.info(
+                    f"Agent execution completed successfully [{meta.agent_id} v{meta.version}] "
+                    f"[exec_id={execution_id}]"
+                )
+                result = AgentResult[OutputT](
+                    execution_id=execution_id,
+                    agent_id=meta.agent_id,
+                    agent_version=meta.version,
+                    status=AgentExecutionStatus.COMPLETED,
+                    output=validated_output,
+                    validation=validation_res,
+                    error=None,
+                    context_snapshot_id=actual_snapshot_id,
+                    context_version=actual_context_version,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    metadata={"provider": self.provider.provider_name, "attempts": attempt},
+                )
+                break
 
-                # Non-transient result (Success or non-transient failure like validation)
+            except AgentValidationError as ave:
+                # Deterministic validation rejection: NEVER retry
+                completed_at = datetime.now(timezone.utc)
+                logger.warning(
+                    f"Validation failed during agent execution [{meta.agent_id}] [exec_id={execution_id}]: {ave.detail}"
+                )
+                result = AgentResult[OutputT](
+                    execution_id=execution_id,
+                    agent_id=meta.agent_id,
+                    agent_version=meta.version,
+                    status=AgentExecutionStatus.FAILED,
+                    output=None,
+                    validation=ValidationResult(is_valid=False, errors=ave.validation_errors),
+                    error=AgentErrorDetail(
+                        error_code="VALIDATION_FAILED",
+                        message=ave.detail,
+                        transient=False,
+                    ),
+                    context_snapshot_id=actual_snapshot_id,
+                    context_version=actual_context_version,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    metadata={"provider": self.provider.provider_name, "attempts": attempt},
+                )
                 break
 
             except TransientProviderError as tpe:
-                last_transient_error = tpe
+                # Transient error: retry if attempts remaining
                 logger.warning(
-                    f"Transient provider exception on attempt {attempt}/{self.max_retries} "
-                    f"for agent [{meta.agent_id}]: {tpe.detail}"
+                    f"Transient provider error on attempt {attempt}/{self.max_retries} "
+                    f"for agent [{meta.agent_id}] [exec_id={execution_id}]: {tpe.detail}"
                 )
                 if attempt < self.max_retries:
                     if self.retry_delay_seconds > 0:
                         await asyncio.sleep(self.retry_delay_seconds)
                     continue
 
-        # If loop completed without a structured result (due to unhandled transient loop)
+                # Max retries exhausted
+                completed_at = datetime.now(timezone.utc)
+                result = AgentResult[OutputT](
+                    execution_id=execution_id,
+                    agent_id=meta.agent_id,
+                    agent_version=meta.version,
+                    status=AgentExecutionStatus.FAILED,
+                    output=None,
+                    validation=ValidationResult(is_valid=False),
+                    error=AgentErrorDetail(
+                        error_code="PROVIDER_ERROR",
+                        message=tpe.detail,
+                        transient=True,
+                    ),
+                    context_snapshot_id=actual_snapshot_id,
+                    context_version=actual_context_version,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    metadata={"provider": self.provider.provider_name, "attempts": attempt},
+                )
+                break
+
+            except ProviderError as pe:
+                # Non-transient provider error: do not retry
+                completed_at = datetime.now(timezone.utc)
+                logger.error(
+                    f"Non-transient provider error for agent [{meta.agent_id}] [exec_id={execution_id}]: {pe.detail}"
+                )
+                result = AgentResult[OutputT](
+                    execution_id=execution_id,
+                    agent_id=meta.agent_id,
+                    agent_version=meta.version,
+                    status=AgentExecutionStatus.FAILED,
+                    output=None,
+                    validation=ValidationResult(is_valid=False),
+                    error=AgentErrorDetail(
+                        error_code="PROVIDER_ERROR",
+                        message=pe.detail,
+                        transient=pe.transient,
+                    ),
+                    context_snapshot_id=actual_snapshot_id,
+                    context_version=actual_context_version,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    metadata={"provider": self.provider.provider_name, "attempts": attempt},
+                )
+                break
+
+            except Exception as exc:
+                # Unexpected failure: do not retry
+                completed_at = datetime.now(timezone.utc)
+                logger.exception(
+                    f"Unhandled exception during agent execution [{meta.agent_id}] [exec_id={execution_id}]: {exc}"
+                )
+                result = AgentResult[OutputT](
+                    execution_id=execution_id,
+                    agent_id=meta.agent_id,
+                    agent_version=meta.version,
+                    status=AgentExecutionStatus.FAILED,
+                    output=None,
+                    validation=ValidationResult(is_valid=False),
+                    error=AgentErrorDetail(
+                        error_code="EXECUTION_FAILED",
+                        message="An internal error occurred during agent execution.",
+                        transient=False,
+                    ),
+                    context_snapshot_id=actual_snapshot_id,
+                    context_version=actual_context_version,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    metadata={"provider": self.provider.provider_name, "attempts": attempt},
+                )
+                break
+
+        # Fallback safeguard in case loop exited unexpectedly
         if result is None:
+            completed_at = datetime.now(timezone.utc)
             result = AgentResult[OutputT](
                 execution_id=execution_id,
                 agent_id=meta.agent_id,
                 agent_version=meta.version,
                 status=AgentExecutionStatus.FAILED,
                 output=None,
-                error=None,
-                context_version=context_version,
+                error=AgentErrorDetail(
+                    error_code="UNKNOWN_ERROR",
+                    message="Execution terminated without producing a result.",
+                    transient=False,
+                ),
+                context_snapshot_id=actual_snapshot_id,
+                context_version=actual_context_version,
                 started_at=started_at,
-                completed_at=datetime.now(timezone.utc),
-                metadata={"provider": self.provider.provider_name, "error": str(last_transient_error)},
+                completed_at=completed_at,
+                metadata={"provider": self.provider.provider_name},
             )
 
-        # 2. Finalize Audit Record in Persistence Store
+        # 4. Finalize Audit Record in Persistence Store
         if session is not None and audit_record is not None:
             audit_record.status = result.status
             audit_record.completed_at = result.completed_at
@@ -142,7 +315,6 @@ class AgentExecutor:
                 audit_record.error_code = result.error.error_code
                 audit_record.error_message = result.error.message
             if result.output is not None:
-                # Sanitized brief summary of output (no full prompt or secrets)
                 output_dump = result.output.model_dump(mode="json")
                 summary_str = f"Keys: {list(output_dump.keys())}"
                 audit_record.output_summary = summary_str[:500]

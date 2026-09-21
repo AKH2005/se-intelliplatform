@@ -58,11 +58,19 @@ class AgentExecutionAudit(Base, UUIDPrimaryKeyMixin):
         doc="Lifecycle state of execution (PENDING, RUNNING, COMPLETED, FAILED)",
     )
 
-    context_version: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
+    context_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("project_context_snapshots.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
-        doc="Exact sequence number of the canonical Project Context consumed",
+        doc="UUID of the persisted ContextSnapshot if execution was snapshot-backed, else NULL",
+    )
+
+    context_version: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+        doc="Sequence number of the persisted ContextSnapshot if snapshot-backed, else NULL for live context",
     )
 
     started_at: Mapped[datetime] = mapped_column(
