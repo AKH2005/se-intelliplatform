@@ -41,6 +41,13 @@ from app.agents.risk_prediction.contracts import (
     RiskPredictionCandidate,
     RiskPredictionOutput,
 )
+from app.agents.timeline_prediction.agent import TimelinePredictionAgent
+from app.agents.timeline_prediction.contracts import (
+    DEFAULT_TIMELINE_LIMITATIONS,
+    TimelineModelProvenance,
+    TimelinePredictionCandidate,
+    TimelinePredictionOutput,
+)
 from app.agents.validation import DeterministicValidator
 
 __all__ = [
@@ -80,4 +87,9 @@ __all__ = [
     "RiskLevel",
     "RiskModelProvenance",
     "DEFAULT_MODEL_LIMITATIONS",
+    "TimelinePredictionAgent",
+    "TimelinePredictionOutput",
+    "TimelinePredictionCandidate",
+    "TimelineModelProvenance",
+    "DEFAULT_TIMELINE_LIMITATIONS",
 ]

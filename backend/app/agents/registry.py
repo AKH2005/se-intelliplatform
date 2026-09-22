@@ -68,6 +68,7 @@ def register_default_agents(registry: AgentRegistry | None = None) -> None:
     from app.agents.database_design.agent import DatabaseDesignAgent
     from app.agents.requirement_analysis.agent import RequirementAnalysisAgent
     from app.agents.risk_prediction.agent import RiskPredictionAgent
+    from app.agents.timeline_prediction.agent import TimelinePredictionAgent
 
     req_agent = RequirementAnalysisAgent()
     if not target.has(req_agent.metadata.agent_id):
@@ -84,4 +85,9 @@ def register_default_agents(registry: AgentRegistry | None = None) -> None:
     risk_agent = RiskPredictionAgent()
     if not target.has(risk_agent.metadata.agent_id):
         target.register(risk_agent)
+
+    timeline_agent = TimelinePredictionAgent()
+    if not target.has(timeline_agent.metadata.agent_id):
+        target.register(timeline_agent)
+
 
