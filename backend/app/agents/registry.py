@@ -32,6 +32,10 @@ class AgentRegistry:
         self._agents[meta.agent_id] = agent
         logger.info(f"Registered agent '{meta.name}' [{meta.agent_id} v{meta.version}]")
 
+    def has(self, agent_id: str) -> bool:
+        """Check if an agent ID is already registered."""
+        return agent_id in self._agents
+
     def get(self, agent_id: str) -> AbstractBaseAgent[Any]:
         """Retrieve a registered agent by ID or raise AgentNotFoundError."""
         if agent_id not in self._agents:
@@ -49,3 +53,19 @@ class AgentRegistry:
 
 # Global framework agent registry singleton
 agent_registry = AgentRegistry()
+
+
+def register_default_agents(registry: AgentRegistry | None = None) -> None:
+    """Register built-in platform agents in an idempotent manner.
+    
+    Guarantees:
+    - Repeated calls do not raise duplicate registration ConflictErrors.
+    - Custom/isolated AgentRegistry instances can be passed for test isolation.
+    - Importing agent packages does not mutate registry state automatically.
+    """
+    target = registry if registry is not None else agent_registry
+    from app.agents.requirement_analysis.agent import RequirementAnalysisAgent
+
+    req_agent = RequirementAnalysisAgent()
+    if not target.has(req_agent.metadata.agent_id):
+        target.register(req_agent)

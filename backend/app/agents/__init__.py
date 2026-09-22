@@ -26,7 +26,9 @@ from app.agents.providers.base import (
     LLMResponse,
 )
 from app.agents.providers.mock import MockLLMProvider
-from app.agents.registry import AgentRegistry, agent_registry
+from app.agents.registry import AgentRegistry, agent_registry, register_default_agents
+from app.agents.requirement_analysis.agent import RequirementAnalysisAgent
+from app.agents.requirement_analysis.contracts import RequirementAnalysisOutput
 from app.agents.validation import DeterministicValidator
 
 __all__ = [
@@ -47,10 +49,13 @@ __all__ = [
     "DeterministicValidator",
     "AgentRegistry",
     "agent_registry",
+    "register_default_agents",
     "AgentExecutor",
     "AbstractLLMProvider",
     "LLMMessage",
     "LLMRequest",
     "LLMResponse",
     "MockLLMProvider",
+    "RequirementAnalysisAgent",
+    "RequirementAnalysisOutput",
 ]

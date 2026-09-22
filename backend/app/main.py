@@ -28,6 +28,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         f"[env={settings.ENVIRONMENT}, debug={settings.DEBUG}]"
     )
 
+    from app.agents.registry import register_default_agents
+    register_default_agents()
+
     yield
 
     # 2. Shutdown: Dispose database connections
