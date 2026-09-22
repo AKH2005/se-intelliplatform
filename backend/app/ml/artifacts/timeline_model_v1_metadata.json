@@ -1,0 +1,53 @@
+{
+  "model_name": "se_timeline_regressor",
+  "model_version": "1.0.0",
+  "task": "regression",
+  "target": "Duration",
+  "target_unit": "months",
+  "algorithm": "RandomForestRegressor",
+  "feature_schema_version": "1.0.0",
+  "training_dataset": "China",
+  "training_rows": 499,
+  "train_samples": 399,
+  "test_samples": 100,
+  "test_size": 0.2,
+  "random_state": 42,
+  "sha256_checksum": "1f5309dffd431551d2729813b9a9c033ca3101eb0008b5f34a29aec9f1909e64",
+  "artifact_sha256": "1f5309dffd431551d2729813b9a9c033ca3101eb0008b5f34a29aec9f1909e64",
+  "approved_features": [
+    "AFP",
+    "Input",
+    "Output",
+    "Enquiry",
+    "File",
+    "Interface",
+    "Resource"
+  ],
+  "excluded_features": [
+    "ID",
+    "Changed",
+    "Deleted",
+    "PDR_AFP",
+    "PDR_UFP",
+    "NPDR_AFP",
+    "NPDU_UFP",
+    "Dev.Type",
+    "N_effort",
+    "Effort",
+    "Added"
+  ],
+  "metrics": {
+    "cv_mae": 4.2031,
+    "cv_rmse": 5.9602,
+    "cv_r2": 0.1685,
+    "train_mae": 3.0707,
+    "train_rmse": 3.9883,
+    "train_r2": 0.6383,
+    "test_mae": 4.5926,
+    "test_rmse": 8.4414,
+    "test_r2": 0.2362,
+    "baseline_test_mae": 4.9353,
+    "baseline_test_rmse": 9.6607,
+    "baseline_test_r2": -0.0004
+  }
+}

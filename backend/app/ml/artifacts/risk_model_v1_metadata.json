@@ -1,0 +1,44 @@
+{
+  "model_name": "se_risk_regressor",
+  "model_version": "1.0.0",
+  "task": "regression",
+  "target": "Risk_Score",
+  "algorithm": "Ridge",
+  "feature_schema_version": "1.0.0",
+  "training_dataset": "Reduced_Software_Project_Risk_Dataset_585.csv",
+  "training_rows": 585,
+  "train_samples": 468,
+  "test_samples": 117,
+  "test_size": 0.2,
+  "random_state": 42,
+  "sha256_checksum": "ca05173dcdd5f20d511079be41837abb1df9537e97efaa7e55fef54a53cd114c",
+  "approved_features": [
+    "Project_Size",
+    "Team_Experience_Level",
+    "Estimated_Effort_Hours",
+    "Complexity_Level",
+    "Requirement_Stability"
+  ],
+  "excluded_features": [
+    "Project_ID",
+    "Actual_Effort_Hours",
+    "Budget_Deviation_Percentage",
+    "Schedule_Deviation_Percentage",
+    "Defects_Introduced",
+    "ML_Feasibility_Score"
+  ],
+  "metrics": {
+    "cv_mae": 2.332,
+    "cv_rmse": 2.656,
+    "cv_r2": -0.0571,
+    "train_mae": 2.2725,
+    "train_rmse": 2.5901,
+    "train_r2": 0.0184,
+    "test_mae": 2.1999,
+    "test_rmse": 2.5664,
+    "test_r2": -0.0087,
+    "baseline_test_mae": 2.2511,
+    "baseline_test_rmse": 2.6029,
+    "baseline_test_r2": -0.0375
+  }
+}

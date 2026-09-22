@@ -67,6 +67,7 @@ def register_default_agents(registry: AgentRegistry | None = None) -> None:
     from app.agents.architecture_recommendation.agent import ArchitectureRecommendationAgent
     from app.agents.database_design.agent import DatabaseDesignAgent
     from app.agents.requirement_analysis.agent import RequirementAnalysisAgent
+    from app.agents.risk_prediction.agent import RiskPredictionAgent
 
     req_agent = RequirementAnalysisAgent()
     if not target.has(req_agent.metadata.agent_id):
@@ -79,3 +80,8 @@ def register_default_agents(registry: AgentRegistry | None = None) -> None:
     db_agent = DatabaseDesignAgent()
     if not target.has(db_agent.metadata.agent_id):
         target.register(db_agent)
+
+    risk_agent = RiskPredictionAgent()
+    if not target.has(risk_agent.metadata.agent_id):
+        target.register(risk_agent)
+

@@ -33,6 +33,14 @@ from app.agents.database_design.contracts import DatabaseDesignOutput
 from app.agents.registry import AgentRegistry, agent_registry, register_default_agents
 from app.agents.requirement_analysis.agent import RequirementAnalysisAgent
 from app.agents.requirement_analysis.contracts import RequirementAnalysisOutput
+from app.agents.risk_prediction.agent import RiskPredictionAgent
+from app.agents.risk_prediction.contracts import (
+    DEFAULT_MODEL_LIMITATIONS,
+    RiskLevel,
+    RiskModelProvenance,
+    RiskPredictionCandidate,
+    RiskPredictionOutput,
+)
 from app.agents.validation import DeterministicValidator
 
 __all__ = [
@@ -66,4 +74,10 @@ __all__ = [
     "ArchitectureRecommendationOutput",
     "DatabaseDesignAgent",
     "DatabaseDesignOutput",
+    "RiskPredictionAgent",
+    "RiskPredictionOutput",
+    "RiskPredictionCandidate",
+    "RiskLevel",
+    "RiskModelProvenance",
+    "DEFAULT_MODEL_LIMITATIONS",
 ]
