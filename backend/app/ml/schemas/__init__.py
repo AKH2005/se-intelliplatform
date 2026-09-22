@@ -9,6 +9,10 @@ from app.ml.schemas.risk_features import (
     RiskFeatureVector,
     TeamExperienceLevel,
 )
+from app.ml.schemas.bug_features import (
+    BugFeatureSchema,
+    BugFeatureVector,
+)
 from app.ml.schemas.timeline_features import (
     ResourceLevel,
     TimelineFeatureSchema,
@@ -26,4 +30,6 @@ __all__ = [
     "ResourceLevel",
     "TimelineFeatureVector",
     "TimelineFeatureSchema",
+    "BugFeatureVector",
+    "BugFeatureSchema",
 ]

@@ -7,6 +7,14 @@ from app.ml.inference.model_loader import (
     get_risk_model_loader,
     predict_risk,
 )
+from app.ml.inference.bug_model_loader import (
+    BugModelChecksumMismatchError,
+    BugModelLoader,
+    BugModelUnavailableError,
+    get_bug_model_loader,
+    predict_defect,
+    predict_defect_proba,
+)
 from app.ml.inference.timeline_model_loader import (
     TimelineModelChecksumMismatchError,
     TimelineModelLoader,
@@ -26,4 +34,10 @@ __all__ = [
     "TimelineModelChecksumMismatchError",
     "get_timeline_model_loader",
     "predict_duration",
+    "BugModelLoader",
+    "BugModelUnavailableError",
+    "BugModelChecksumMismatchError",
+    "get_bug_model_loader",
+    "predict_defect",
+    "predict_defect_proba",
 ]

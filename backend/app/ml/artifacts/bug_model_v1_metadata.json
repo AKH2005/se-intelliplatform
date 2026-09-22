@@ -1,0 +1,74 @@
+{
+  "model_name": "se_bug_classifier",
+  "model_version": "1.0.0",
+  "task": "binary_classification",
+  "target": "defects",
+  "positive_class": "true",
+  "negative_class": "false",
+  "algorithm": "LogisticRegression",
+  "feature_schema_version": "1.0.0",
+  "dataset": {
+    "name": "JM1",
+    "original_rows": 10885,
+    "duplicate_rows_removed": 1973,
+    "deduplicated_rows": 8912,
+    "training_rows": 7129,
+    "test_rows": 1783
+  },
+  "features": [
+    "loc",
+    "v(g)",
+    "ev(g)",
+    "iv(g)",
+    "n",
+    "v",
+    "l",
+    "d",
+    "i",
+    "e",
+    "b",
+    "t",
+    "lOCode",
+    "lOComment",
+    "lOBlank",
+    "locCodeAndComment",
+    "uniq_Op",
+    "uniq_Opnd",
+    "total_Op",
+    "total_Opnd",
+    "branchCount"
+  ],
+  "train_test_split": {
+    "train_fraction": 0.8,
+    "test_fraction": 0.2,
+    "random_state": 42,
+    "stratified": true
+  },
+  "cross_validation": {
+    "folds": 5,
+    "stratified": true,
+    "shuffle": true,
+    "random_state": 42
+  },
+  "metrics": {
+    "cv_recall": 0.5072,
+    "cv_f1": 0.4407,
+    "cv_pr_auc": 0.4173,
+    "cv_roc_auc": 0.6822,
+    "cv_precision": 0.3903,
+    "test_accuracy": 0.714,
+    "test_precision": 0.3916,
+    "test_recall": 0.4851,
+    "test_f1": 0.4333,
+    "test_roc_auc": 0.6915,
+    "test_pr_auc": 0.4254,
+    "confusion_matrix": {
+      "tn": 1078,
+      "fp": 303,
+      "fn": 207,
+      "tp": 195
+    }
+  },
+  "artifact_sha256": "563b2b0ffd522df7ff8f50b0a025a9e64a678fb917ac7bbddc2f15e2035e430e",
+  "sha256_checksum": "563b2b0ffd522df7ff8f50b0a025a9e64a678fb917ac7bbddc2f15e2035e430e"
+}
