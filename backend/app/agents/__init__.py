@@ -48,6 +48,14 @@ from app.agents.timeline_prediction.contracts import (
     TimelinePredictionCandidate,
     TimelinePredictionOutput,
 )
+from app.agents.bug_prediction.agent import BugPredictionAgent
+from app.agents.bug_prediction.contracts import (
+    DEFAULT_BUG_LIMITATIONS,
+    BugModelProvenance,
+    BugPredictionCandidate,
+    BugPredictionOutput,
+    DefectPredictionLabel,
+)
 from app.agents.validation import DeterministicValidator
 
 __all__ = [
@@ -92,4 +100,10 @@ __all__ = [
     "TimelinePredictionCandidate",
     "TimelineModelProvenance",
     "DEFAULT_TIMELINE_LIMITATIONS",
+    "BugPredictionAgent",
+    "BugPredictionOutput",
+    "BugPredictionCandidate",
+    "BugModelProvenance",
+    "DefectPredictionLabel",
+    "DEFAULT_BUG_LIMITATIONS",
 ]
