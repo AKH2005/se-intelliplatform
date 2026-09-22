@@ -566,7 +566,7 @@ def test_register_default_agents_idempotent_includes_architecture():
 
     # Repeat call must not raise ConflictError
     register_default_agents(registry=test_reg)
-    assert len(test_reg.list_agents()) == 2
+    assert len(test_reg.list_agents()) == 3
 
 
 @pytest.mark.asyncio

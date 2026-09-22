@@ -65,6 +65,7 @@ def register_default_agents(registry: AgentRegistry | None = None) -> None:
     """
     target = registry if registry is not None else agent_registry
     from app.agents.architecture_recommendation.agent import ArchitectureRecommendationAgent
+    from app.agents.database_design.agent import DatabaseDesignAgent
     from app.agents.requirement_analysis.agent import RequirementAnalysisAgent
 
     req_agent = RequirementAnalysisAgent()
@@ -74,3 +75,7 @@ def register_default_agents(registry: AgentRegistry | None = None) -> None:
     arch_agent = ArchitectureRecommendationAgent()
     if not target.has(arch_agent.metadata.agent_id):
         target.register(arch_agent)
+
+    db_agent = DatabaseDesignAgent()
+    if not target.has(db_agent.metadata.agent_id):
+        target.register(db_agent)
