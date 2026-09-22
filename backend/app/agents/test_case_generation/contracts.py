@@ -1,0 +1,209 @@
+"""Contracts and Data Models for Test Case Generation Agent."""
+
+import enum
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class TestType(str, enum.Enum):
+    """Categorical classification of test case scope and purpose."""
+
+    __test__ = False
+
+    FUNCTIONAL = "FUNCTIONAL"
+    NEGATIVE = "NEGATIVE"
+    EDGE_CASE = "EDGE_CASE"
+    VALIDATION = "VALIDATION"
+    SECURITY = "SECURITY"
+    PERFORMANCE = "PERFORMANCE"
+    INTEGRATION = "INTEGRATION"
+
+
+class TestPriority(str, enum.Enum):
+    """Execution priority tier for generated test cases."""
+
+    __test__ = False
+
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
+class TestStep(BaseModel):
+    """Discrete, sequential test action and verification criteria."""
+
+    __test__ = False
+    model_config = ConfigDict(extra="forbid")
+
+    step_number: int = Field(
+        ...,
+        ge=1,
+        description="Sequential index of the test step (1-indexed)",
+    )
+    action: str = Field(
+        ...,
+        min_length=1,
+        description="Concrete user or system action performed in this step",
+    )
+    expected_behavior: str = Field(
+        ...,
+        min_length=1,
+        description="Expected intermediate system behavior or observable state following the action",
+    )
+
+
+class TestCase(BaseModel):
+    """Structured software test case definition traceable to active project requirements."""
+
+    __test__ = False
+    model_config = ConfigDict(extra="forbid")
+
+    test_case_id: str = Field(
+        ...,
+        min_length=1,
+        description="Unique identifier for the test case within the generated suite (e.g. TC-001)",
+    )
+    title: str = Field(
+        ...,
+        min_length=1,
+        description="Concise descriptive title of the test scenario",
+    )
+    description: str = Field(
+        ...,
+        min_length=1,
+        description="Detailed explanation of the test objective, scenario, and scope",
+    )
+    test_type: TestType = Field(
+        ...,
+        description="Category of the test case (e.g. FUNCTIONAL, NEGATIVE, EDGE_CASE)",
+    )
+    priority: TestPriority = Field(
+        ...,
+        description="Execution priority (LOW, MEDIUM, HIGH, CRITICAL)",
+    )
+    preconditions: list[str] = Field(
+        default_factory=list,
+        description="Prerequisite system states or data setup required before execution",
+    )
+    steps: list[TestStep] = Field(
+        ...,
+        min_length=1,
+        description="Ordered sequence of test steps with expected behaviors",
+    )
+    expected_result: str = Field(
+        ...,
+        min_length=1,
+        description="Final anticipated system outcome, state, or assertion",
+    )
+    requirement_ids: list[str] = Field(
+        ...,
+        min_length=1,
+        description="List of active canonical requirement UUIDs to which this test case traces",
+    )
+
+
+class TestCaseCoverage(BaseModel):
+    """Authoritative, backend-calculated requirement coverage statistics."""
+
+    __test__ = False
+    model_config = ConfigDict(extra="forbid")
+
+    total_active_requirements: int = Field(
+        ...,
+        ge=0,
+        description="Total active/eligible requirements available in project context",
+    )
+    requirements_with_tests: int = Field(
+        ...,
+        ge=0,
+        description="Count of distinct active requirements covered by at least one valid test case",
+    )
+    requirements_without_tests: int = Field(
+        ...,
+        ge=0,
+        description="Count of active requirements without any valid associated test cases",
+    )
+    coverage_percentage: float = Field(
+        ...,
+        ge=0.0,
+        le=100.0,
+        description="Deterministic coverage ratio: (requirements_with_tests / total_active) * 100.0",
+    )
+    uncovered_requirement_ids: list[str] = Field(
+        default_factory=list,
+        description="List of active requirement UUIDs that currently lack test coverage",
+    )
+
+
+# Canonical limitations derived from platform engineering guidelines
+DEFAULT_TEST_CASE_LIMITATIONS: list[str] = [
+    (
+        "Generated test cases are advisory, AI-generated behavioral specifications based on canonical requirement descriptions. "
+        "They should be reviewed by QA engineers before inclusion in automated test suites."
+    ),
+    (
+        "The agent does not execute tests, compile source code, or inspect runtime application behavior."
+    ),
+    (
+        "Requirement coverage reflects the percentage of active requirements referenced by at least one valid test case; "
+        "it does not represent code execution, statement, or branch coverage."
+    ),
+    (
+        "Edge cases and negative scenarios are derived from textual requirement statements and domain heuristics; "
+        "comprehensive verification may require human exploratory testing."
+    ),
+]
+
+
+class TestCaseGenerationCandidate(BaseModel):
+    """Raw structured candidate generated by the LLM before deterministic backend validation."""
+
+    __test__ = False
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(
+        ...,
+        description="High-level narrative summarizing the test generation strategy and key scenarios",
+    )
+    test_cases: list[TestCase] = Field(
+        default_factory=list,
+        description="List of proposed test cases derived from active requirements",
+    )
+
+
+class TestCaseGenerationOutput(BaseModel):
+    """Authoritative, validated structured result emitted by TestCaseGenerationAgent."""
+
+    __test__ = False
+    model_config = ConfigDict(extra="forbid")
+
+
+    agent_id: str = Field(
+        default="test-case-generation",
+        description="Predicting/generating agent identifier",
+    )
+    agent_version: str = Field(
+        default="1.0.0",
+        description="Agent implementation semantic version",
+    )
+    summary: str = Field(
+        ...,
+        description="High-level narrative summarizing the test generation strategy and key scenarios",
+    )
+    test_cases: list[TestCase] = Field(
+        ...,
+        description="Validated collection of test cases with verified requirement traceability",
+    )
+    total_test_cases: int = Field(
+        ...,
+        ge=0,
+        description="Total number of validated test cases in the generated suite",
+    )
+    coverage: TestCaseCoverage = Field(
+        ...,
+        description="Deterministic backend-calculated requirement coverage metrics",
+    )
+    limitations: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_TEST_CASE_LIMITATIONS),
+        description="Acknowledged limitations of the test case generation process",
+    )

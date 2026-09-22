@@ -56,6 +56,18 @@ from app.agents.bug_prediction.contracts import (
     BugPredictionOutput,
     DefectPredictionLabel,
 )
+from app.agents.test_case_generation.agent import TestCaseGenerationAgent
+from app.agents.test_case_generation.contracts import (
+    DEFAULT_TEST_CASE_LIMITATIONS,
+    TestCase,
+    TestCaseCoverage,
+    TestCaseGenerationCandidate,
+    TestCaseGenerationOutput,
+    TestPriority,
+    TestStep,
+    TestType,
+)
+from app.agents.test_case_generation.validation import validate_test_case_generation_output
 from app.agents.validation import DeterministicValidator
 
 __all__ = [
@@ -106,4 +118,15 @@ __all__ = [
     "BugModelProvenance",
     "DefectPredictionLabel",
     "DEFAULT_BUG_LIMITATIONS",
+    "TestCaseGenerationAgent",
+    "TestCaseGenerationOutput",
+    "TestCaseGenerationCandidate",
+    "TestCase",
+    "TestStep",
+    "TestType",
+    "TestPriority",
+    "TestCaseCoverage",
+    "DEFAULT_TEST_CASE_LIMITATIONS",
+    "validate_test_case_generation_output",
 ]
+

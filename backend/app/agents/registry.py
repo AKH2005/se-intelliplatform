@@ -70,6 +70,7 @@ def register_default_agents(registry: AgentRegistry | None = None) -> None:
     from app.agents.risk_prediction.agent import RiskPredictionAgent
     from app.agents.timeline_prediction.agent import TimelinePredictionAgent
     from app.agents.bug_prediction.agent import BugPredictionAgent
+    from app.agents.test_case_generation.agent import TestCaseGenerationAgent
 
     req_agent = RequirementAnalysisAgent()
     if not target.has(req_agent.metadata.agent_id):
@@ -94,5 +95,9 @@ def register_default_agents(registry: AgentRegistry | None = None) -> None:
     bug_agent = BugPredictionAgent()
     if not target.has(bug_agent.metadata.agent_id):
         target.register(bug_agent)
+
+    tc_agent = TestCaseGenerationAgent()
+    if not target.has(tc_agent.metadata.agent_id):
+        target.register(tc_agent)
 
 
