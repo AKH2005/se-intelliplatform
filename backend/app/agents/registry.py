@@ -64,8 +64,13 @@ def register_default_agents(registry: AgentRegistry | None = None) -> None:
     - Importing agent packages does not mutate registry state automatically.
     """
     target = registry if registry is not None else agent_registry
+    from app.agents.architecture_recommendation.agent import ArchitectureRecommendationAgent
     from app.agents.requirement_analysis.agent import RequirementAnalysisAgent
 
     req_agent = RequirementAnalysisAgent()
     if not target.has(req_agent.metadata.agent_id):
         target.register(req_agent)
+
+    arch_agent = ArchitectureRecommendationAgent()
+    if not target.has(arch_agent.metadata.agent_id):
+        target.register(arch_agent)

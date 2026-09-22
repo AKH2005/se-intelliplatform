@@ -26,6 +26,8 @@ from app.agents.providers.base import (
     LLMResponse,
 )
 from app.agents.providers.mock import MockLLMProvider
+from app.agents.architecture_recommendation.agent import ArchitectureRecommendationAgent
+from app.agents.architecture_recommendation.contracts import ArchitectureRecommendationOutput
 from app.agents.registry import AgentRegistry, agent_registry, register_default_agents
 from app.agents.requirement_analysis.agent import RequirementAnalysisAgent
 from app.agents.requirement_analysis.contracts import RequirementAnalysisOutput
@@ -58,4 +60,6 @@ __all__ = [
     "MockLLMProvider",
     "RequirementAnalysisAgent",
     "RequirementAnalysisOutput",
+    "ArchitectureRecommendationAgent",
+    "ArchitectureRecommendationOutput",
 ]

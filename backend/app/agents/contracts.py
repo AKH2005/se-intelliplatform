@@ -13,6 +13,7 @@ class AgentType(str, enum.Enum):
     """Categorization of agent operational domain."""
     ANALYSIS = "ANALYSIS"
     ARCHITECTURE = "ARCHITECTURE"
+    RECOMMENDATION = "RECOMMENDATION"
     GENERATION = "GENERATION"
     REVIEW = "REVIEW"
     TESTING = "TESTING"
