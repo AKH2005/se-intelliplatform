@@ -100,4 +100,10 @@ def register_default_agents(registry: AgentRegistry | None = None) -> None:
     if not target.has(tc_agent.metadata.agent_id):
         target.register(tc_agent)
 
+    from app.agents.code_review.agent import CodeReviewAgent
+
+    cr_agent = CodeReviewAgent()
+    if not target.has(cr_agent.metadata.agent_id):
+        target.register(cr_agent)
+
 

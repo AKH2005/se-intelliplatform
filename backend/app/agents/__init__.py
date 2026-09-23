@@ -68,6 +68,20 @@ from app.agents.test_case_generation.contracts import (
     TestType,
 )
 from app.agents.test_case_generation.validation import validate_test_case_generation_output
+from app.agents.code_review.agent import CodeReviewAgent
+from app.agents.code_review.contracts import (
+    DEFAULT_CODE_REVIEW_LIMITATIONS,
+    CodeFile,
+    CodeReviewCandidate,
+    CodeReviewFinding,
+    CodeReviewInput,
+    CodeReviewOutput,
+    CodeReviewSummary,
+    FindingCategory,
+    FindingSeverity,
+    FindingSource,
+)
+from app.agents.code_review.validation import validate_code_review_output
 from app.agents.validation import DeterministicValidator
 
 __all__ = [
@@ -128,5 +142,17 @@ __all__ = [
     "TestCaseCoverage",
     "DEFAULT_TEST_CASE_LIMITATIONS",
     "validate_test_case_generation_output",
+    "CodeReviewAgent",
+    "CodeReviewOutput",
+    "CodeReviewCandidate",
+    "CodeReviewInput",
+    "CodeFile",
+    "CodeReviewFinding",
+    "CodeReviewSummary",
+    "FindingSeverity",
+    "FindingCategory",
+    "FindingSource",
+    "DEFAULT_CODE_REVIEW_LIMITATIONS",
+    "validate_code_review_output",
 ]
 

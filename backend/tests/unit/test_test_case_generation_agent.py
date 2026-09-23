@@ -259,8 +259,8 @@ def test_registry_integration():
     agent = registry.get("test-case-generation")
     assert isinstance(agent, TestCaseGenerationAgent)
     assert agent.metadata.agent_id == "test-case-generation"
-    assert len(registry.list_agents()) == 7
+    assert len(registry.list_agents()) == 8
 
     # Idempotent registration
     register_default_agents(registry)
-    assert len(registry.list_agents()) == 7
+    assert len(registry.list_agents()) == 8

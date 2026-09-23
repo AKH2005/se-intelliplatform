@@ -117,4 +117,4 @@ def test_registry_integration():
 
     # Verify idempotency
     register_default_agents(registry)
-    assert len(registry.list_agents()) == 7
+    assert len(registry.list_agents()) == 8
