@@ -82,6 +82,18 @@ from app.agents.code_review.contracts import (
     FindingSource,
 )
 from app.agents.code_review.validation import validate_code_review_output
+from app.agents.explainability.agent import ExplainabilityAgent
+from app.agents.explainability.contracts import (
+    ClaimType,
+    EngineeringInsight,
+    ExplainabilityCandidate,
+    ExplainabilityInput,
+    ExplainabilityOutput,
+    ExplainabilitySummary,
+    InsightCategory,
+    SourceReference,
+)
+from app.agents.explainability.validation import validate_explainability_output
 from app.agents.validation import DeterministicValidator
 
 __all__ = [
@@ -154,5 +166,15 @@ __all__ = [
     "FindingSource",
     "DEFAULT_CODE_REVIEW_LIMITATIONS",
     "validate_code_review_output",
+    "ExplainabilityAgent",
+    "ExplainabilityInput",
+    "EngineeringInsight",
+    "ExplainabilitySummary",
+    "ExplainabilityCandidate",
+    "ExplainabilityOutput",
+    "SourceReference",
+    "ClaimType",
+    "InsightCategory",
+    "validate_explainability_output",
 ]
 

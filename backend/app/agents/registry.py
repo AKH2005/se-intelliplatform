@@ -106,4 +106,10 @@ def register_default_agents(registry: AgentRegistry | None = None) -> None:
     if not target.has(cr_agent.metadata.agent_id):
         target.register(cr_agent)
 
+    from app.agents.explainability.agent import ExplainabilityAgent
+
+    exp_agent = ExplainabilityAgent()
+    if not target.has(exp_agent.metadata.agent_id):
+        target.register(exp_agent)
+
 

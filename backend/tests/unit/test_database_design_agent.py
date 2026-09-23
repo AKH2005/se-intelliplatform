@@ -803,7 +803,7 @@ def test_register_default_agents_idempotent_includes_database_design():
 
     # Repeat call must succeed cleanly without raising ConflictError
     register_default_agents(registry=test_reg)
-    assert len(test_reg.list_agents()) == 8
+    assert len(test_reg.list_agents()) == 9
 
 
 @pytest.mark.asyncio

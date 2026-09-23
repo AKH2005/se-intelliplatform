@@ -289,8 +289,8 @@ def test_registry_integration():
     agent = registry.get("code-review")
     assert isinstance(agent, CodeReviewAgent)
     assert agent.metadata.agent_id == "code-review"
-    assert len(registry.list_agents()) == 8
+    assert len(registry.list_agents()) == 9
 
     # Idempotent registration
     register_default_agents(registry)
-    assert len(registry.list_agents()) == 8
+    assert len(registry.list_agents()) == 9
