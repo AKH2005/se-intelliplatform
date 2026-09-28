@@ -8,12 +8,14 @@ WorkflowCoordinator engine.
 import logging
 import uuid
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models.context_snapshot import ContextSnapshot
+from app.models.workflow_execution import WorkflowExecution
 from app.schemas.context import ProjectContextResponse
 from app.schemas.workflow import (
     WorkflowExecuteRequest,
@@ -25,6 +27,8 @@ from app.workflows.contracts import (
     WorkflowDefinition,
     WorkflowInput,
     WorkflowResult,
+    WorkflowStatus,
+    WorkflowStepStatus,
 )
 from app.workflows.coordinator import WorkflowCoordinator
 from app.workflows.pipelines import (
@@ -169,6 +173,14 @@ class WorkflowService:
     ) -> WorkflowResult:
         """Resolve context, construct WorkflowInput, and delegate execution to coordinator.
 
+        Lifecycle:
+        1. Resolve canonical project context and provenance.
+        2. Pre-generate workflow_execution_id correlation UUID.
+        3. Create initial persistent WorkflowExecution record (status: RUNNING).
+        4. Delegate to WorkflowCoordinator.
+        5. Update WorkflowExecution record with terminal status, step counts, errors, and validated artifacts.
+        6. Commit and return authoritative WorkflowResult.
+
         Args:
             workflow_id: Predefined workflow identifier.
             request: Validated API execution request payload.
@@ -192,18 +204,171 @@ class WorkflowService:
             options=request.options,
         )
 
-        logger.info(
-            f"Invoking WorkflowCoordinator for [{workflow_id}] on project [{request.project_id}] "
-            f"(snapshot_id={snapshot_id}, version={snapshot_version})"
-        )
+        workflow_execution_id = uuid.uuid4()
+        started_at = datetime.now(timezone.utc)
 
-        result = await self.coordinator.execute(
-            workflow=workflow,
-            workflow_input=workflow_input,
-            session=self.session,
-            snapshot=snapshot,
+        # 3. Create persistent WorkflowExecution record in RUNNING state
+        execution_record = WorkflowExecution(
+            workflow_execution_id=workflow_execution_id,
+            project_id=request.project_id,
+            workflow_id=workflow.workflow_id,
+            workflow_version=workflow.version,
+            status=WorkflowStatus.RUNNING,
             context_snapshot_id=snapshot_id,
             context_version=snapshot_version,
+            started_at=started_at,
+            step_count=len(workflow.steps),
+            completed_steps=0,
+            failed_steps=0,
+            skipped_steps=0,
+            artifacts={},
+            errors=[],
+            warnings=[],
+            metadata_payload={
+                "project_id": str(request.project_id),
+                "context_provenance": "snapshot" if snapshot_id or snapshot_version else "live",
+                "options": request.options,
+            },
+        )
+        self.session.add(execution_record)
+        await self.session.commit()
+        await self.session.refresh(execution_record)
+
+        logger.info(
+            f"Invoking WorkflowCoordinator for [{workflow_id}] on project [{request.project_id}] "
+            f"(snapshot_id={snapshot_id}, version={snapshot_version}) [exec_id={workflow_execution_id}]"
         )
 
+        # 4. Delegate to WorkflowCoordinator with failure safety
+        try:
+            result = await self.coordinator.execute(
+                workflow=workflow,
+                workflow_input=workflow_input,
+                session=self.session,
+                snapshot=snapshot,
+                context_snapshot_id=snapshot_id,
+                context_version=snapshot_version,
+                workflow_execution_id=workflow_execution_id,
+            )
+        except Exception as exc:
+            logger.exception(
+                f"Workflow execution [{workflow_id}] crashed unexpectedly "
+                f"[workflow_exec_id={workflow_execution_id}]: {exc}"
+            )
+            execution_record.status = WorkflowStatus.FAILED
+            execution_record.completed_at = datetime.now(timezone.utc)
+            execution_record.errors = [f"Unexpected execution failure: {str(exc)}"]
+            try:
+                await self.session.commit()
+            except Exception as commit_exc:
+                logger.error(f"Failed to record FAILED workflow status in DB: {commit_exc}")
+            raise
+
+        # 5. Serialize validated domain artifacts
+        serialized_artifacts: dict[str, Any] = {}
+        for k, v in result.artifacts.items():
+            if hasattr(v, "model_dump"):
+                serialized_artifacts[k] = v.model_dump(mode="json")
+            else:
+                serialized_artifacts[k] = v
+
+        completed_count = sum(1 for s in result.step_results if s.status == WorkflowStepStatus.COMPLETED)
+        failed_count = sum(1 for s in result.step_results if s.status == WorkflowStepStatus.FAILED)
+        skipped_count = sum(1 for s in result.step_results if s.status == WorkflowStepStatus.SKIPPED)
+
+        # 6. Update terminal execution state
+        execution_record.status = result.status
+        execution_record.completed_at = result.completed_at
+        execution_record.completed_steps = completed_count
+        execution_record.failed_steps = failed_count
+        execution_record.skipped_steps = skipped_count
+        execution_record.artifacts = serialized_artifacts
+        execution_record.errors = result.errors
+        execution_record.warnings = result.warnings
+        execution_record.metadata_payload = {
+            "project_id": str(request.project_id),
+            "context_provenance": "snapshot" if snapshot_id or snapshot_version else "live",
+            "total_steps": len(workflow.steps),
+            "completed_steps": completed_count,
+            "failed_steps": failed_count,
+            "skipped_steps": skipped_count,
+            "options": request.options,
+        }
+
+        await self.session.commit()
+        await self.session.refresh(execution_record)
+
         return result
+
+    async def list_project_workflow_history(
+        self,
+        project_id: uuid.UUID,
+        limit: int = 20,
+        offset: int = 0,
+        workflow_id: str | None = None,
+        status: WorkflowStatus | None = None,
+    ) -> tuple[list[WorkflowExecution], int]:
+        """Retrieve paginated workflow execution history for a specific project.
+
+        Args:
+            project_id: Target project UUID.
+            limit: Maximum number of records to return.
+            offset: Pagination offset.
+            workflow_id: Optional filter by workflow definition ID.
+            status: Optional filter by WorkflowStatus enum.
+
+        Returns:
+            tuple of (list[WorkflowExecution], total_count)
+        """
+        # 1. Verify target project exists (raises NotFoundError if invalid)
+        await self.context_engine._get_project(project_id)
+
+        # 2. Build filtered select query
+        statement = select(WorkflowExecution).where(WorkflowExecution.project_id == project_id)
+        if workflow_id:
+            statement = statement.where(WorkflowExecution.workflow_id == workflow_id)
+        if status:
+            statement = statement.where(WorkflowExecution.status == status)
+
+        # 3. Count total matching records
+        count_stmt = select(func.count()).select_from(statement.subquery())
+        total_res = await self.session.execute(count_stmt)
+        total = total_res.scalar_one()
+
+        # 4. Fetch ordered and paginated items (newest first, tie-break by execution UUID)
+        paged_stmt = (
+            statement.order_by(
+                WorkflowExecution.started_at.desc(),
+                WorkflowExecution.workflow_execution_id.desc(),
+            )
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.session.execute(paged_stmt)
+        records = list(result.scalars().all())
+
+        return records, total
+
+    async def get_workflow_execution(
+        self,
+        workflow_execution_id: uuid.UUID,
+    ) -> WorkflowExecution:
+        """Retrieve a persisted workflow execution by correlation UUID or raise NotFoundError.
+
+        Args:
+            workflow_execution_id: Workflow execution UUID.
+
+        Returns:
+            WorkflowExecution ORM entity.
+        """
+        statement = select(WorkflowExecution).where(
+            WorkflowExecution.workflow_execution_id == workflow_execution_id
+        )
+        result = await self.session.execute(statement)
+        execution = result.scalar_one_or_none()
+        if execution is None:
+            raise NotFoundError(
+                resource_type="WorkflowExecution",
+                identifier=workflow_execution_id,
+            )
+        return execution

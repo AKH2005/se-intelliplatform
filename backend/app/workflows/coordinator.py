@@ -53,6 +53,7 @@ class WorkflowCoordinator:
         snapshot: Any | None = None,
         context_snapshot_id: uuid.UUID | None = None,
         context_version: int | None = None,
+        workflow_execution_id: uuid.UUID | None = None,
     ) -> WorkflowResult:
         """Execute a predefined multi-agent workflow against canonical Project Context.
 
@@ -63,12 +64,13 @@ class WorkflowCoordinator:
             snapshot: Optional ContextSnapshot instance.
             context_snapshot_id: Optional ContextSnapshot UUID.
             context_version: Optional ContextSnapshot version sequence number.
+            workflow_execution_id: Optional pre-generated workflow execution correlation UUID.
 
         Returns:
             WorkflowResult: Structured envelope containing terminal workflow status, step outcomes,
                            and in-memory immutable artifacts.
         """
-        workflow_execution_id = uuid.uuid4()
+        workflow_execution_id = workflow_execution_id or uuid.uuid4()
         started_at = datetime.now(timezone.utc)
         project_id = workflow_input.context.project.id
 

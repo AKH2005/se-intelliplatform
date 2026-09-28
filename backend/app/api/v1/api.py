@@ -20,4 +20,9 @@ api_v1_router.include_router(
 )
 api_v1_router.include_router(agents.router, prefix="/agents", tags=["Agents"])
 api_v1_router.include_router(workflows.router, prefix="/workflows", tags=["Workflows"])
+api_v1_router.include_router(
+    workflows.project_workflows_router,
+    prefix="/projects/{project_id}/workflows",
+    tags=["Workflows"],
+)
 
