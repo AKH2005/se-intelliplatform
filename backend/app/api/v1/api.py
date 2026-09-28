@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import agents, context, health, projects, requirements
+from app.api.v1.endpoints import agents, context, health, projects, requirements, workflows
 
 api_v1_router = APIRouter()
 
@@ -19,3 +19,5 @@ api_v1_router.include_router(
     tags=["Context"],
 )
 api_v1_router.include_router(agents.router, prefix="/agents", tags=["Agents"])
+api_v1_router.include_router(workflows.router, prefix="/workflows", tags=["Workflows"])
+
