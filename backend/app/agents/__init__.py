@@ -94,6 +94,18 @@ from app.agents.explainability.contracts import (
     SourceReference,
 )
 from app.agents.explainability.validation import validate_explainability_output
+from app.agents.browser_journey.agent import BrowserJourneyGenerationAgent
+from app.agents.browser_journey.contracts import (
+    BrowserActionType,
+    BrowserJourney,
+    BrowserJourneyGenerationInput,
+    BrowserJourneyStep,
+    BrowserJourneySuiteCandidate,
+    BrowserTarget,
+    BrowserTargetType,
+    JourneyCategory,
+    JourneyPriority,
+)
 from app.agents.validation import DeterministicValidator
 
 __all__ = [
@@ -176,5 +188,15 @@ __all__ = [
     "ClaimType",
     "InsightCategory",
     "validate_explainability_output",
+    "BrowserJourneyGenerationAgent",
+    "BrowserActionType",
+    "BrowserJourney",
+    "BrowserJourneyGenerationInput",
+    "BrowserJourneyStep",
+    "BrowserJourneySuiteCandidate",
+    "BrowserTarget",
+    "BrowserTargetType",
+    "JourneyCategory",
+    "JourneyPriority",
 ]
 

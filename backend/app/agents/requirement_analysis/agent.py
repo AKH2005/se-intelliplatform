@@ -1,6 +1,7 @@
 """Requirement Analysis Agent Implementation."""
 
 import logging
+import uuid
 from typing import Any
 from pydantic import BaseModel
 
@@ -93,7 +94,7 @@ class RequirementAnalysisAgent(AbstractBaseAgent[RequirementAnalysisOutput]):
 
         from app.core.config import settings
 
-        model_name = kwargs.get("model", settings.LLM_MODEL)
+        model_name = kwargs.get("model") or getattr(provider, "default_model", settings.LLM_MODEL)
         request = LLMRequest(
             messages=[
                 LLMMessage(role="system", content=SYSTEM_PROMPT),
@@ -124,17 +125,68 @@ class RequirementAnalysisAgent(AbstractBaseAgent[RequirementAnalysisOutput]):
         else:
             ai_data = {}
 
-        # 3. Authoritatively inject Phase 2 deterministic metrics (LLM cannot spoof or own these)
+        # 3. Sanitize requirement IDs against canonical context
+        valid_active_ids = {req.id for req in context.requirements}
+        uuid_str_map = {str(req.id): req.id for req in context.requirements}
+        req_map = {str(idx): req.id for idx, req in enumerate(context.requirements, start=1)}
+        fallback_req_id = next(iter(valid_active_ids)) if valid_active_ids else None
+
+        def match_req_id(raw_val: Any) -> uuid.UUID:
+            if isinstance(raw_val, uuid.UUID):
+                return raw_val
+            raw_s = str(raw_val).strip()
+            if raw_s in uuid_str_map:
+                return uuid_str_map[raw_s]
+            if raw_s in req_map:
+                return req_map[raw_s]
+            # Try fuzzy substring match if UUID was slightly prefixed/truncated by LLM
+            for u_str, u_id in uuid_str_map.items():
+                if u_str in raw_s or raw_s in u_str:
+                    return u_id
+            try:
+                return uuid.UUID(raw_s)
+            except Exception:
+                return uuid.uuid5(uuid.NAMESPACE_DNS, raw_s)
+
+        # Sanitize ambiguities
+        raw_ambiguities = ai_data.get("ambiguities", [])
+        sanitized_ambiguities = []
+        for item in raw_ambiguities:
+            d = item.model_dump() if isinstance(item, BaseModel) else dict(item) if isinstance(item, dict) else None
+            if d:
+                d["requirement_id"] = match_req_id(d.get("requirement_id"))
+                sanitized_ambiguities.append(d)
+
+        # Sanitize conflicts
+        raw_conflicts = ai_data.get("conflicts", [])
+        sanitized_conflicts = []
+        for item in raw_conflicts:
+            d = item.model_dump() if isinstance(item, BaseModel) else dict(item) if isinstance(item, dict) else None
+            if d:
+                d["requirement_id"] = match_req_id(d.get("requirement_id"))
+                d["related_requirement_id"] = match_req_id(d.get("related_requirement_id"))
+                sanitized_conflicts.append(d)
+
+        # Sanitize refinements
+        raw_refinements = ai_data.get("refinements", [])
+        sanitized_refinements = []
+        for item in raw_refinements:
+            d = item.model_dump() if isinstance(item, BaseModel) else dict(item) if isinstance(item, dict) else None
+            if d:
+                d["requirement_id"] = match_req_id(d.get("requirement_id"))
+                sanitized_refinements.append(d)
+
+        # 4. Authoritatively inject Phase 2 deterministic metrics (LLM cannot spoof or own these)
         authoritative_completeness = context.statistics.completion_percentage
         authoritative_active = context.statistics.active_requirements
         authoritative_total = context.statistics.total_requirements
 
         final_output = RequirementAnalysisOutput(
             summary=ai_data.get("summary", "Requirement analysis complete."),
-            ambiguities=ai_data.get("ambiguities", []),
-            conflicts=ai_data.get("conflicts", []),
+            ambiguities=sanitized_ambiguities,
+            conflicts=sanitized_conflicts,
             missing_information=ai_data.get("missing_information", []),
-            refinements=ai_data.get("refinements", []),
+            refinements=sanitized_refinements,
             scope_clarifications=ai_data.get("scope_clarifications", []),
             completeness_score=authoritative_completeness,
             active_requirements_count=authoritative_active,

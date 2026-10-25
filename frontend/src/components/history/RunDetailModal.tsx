@@ -114,7 +114,11 @@ export const RunDetailModal: React.FC<RunDetailModalProps> = ({ executionId, onC
               <h4 style={{ fontSize: '0.9rem', marginBottom: '0.6rem', color: 'var(--text-secondary)' }}>
                 Persisted Execution Artifacts
               </h4>
-              <ArtifactViewer artifacts={detail.artifacts} />
+              <ArtifactViewer
+                artifacts={detail.artifacts}
+                projectId={detail.project_id}
+                workflowExecutionId={detail.workflow_execution_id}
+              />
             </div>
           )}
         </div>

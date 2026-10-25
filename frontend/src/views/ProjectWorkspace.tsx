@@ -13,12 +13,15 @@ import { EmptyState } from '../components/common/EmptyState';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { ErrorAlert } from '../components/common/ErrorAlert';
 import { FolderKanban, Plus } from 'lucide-react';
-import { ProjectCreate } from '../types/project';
+import { ProjectCreate, ProjectResponse } from '../types/project';
 import { ContextSnapshotCreate } from '../types/context';
+
+import { isProjectNotFoundError } from '../utils/projectRecovery';
 
 export const ProjectWorkspace: React.FC = () => {
   const queryClient = useQueryClient();
-  const { selectedProjectId, setSelectedProjectId, setSelectedProject } = useProject();
+  const { selectedProjectId, selectProject, handleStaleProject } =
+    useProject();
 
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
   const [isSnapshotOpen, setIsSnapshotOpen] = useState(false);
@@ -44,6 +47,12 @@ export const ProjectWorkspace: React.FC = () => {
     enabled: Boolean(selectedProjectId),
   });
 
+  React.useEffect(() => {
+    if (contextError && isProjectNotFoundError(contextError)) {
+      handleStaleProject?.(selectedProjectId || undefined);
+    }
+  }, [contextError, selectedProjectId, handleStaleProject]);
+
   // 3. Fetch snapshots for active project
   const { data: snapshots = [] } = useQuery({
     queryKey: ['project-snapshots', selectedProjectId],
@@ -55,9 +64,12 @@ export const ProjectWorkspace: React.FC = () => {
   const createProjectMutation = useMutation({
     mutationFn: (data: ProjectCreate) => projectsApi.create(data),
     onSuccess: (newProject) => {
+      queryClient.setQueryData(['projects'], (prev: ProjectResponse[] = []) => [
+        newProject,
+        ...(prev || []).filter((p) => p.id !== newProject.id),
+      ]);
+      selectProject(newProject);
       queryClient.invalidateQueries({ queryKey: ['projects'] });
-      setSelectedProjectId(newProject.id);
-      setSelectedProject(newProject);
     },
   });
 
@@ -121,8 +133,7 @@ export const ProjectWorkspace: React.FC = () => {
                   <Card
                     key={proj.id}
                     onClick={() => {
-                      setSelectedProjectId(proj.id);
-                      setSelectedProject(proj);
+                      selectProject(proj);
                     }}
                     style={{
                       cursor: 'pointer',

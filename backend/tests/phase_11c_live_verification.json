@@ -1,0 +1,99 @@
+{
+  "dirty_case": {
+    "analysis_id": "fb7bd7aa-e336-4b4b-bac9-27c37897562e",
+    "project_id": "21bd5388-f386-4c45-9a42-84f67c287fd5",
+    "workflow_execution_id": null,
+    "status": "ISSUES_FOUND",
+    "duration_seconds": 0.9843,
+    "diagnostics": [
+      {
+        "diagnostic_id": "5e0549c9-e255-42cd-bdab-ed34aed50245",
+        "category": "TEST",
+        "severity": "INFO",
+        "code": "TEST_DISCOVERED",
+        "message": "Discovered 1 test file(s) containing 1 test function(s).",
+        "file_path": null,
+        "line": null,
+        "column": null,
+        "source": "test_discovery",
+        "evidence": null,
+        "metadata": {
+          "test_files": [
+            "tests/test_main.py"
+          ],
+          "test_function_count": 1
+        }
+      },
+      {
+        "diagnostic_id": "3fb36256-35ca-488d-b85b-7a077a50eea7",
+        "category": "LINT",
+        "severity": "WARNING",
+        "code": "F401",
+        "message": "`os` imported but unused",
+        "file_path": "app/main.py",
+        "line": 1,
+        "column": 8,
+        "source": "ruff",
+        "evidence": "Remove unused import: `os`",
+        "metadata": {
+          "url": "https://docs.astral.sh/ruff/rules/unused-import"
+        }
+      }
+    ],
+    "files_analyzed": 3,
+    "files_skipped": 0,
+    "error_count": 0,
+    "warning_count": 1,
+    "info_count": 1,
+    "security_issue_count": 0,
+    "syntax_error_count": 0,
+    "lint_issue_count": 1,
+    "test_file_count": 1,
+    "summary": "Static analysis ISSUES_FOUND: 0 error(s), 1 warning(s) across 3 file(s).",
+    "metadata": {
+      "analyzer_version": "1.0.0",
+      "ruff_version": "0.8.4"
+    }
+  },
+  "clean_case": {
+    "analysis_id": "a173771a-fccf-4e5c-9df6-39ffaf8a1a25",
+    "project_id": "21bd5388-f386-4c45-9a42-84f67c287fd5",
+    "workflow_execution_id": null,
+    "status": "PASSED",
+    "duration_seconds": 0.5066,
+    "diagnostics": [
+      {
+        "diagnostic_id": "6d87832b-1b38-4fc2-8ace-684ce2b06ae1",
+        "category": "TEST",
+        "severity": "INFO",
+        "code": "TEST_DISCOVERED",
+        "message": "Discovered 1 test file(s) containing 1 test function(s).",
+        "file_path": null,
+        "line": null,
+        "column": null,
+        "source": "test_discovery",
+        "evidence": null,
+        "metadata": {
+          "test_files": [
+            "tests/test_main.py"
+          ],
+          "test_function_count": 1
+        }
+      }
+    ],
+    "files_analyzed": 3,
+    "files_skipped": 0,
+    "error_count": 0,
+    "warning_count": 0,
+    "info_count": 1,
+    "security_issue_count": 0,
+    "syntax_error_count": 0,
+    "lint_issue_count": 0,
+    "test_file_count": 1,
+    "summary": "Static analysis PASSED: 0 error(s), 0 warning(s) across 3 file(s).",
+    "metadata": {
+      "analyzer_version": "1.0.0",
+      "ruff_version": "0.8.4"
+    }
+  }
+}

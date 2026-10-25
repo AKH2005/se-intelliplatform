@@ -1,4 +1,4 @@
-"""FastAPI Application Main Entrypoint."""
+"""FastAPI Application Main Entrypoint - Live Reload."""
 
 import logging
 import time
@@ -28,13 +28,47 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         f"[env={settings.ENVIRONMENT}, debug={settings.DEBUG}]"
     )
 
-    from app.agents.registry import register_default_agents
+    from app.agents.registry import (
+        register_browser_journey_agents,
+        register_code_generation_agents,
+        register_default_agents,
+        register_failure_analysis_agents,
+        register_remediation_agents,
+        register_test_generation_agents,
+    )
     register_default_agents()
+    register_code_generation_agents()
+    register_failure_analysis_agents()
+    register_remediation_agents()
+    register_test_generation_agents()
+    register_browser_journey_agents()
+
+    # Initialize database tables
+    try:
+        from app.models.base import Base
+        import app.models  # noqa: F401
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as exc:
+        logger.warning(f"Could not auto-create database tables on startup: {exc}")
+
+    # Automatically ensure application preview runtime on Port 8001
+    try:
+        import asyncio
+        from app.runtime.preview_runtime_manager import preview_runtime_manager
+        asyncio.create_task(preview_runtime_manager.ensure_running())
+    except Exception as exc:
+        logger.warning(f"Could not initialize preview runtime on startup: {exc}")
 
     yield
 
-    # 2. Shutdown: Dispose database connections
+    # 2. Shutdown: Dispose database connections & stop runtime
     logger.info(f"Shutting down {settings.PROJECT_NAME}. Disposing connection pools...")
+    try:
+        from app.runtime.preview_runtime_manager import preview_runtime_manager
+        preview_runtime_manager.stop_runtime()
+    except Exception:
+        pass
     await engine.dispose()
     logger.info("Application shutdown complete.")
 
@@ -51,15 +85,18 @@ def create_application() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Configure CORS for local development and future frontend
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://localhost:5173"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["X-Correlation-ID"],
-    )
+    # Configure CORS for local development and deployed frontend (e.g. Vercel)
+    cors_kwargs = {
+        "allow_origins": settings.CORS_ORIGINS,
+        "allow_credentials": True,
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+        "expose_headers": ["X-Correlation-ID"],
+    }
+    if settings.CORS_ORIGIN_REGEX:
+        cors_kwargs["allow_origin_regex"] = settings.CORS_ORIGIN_REGEX
+
+    app.add_middleware(CORSMiddleware, **cors_kwargs)
 
     # Middleware: Request Correlation ID & Access Logging
     @app.middleware("http")
@@ -104,3 +141,4 @@ def create_application() -> FastAPI:
 
 
 app = create_application()
+# Trigger uvicorn reload: groq openai/gpt-oss-20b activated

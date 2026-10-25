@@ -20,8 +20,8 @@ class ProjectService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create_project(self, project_in: ProjectCreate) -> Project:
-        """Create a new project ensuring slug uniqueness."""
+    async def create_project(self, project_in: ProjectCreate, owner_id: uuid.UUID | None = None) -> Project:
+        """Create a new project ensuring slug uniqueness and assigning owner if present."""
         # Check existing slug
         existing = await self.get_by_slug(project_in.slug)
         if existing:
@@ -37,13 +37,14 @@ class ProjectService:
             description=project_in.description,
             status=project_in.status,
             settings=project_in.settings,
+            owner_id=owner_id,
         )
 
         self.session.add(project)
         try:
             await self.session.commit()
             await self.session.refresh(project)
-            logger.info(f"Created project '{project.name}' [id={project.id}, slug={project.slug}]")
+            logger.info(f"Created project '{project.name}' [id={project.id}, slug={project.slug}, owner={owner_id}]")
             return project
         except IntegrityError as exc:
             await self.session.rollback()
@@ -73,10 +74,15 @@ class ProjectService:
         skip: int = 0,
         limit: int = 50,
         status: ProjectStatus | None = None,
+        owner_id: uuid.UUID | None = None,
     ) -> tuple[Sequence[Project], int]:
         """Return a paginated list of projects along with the total count."""
         query = select(Project)
         count_query = select(func.count()).select_from(Project)
+
+        if owner_id is not None:
+            query = query.where((Project.owner_id == owner_id) | (Project.owner_id.is_(None)))
+            count_query = count_query.where((Project.owner_id == owner_id) | (Project.owner_id.is_(None)))
 
         if status is not None:
             query = query.where(Project.status == status)
@@ -128,9 +134,135 @@ class ProjectService:
         logger.info(f"Archived project [id={project.id}]")
         return project
 
+    async def restore_project(self, project_id: uuid.UUID) -> Project:
+        """Restore an archived project back to IN_PROGRESS status."""
+        project = await self.get_by_id(project_id)
+        project.status = ProjectStatus.IN_PROGRESS
+        await self.session.commit()
+        await self.session.refresh(project)
+        logger.info(f"Restored project [id={project.id}] from archive to IN_PROGRESS")
+        return project
+
+    async def duplicate_project(self, project_id: uuid.UUID, owner_id: uuid.UUID | None = None) -> Project:
+        """Duplicate an existing project including its configuration settings and canonical requirements."""
+        from app.models.requirement import Requirement
+
+        original = await self.get_by_id(project_id)
+
+        # Generate a unique slug for the duplicate
+        base_slug = f"{original.slug}-copy"
+        candidate_slug = base_slug
+        counter = 1
+        while await self.get_by_slug(candidate_slug):
+            candidate_slug = f"{base_slug}-{counter}"
+            counter += 1
+
+        new_project = Project(
+            name=f"{original.name} (Copy)",
+            slug=candidate_slug,
+            description=original.description,
+            status=ProjectStatus.DRAFT,
+            settings=dict(original.settings or {}),
+            owner_id=owner_id or original.owner_id,
+        )
+        self.session.add(new_project)
+        await self.session.flush()
+
+        # Clone canonical requirements
+        stmt_reqs = select(Requirement).where(Requirement.project_id == project_id)
+        req_res = await self.session.execute(stmt_reqs)
+        for req in req_res.scalars().all():
+            cloned_req = Requirement(
+                project_id=new_project.id,
+                title=req.title,
+                description=req.description,
+                type=req.type,
+                priority=req.priority,
+                status=req.status,
+            )
+            self.session.add(cloned_req)
+
+        await self.session.commit()
+        await self.session.refresh(new_project)
+        logger.info(f"Duplicated project {original.id} -> {new_project.id} with slug '{new_project.slug}'")
+        return new_project
+
     async def hard_delete_project(self, project_id: uuid.UUID) -> None:
         """Physically delete project from database (reserved for test teardown / admin purge)."""
         project = await self.get_by_id(project_id)
         await self.session.delete(project)
         await self.session.commit()
         logger.info(f"Permanently deleted project [id={project_id}]")
+
+    async def get_activity_history(self, project_id: uuid.UUID) -> list[dict[str, Any]]:
+        """Retrieve authoritative activity history timeline for a project."""
+        from app.models.requirement import Requirement
+        from app.models.development_version import DevelopmentVersion
+        from app.models.workflow_execution import WorkflowExecution
+
+        project = await self.get_by_id(project_id)
+        activities: list[dict[str, Any]] = []
+
+        # 1. Project creation event
+        activities.append({
+            "id": f"proj-create-{project.id}",
+            "event_type": "PROJECT_CREATED",
+            "title": f"Project '{project.name}' created",
+            "description": project.description or "Initial project registration.",
+            "timestamp": project.created_at.isoformat() if project.created_at else None,
+            "status": project.status.value,
+            "metadata": {"slug": project.slug},
+        })
+
+        # 2. Requirements added
+        stmt_reqs = select(Requirement).where(Requirement.project_id == project_id).order_by(Requirement.created_at.desc())
+        req_res = await self.session.execute(stmt_reqs)
+        for req in req_res.scalars().all():
+            activities.append({
+                "id": f"req-{req.id}",
+                "event_type": "REQUIREMENT_ADDED",
+                "title": f"Requirement: {req.title}",
+                "description": req.description[:120] + "..." if len(req.description) > 120 else req.description,
+                "timestamp": req.created_at.isoformat() if req.created_at else None,
+                "status": req.status.value,
+                "metadata": {"type": req.type.value, "priority": req.priority.value},
+            })
+
+        # 3. Workflow executions / AI generation runs
+        stmt_wf = select(WorkflowExecution).where(WorkflowExecution.project_id == project_id).order_by(WorkflowExecution.started_at.desc())
+        wf_res = await self.session.execute(stmt_wf)
+        for wf in wf_res.scalars().all():
+            activities.append({
+                "id": f"wf-{wf.workflow_execution_id}",
+                "event_type": "WORKFLOW_EXECUTION",
+                "title": f"Workflow '{wf.workflow_id}' ({wf.status.value})",
+                "description": f"Executed {wf.completed_steps}/{wf.step_count} steps.",
+                "timestamp": wf.started_at.isoformat() if wf.started_at else None,
+                "status": wf.status.value,
+                "metadata": {
+                    "workflow_id": wf.workflow_id,
+                    "errors": wf.errors or [],
+                },
+            })
+
+        # 4. Development Versions
+        stmt_ver = select(DevelopmentVersion).where(DevelopmentVersion.project_id == project_id).order_by(DevelopmentVersion.created_at.desc())
+        ver_res = await self.session.execute(stmt_ver)
+        for ver in ver_res.scalars().all():
+            activities.append({
+                "id": f"ver-{ver.id}",
+                "event_type": "VERSION_GENERATED",
+                "title": f"Version {ver.version_number} Generated ({ver.status.value})",
+                "description": f"Generated {ver.file_count} files ({ver.total_size_bytes} bytes). Reason: {ver.source_reason}.",
+                "timestamp": ver.created_at.isoformat() if ver.created_at else None,
+                "status": ver.status.value,
+                "metadata": {
+                    "version_number": ver.version_number,
+                    "file_count": ver.file_count,
+                    "content_hash": ver.content_hash,
+                },
+            })
+
+        # Sort all activities by timestamp descending
+        activities.sort(key=lambda a: a.get("timestamp") or "", reverse=True)
+        return activities

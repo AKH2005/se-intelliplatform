@@ -1,0 +1,44 @@
+{
+  "groq": {
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "elapsed_seconds": 5.35,
+    "diagnosis_id": "123e4567-e89b-12d3-a456-426614174000",
+    "failure_type": "APPLICATION_ERROR",
+    "failure_source": "BROWSER",
+    "severity": "CRITICAL",
+    "confidence": "HIGH",
+    "title": "Root endpoint returns HTTP 500 due to intentional exception, causing browser test failure",
+    "root_cause_summary": "The FastAPI route defined at '/' deliberately raises an HTTPException with status code 500, citing an uninitialized database connection. Because this exception is unconditionally executed on every request, the server always responds with a 500 Internal Server Error. The browser test expects a 200 OK",
+    "suggested_remediation": "Remove or conditionally disable the deliberate HTTP 500 exception in the root route. Implement proper database connection initialization before handling requests, and ensure that the endpoint returns a valid HTML response with status 200 under normal operation. If the exception is needed for debuggi",
+    "evidence_cited": [
+      "test_dashboard_root",
+      "network_err_0_0",
+      "console_err_0_0",
+      "app/main.py"
+    ],
+    "claims_count": 7,
+    "validation_passed": true
+  },
+  "gemini": {
+    "provider": "gemini",
+    "model": "gemini-2.5-flash",
+    "elapsed_seconds": 13.85,
+    "diagnosis_id": "2f545c71-242a-4c3c-a9da-3b39d855cfd5",
+    "failure_type": "APPLICATION_ERROR",
+    "failure_source": "BROWSER",
+    "severity": "CRITICAL",
+    "confidence": "HIGH",
+    "title": "Application Intentionally Raises HTTP 500 on Root Endpoint",
+    "root_cause_summary": "The `read_root` function within `app/main.py` contains a hardcoded `raise HTTPException(status_code=500, detail='Database connection uninitialized')` statement. This line of code is executed every time the root endpoint is accessed, causing the application to consistently return an HTTP 500 error, a",
+    "suggested_remediation": "The application's root endpoint handler must be modified to remove the placeholder `HTTPException` that currently forces an HTTP 500 error. Instead, the implementation should focus on correctly rendering the dashboard, which would involve establishing a proper database connection, querying the neces",
+    "evidence_cited": [
+      "test_dashboard_root",
+      "network_err_0_0",
+      "console_err_0_0",
+      "app/main.py"
+    ],
+    "claims_count": 6,
+    "validation_passed": true
+  }
+}

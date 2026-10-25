@@ -48,6 +48,23 @@ class AbstractLLMProvider(ABC):
         """Name of the provider implementation (e.g. 'mock', 'gemini', 'openai')."""
         pass
 
+    @property
+    @abstractmethod
+    def default_model(self) -> str:
+        """Default model identifier for this provider."""
+        pass
+
+    @property
+    def last_usage_metadata(self) -> dict[str, Any] | None:
+        """Token usage and execution telemetry from the most recent request (if available)."""
+        return getattr(self, "_last_usage_metadata", None)
+
+    @last_usage_metadata.setter
+    def last_usage_metadata(self, value: dict[str, Any] | None) -> None:
+        self._last_usage_metadata = value
+
+
+
     @abstractmethod
     async def generate(self, request: LLMRequest) -> LLMResponse:
         """Execute a text generation request."""

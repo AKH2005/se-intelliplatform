@@ -1,0 +1,12 @@
+# Pinned Playwright/Chromium container image for SE IntelliPlatform Browser Testing (Phase 11J - Stage 3)
+FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Install pinned Python Playwright driver
+RUN pip install --no-cache-dir playwright==1.49.0
+
+# Dedicated non-root user (pwuser, UID 1000) provided by base image
+USER pwuser
+WORKDIR /workspace

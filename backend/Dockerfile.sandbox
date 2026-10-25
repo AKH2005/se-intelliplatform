@@ -1,0 +1,29 @@
+# Hardened, isolated sandbox runtime for untrusted code execution
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Pre-install controlled dependencies required for testing and static analysis of generated Python projects
+# Generated code is NEVER allowed to run arbitrary `pip install` over the network.
+RUN pip install --no-cache-dir \
+    pytest==8.3.4 \
+    fastapi==0.115.6 \
+    uvicorn==0.34.0 \
+    pydantic==2.10.4 \
+    pydantic-settings>=2.0 \
+    email-validator>=2.0 \
+    sqlalchemy>=2.0 \
+    psycopg2-binary \
+    httpx==0.28.1 \
+    ruff==0.8.4
+
+# Compatibility shims for generated LLM code (Pydantic v1 BaseSettings & SQLAlchemy AnyUrl compatibility)
+RUN python -c "code = '''import pydantic\ntry:\n    import pydantic_settings\n    pydantic.BaseSettings = pydantic_settings.BaseSettings\nexcept Exception:\n    pass\ntry:\n    import sqlalchemy.engine.url as sa_url\n    _orig_make_url = sa_url.make_url\n    def _safe_make_url(name_or_url):\n        if not isinstance(name_or_url, (str, sa_url.URL)):\n            name_or_url = str(name_or_url)\n        return _orig_make_url(name_or_url)\n    sa_url.make_url = _safe_make_url\nexcept Exception:\n    pass\n'''; open('/usr/local/lib/python3.11/site-packages/sitecustomize.py', 'w').write(code)"
+
+# Dedicated unprivileged non-root user (UID 2000)
+RUN groupadd -g 2000 sandboxgroup && \
+    useradd -u 2000 -g sandboxgroup -s /bin/sh -m sandboxuser
+
+USER sandboxuser
+WORKDIR /workspace

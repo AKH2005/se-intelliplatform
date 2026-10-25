@@ -7,9 +7,10 @@ import { ArtifactViewer } from '../artifacts/ArtifactViewer';
 
 interface WorkflowExecutionViewProps {
   result: WorkflowResultResponse;
+  projectId?: string;
 }
 
-export const WorkflowExecutionView: React.FC<WorkflowExecutionViewProps> = ({ result }) => {
+export const WorkflowExecutionView: React.FC<WorkflowExecutionViewProps> = ({ result, projectId }) => {
   const {
     workflow_execution_id,
     workflow_id,
@@ -171,7 +172,11 @@ export const WorkflowExecutionView: React.FC<WorkflowExecutionViewProps> = ({ re
 
       {/* Render Output Artifacts */}
       {artifacts && Object.keys(artifacts).length > 0 && (
-        <ArtifactViewer artifacts={artifacts} />
+        <ArtifactViewer
+          artifacts={artifacts}
+          projectId={projectId}
+          workflowExecutionId={workflow_execution_id}
+        />
       )}
     </div>
   );

@@ -23,6 +23,8 @@ from app.agents.exceptions import (
 from app.agents.providers.base import AbstractLLMProvider
 from app.agents.validation import DeterministicValidator
 from app.schemas.context import ProjectContextResponse
+from app.telemetry.contracts import EventSeverity, ExecutionEventType, ExecutionKind
+from app.telemetry.publisher import ExecutionEventPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +49,30 @@ class AgentExecutor:
         provider: AbstractLLMProvider,
         max_retries: int = 3,
         retry_delay_seconds: float = 0.0,
+        mock_provider: AbstractLLMProvider | None = None,
     ) -> None:
         self.provider = provider
+        self.mock_provider = mock_provider
         self.max_retries = max(1, max_retries)
         self.retry_delay_seconds = retry_delay_seconds
+
+    def _build_metadata(
+        self,
+        active_provider: AbstractLLMProvider,
+        attempt: int,
+        started_at: datetime,
+        completed_at: datetime,
+    ) -> dict[str, Any]:
+        latency_sec = round((completed_at - started_at).total_seconds(), 3)
+        usage = getattr(active_provider, "last_usage_metadata", None)
+        meta: dict[str, Any] = {
+            "provider": active_provider.provider_name,
+            "attempts": attempt,
+            "latency_seconds": latency_sec,
+        }
+        if usage:
+            meta["usage"] = usage
+        return meta
 
     async def execute(
         self,
@@ -82,6 +104,27 @@ class AgentExecutor:
         execution_id = uuid.uuid4()
         started_at = datetime.now(timezone.utc)
 
+        # In Phase 10D and 11A, Software Design and Code Generation agents
+        # are migrated to real LLM execution:
+        # - requirement-analysis
+        # - architecture-recommendation
+        # - database-design
+        # - code-generation-planning
+        # - code-generation
+        # Other platform agents preserve mock-backed behavior if a mock provider is configured.
+        REAL_LLM_AGENTS = {
+            "requirement-analysis",
+            "architecture-recommendation",
+            "database-design",
+            "code-generation-planning",
+            "code-generation",
+        }
+        if self.mock_provider is not None and meta.agent_id not in REAL_LLM_AGENTS:
+            active_provider = self.mock_provider
+        else:
+            active_provider = self.provider
+
+
         # 1. Determine Context Provenance (No fabricated values)
         actual_snapshot_id: uuid.UUID | None = None
         actual_context_version: int | None = None
@@ -100,7 +143,26 @@ class AgentExecutor:
         logger.info(
             f"Commencing agent execution [{meta.agent_id} v{meta.version}] "
             f"for project [{project_id}] [exec_id={execution_id}] "
+            f"provider=[{active_provider.provider_name}] "
             f"provenance=[snapshot_id={actual_snapshot_id}, version={actual_context_version}]"
+        )
+
+        parent_exec_id = kwargs.get("parent_execution_id") or kwargs.get("workflow_execution_id")
+        await ExecutionEventPublisher.emit(
+            event_type=ExecutionEventType.AGENT_STARTED,
+            project_id=project_id,
+            execution_id=execution_id,
+            parent_execution_id=parent_exec_id,
+            execution_kind=ExecutionKind.AGENT,
+            source="AgentExecutor",
+            status="RUNNING",
+            payload={
+                "agent_id": meta.agent_id,
+                "agent_name": meta.name,
+                "agent_version": meta.version,
+                "provider": active_provider.provider_name,
+                "phase": f"Started {meta.name}",
+            },
         )
 
         # 2. Authoritative Audit Record (Initial State: PENDING)
@@ -117,7 +179,7 @@ class AgentExecutor:
                 context_snapshot_id=actual_snapshot_id,
                 context_version=actual_context_version,
                 started_at=started_at,
-                metadata_payload={"provider": self.provider.provider_name},
+                metadata_payload={"provider": active_provider.provider_name},
             )
             session.add(audit_record)
             await session.commit()
@@ -138,13 +200,46 @@ class AgentExecutor:
                 # Stage 2: Analyze
                 analysis_data = await agent.analyze(context, **kwargs)
 
+                await ExecutionEventPublisher.emit(
+                    event_type=ExecutionEventType.AGENT_PROGRESS,
+                    project_id=project_id,
+                    execution_id=execution_id,
+                    parent_execution_id=parent_exec_id,
+                    execution_kind=ExecutionKind.AGENT,
+                    source="AgentExecutor",
+                    status="RUNNING",
+                    payload={
+                        "agent_id": meta.agent_id,
+                        "attempt": attempt,
+                        "phase": f"{meta.name}: Analyzed context",
+                        "progress_pct": 33.0,
+                    },
+                )
+
                 # Stage 3: Generate
-                raw_output = await agent.generate(analysis_data, self.provider, **kwargs)
+                raw_output = await agent.generate(analysis_data, active_provider, **kwargs)
+
+                await ExecutionEventPublisher.emit(
+                    event_type=ExecutionEventType.AGENT_PROGRESS,
+                    project_id=project_id,
+                    execution_id=execution_id,
+                    parent_execution_id=parent_exec_id,
+                    execution_kind=ExecutionKind.AGENT,
+                    source="AgentExecutor",
+                    status="RUNNING",
+                    payload={
+                        "agent_id": meta.agent_id,
+                        "attempt": attempt,
+                        "phase": f"{meta.name}: Generated output",
+                        "progress_pct": 66.0,
+                    },
+                )
 
                 # Stage 4: Validate (Schema + Deterministic Domain Validation Hook)
                 if audit_record is not None:
                     audit_record.status = AgentExecutionStatus.VALIDATING
                     await session.commit()
+
 
                 validated_output, validation_res = DeterministicValidator.run_pipeline(
                     raw_output=raw_output,
@@ -171,7 +266,7 @@ class AgentExecutor:
                     context_version=actual_context_version,
                     started_at=started_at,
                     completed_at=completed_at,
-                    metadata={"provider": self.provider.provider_name, "attempts": attempt},
+                    metadata=self._build_metadata(active_provider, attempt, started_at, completed_at),
                 )
                 break
 
@@ -197,7 +292,7 @@ class AgentExecutor:
                     context_version=actual_context_version,
                     started_at=started_at,
                     completed_at=completed_at,
-                    metadata={"provider": self.provider.provider_name, "attempts": attempt},
+                    metadata=self._build_metadata(active_provider, attempt, started_at, completed_at),
                 )
                 break
 
@@ -230,7 +325,7 @@ class AgentExecutor:
                     context_version=actual_context_version,
                     started_at=started_at,
                     completed_at=completed_at,
-                    metadata={"provider": self.provider.provider_name, "attempts": attempt},
+                    metadata=self._build_metadata(active_provider, attempt, started_at, completed_at),
                 )
                 break
 
@@ -256,7 +351,7 @@ class AgentExecutor:
                     context_version=actual_context_version,
                     started_at=started_at,
                     completed_at=completed_at,
-                    metadata={"provider": self.provider.provider_name, "attempts": attempt},
+                    metadata=self._build_metadata(active_provider, attempt, started_at, completed_at),
                 )
                 break
 
@@ -282,7 +377,7 @@ class AgentExecutor:
                     context_version=actual_context_version,
                     started_at=started_at,
                     completed_at=completed_at,
-                    metadata={"provider": self.provider.provider_name, "attempts": attempt},
+                    metadata=self._build_metadata(active_provider, attempt, started_at, completed_at),
                 )
                 break
 
@@ -304,7 +399,7 @@ class AgentExecutor:
                 context_version=actual_context_version,
                 started_at=started_at,
                 completed_at=completed_at,
-                metadata={"provider": self.provider.provider_name},
+                metadata=self._build_metadata(active_provider, self.max_retries, started_at, completed_at),
             )
 
         # 4. Finalize Audit Record in Persistence Store
@@ -318,8 +413,37 @@ class AgentExecutor:
                 output_dump = result.output.model_dump(mode="json")
                 summary_str = f"Keys: {list(output_dump.keys())}"
                 audit_record.output_summary = summary_str[:500]
+            audit_record.metadata_payload = result.metadata
 
             await session.commit()
             await session.refresh(audit_record)
+
+        # 5. Emit terminal telemetry event
+        is_completed = result.status == AgentExecutionStatus.COMPLETED
+        term_evt = ExecutionEventType.AGENT_COMPLETED if is_completed else ExecutionEventType.AGENT_FAILED
+        duration_sec = (
+            round((result.completed_at - result.started_at).total_seconds(), 3)
+            if result.completed_at and result.started_at
+            else None
+        )
+        await ExecutionEventPublisher.emit(
+            event_type=term_evt,
+            project_id=project_id,
+            execution_id=execution_id,
+            parent_execution_id=parent_exec_id,
+            execution_kind=ExecutionKind.AGENT,
+            source="AgentExecutor",
+            status=result.status.value,
+            severity=EventSeverity.INFO if is_completed else EventSeverity.ERROR,
+            payload={
+                "agent_id": meta.agent_id,
+                "agent_name": meta.name,
+                "status": result.status.value,
+                "duration_seconds": duration_sec,
+                "error": result.error.message if result.error else None,
+                "phase": f"{meta.name} {result.status.value.lower()}",
+                "progress_pct": 100.0 if is_completed else None,
+            },
+        )
 
         return result

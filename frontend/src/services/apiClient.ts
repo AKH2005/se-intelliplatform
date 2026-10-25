@@ -19,6 +19,7 @@ function generateCorrelationId(): string {
 export interface RequestOptions extends RequestInit {
   correlationId?: string;
   params?: Record<string, string | number | boolean | undefined | null>;
+  timeoutMs?: number;
 }
 
 export class HttpClient {
@@ -26,6 +27,10 @@ export class HttpClient {
 
   constructor(baseUrl?: string) {
     this.baseUrl = baseUrl || getBaseUrl();
+  }
+
+  public getBaseUrl(): string {
+    return this.baseUrl;
   }
 
   private buildUrl(path: string, params?: Record<string, string | number | boolean | undefined | null>): string {
@@ -56,19 +61,42 @@ export class HttpClient {
     }
     finalHeaders.set('X-Correlation-ID', activeCorrelationId);
 
+    // Automatically attach Bearer token if present
+    if (typeof localStorage !== 'undefined') {
+      const token = localStorage.getItem('se_auth_token');
+      if (token && !finalHeaders.has('Authorization')) {
+        finalHeaders.set('Authorization', `Bearer ${token}`);
+      }
+    }
+
+    const timeoutMs = options.timeoutMs ?? 10000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
     let response: Response;
     try {
       response = await fetch(url, {
         ...restOptions,
         headers: finalHeaders,
+        signal: restOptions.signal || controller.signal,
       });
     } catch (networkError: any) {
+      if (networkError.name === 'AbortError') {
+        throw new ApiError(
+          0,
+          `Request timed out after ${timeoutMs}ms reaching ${url}`,
+          undefined,
+          activeCorrelationId
+        );
+      }
       throw new ApiError(
         0,
         `Network error: unable to reach backend service at ${url}`,
         undefined,
         activeCorrelationId
       );
+    } finally {
+      clearTimeout(timer);
     }
 
     const responseCorrelationId = response.headers.get('X-Correlation-ID') || activeCorrelationId;
@@ -98,6 +126,11 @@ export class HttpClient {
     // 204 No Content
     if (response.status === 204) {
       return {} as T;
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('text/plain') || contentType.includes('text/html')) {
+      return (await response.text()) as unknown as T;
     }
 
     try {

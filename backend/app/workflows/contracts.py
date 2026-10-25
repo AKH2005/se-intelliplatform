@@ -158,9 +158,17 @@ class WorkflowInput(BaseModel):
         max_length=1000,
         description="Optional natural-language developer question passed to ExplainabilityAgent",
     )
+    browser_journey_input: Any | None = Field(
+        default=None,
+        description="Optional input payload required if BrowserJourneyGenerationAgent is executed",
+    )
     options: dict[str, Any] = Field(
         default_factory=dict,
         description="Sanitized workflow runtime options (e.g. timeout, feature flags)",
+    )
+    initial_artifacts: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Pre-seeded upstream artifacts from prior workflow stages",
     )
 
 

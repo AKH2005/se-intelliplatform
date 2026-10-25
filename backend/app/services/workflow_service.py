@@ -35,6 +35,10 @@ from app.workflows.pipelines import (
     WORKFLOW_COMPREHENSIVE_AUDIT_ID,
     WORKFLOW_PROJECT_ESTIMATION_ID,
     WORKFLOW_SOFTWARE_DESIGN_ID,
+    WORKFLOW_CODE_GENERATION_ID,
+    WORKFLOW_BROWSER_JOURNEY_ID,
+    build_browser_journey_workflow,
+    build_code_generation_workflow,
     build_comprehensive_audit_workflow,
     build_project_estimation_workflow,
     build_software_design_workflow,
@@ -63,6 +67,11 @@ class WorkflowService:
         WORKFLOW_COMPREHENSIVE_AUDIT_ID: build_comprehensive_audit_workflow,
     }
 
+    EXTENSION_WORKFLOWS: dict[str, Callable[[], WorkflowDefinition]] = {
+        WORKFLOW_CODE_GENERATION_ID: build_code_generation_workflow,
+        WORKFLOW_BROWSER_JOURNEY_ID: build_browser_journey_workflow,
+    }
+
     def __init__(
         self,
         session: AsyncSession,
@@ -73,13 +82,16 @@ class WorkflowService:
         self.context_engine = context_engine
         self.coordinator = coordinator
 
-    def list_workflows(self) -> list[WorkflowDefinition]:
-        """Return all registered predefined workflow definitions in deterministic order."""
-        return [builder() for builder in self.PREDEFINED_WORKFLOWS.values()]
+    def list_workflows(self, include_extensions: bool = False) -> list[WorkflowDefinition]:
+        """Return registered predefined workflow definitions in deterministic order."""
+        workflows = [builder() for builder in self.PREDEFINED_WORKFLOWS.values()]
+        if include_extensions:
+            workflows.extend(builder() for builder in self.EXTENSION_WORKFLOWS.values())
+        return workflows
 
     def get_workflow(self, workflow_id: str) -> WorkflowDefinition:
-        """Retrieve a specific predefined workflow definition by ID or raise NotFoundError."""
-        builder = self.PREDEFINED_WORKFLOWS.get(workflow_id)
+        """Retrieve a specific workflow definition by ID or raise NotFoundError."""
+        builder = self.PREDEFINED_WORKFLOWS.get(workflow_id) or self.EXTENSION_WORKFLOWS.get(workflow_id)
         if builder is None:
             raise NotFoundError(resource_type="Workflow", identifier=workflow_id)
         return builder()
@@ -196,12 +208,30 @@ class WorkflowService:
             snapshot_version=request.snapshot_version,
         )
 
+        # Populate upstream artifacts from prior successful workflows (e.g. software-design-workflow)
+        initial_artifacts: dict[str, Any] = {}
+        stmt_prev = (
+            select(WorkflowExecution)
+            .where(
+                WorkflowExecution.project_id == request.project_id,
+                WorkflowExecution.status == WorkflowStatus.COMPLETED,
+            )
+            .order_by(WorkflowExecution.completed_at.desc())
+        )
+        prev_res = await self.session.execute(stmt_prev)
+        for prev_exec in prev_res.scalars().all():
+            if prev_exec.artifacts:
+                for k, v in prev_exec.artifacts.items():
+                    if k not in initial_artifacts:
+                        initial_artifacts[k] = v
+
         workflow_input = WorkflowInput(
             context=context,
             code_review_input=request.code_review_input,
             explainability_target_scope=request.explainability_target_scope,
             explainability_user_query=request.explainability_user_query,
             options=request.options,
+            initial_artifacts=initial_artifacts,
         )
 
         workflow_execution_id = uuid.uuid4()

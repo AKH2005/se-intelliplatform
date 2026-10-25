@@ -67,3 +67,25 @@ class ConfigurationError(ApplicationError):
     status_code: int = 500
     title: str = "Configuration Error"
     type_uri: str = "https://api.se-intelliplatform.local/errors/configuration-error"
+
+
+class UnauthorizedError(ApplicationError):
+    """Raised when authentication credentials are missing, invalid, or expired."""
+
+    status_code: int = 401
+    title: str = "Unauthorized"
+    type_uri: str = "https://api.se-intelliplatform.local/errors/unauthorized"
+
+    def __init__(self, message: str = "Authentication credentials were not provided or are invalid."):
+        super().__init__(message=message, detail=message)
+
+
+class ForbiddenError(ApplicationError):
+    """Raised when user does not have permission to access the requested resource."""
+
+    status_code: int = 403
+    title: str = "Forbidden"
+    type_uri: str = "https://api.se-intelliplatform.local/errors/forbidden"
+
+    def __init__(self, message: str = "You do not have permission to access this resource."):
+        super().__init__(message=message, detail=message)

@@ -451,3 +451,43 @@ export interface ExplainabilityOutput {
   metrics: ExplainabilitySummary;
   limitations: string[];
 }
+
+// ==========================================
+// 10. Code Generation Artifact
+// ==========================================
+export interface PlannedFile {
+  path: string;
+  purpose: string;
+  file_type: string;
+  architecture_component?: string | null;
+  requirement_ids?: string[];
+  dependencies?: string[];
+}
+
+export interface CodeGenerationPlan {
+  project_type: string;
+  language: string;
+  framework: string;
+  database: string;
+  package_manager: string;
+  files: PlannedFile[];
+  rationale: string;
+}
+
+export interface GeneratedFile {
+  path: string;
+  content: string;
+  language: string;
+  size_bytes: number;
+  architecture_component?: string | null;
+  requirement_ids?: string[];
+}
+
+export interface CodeGenerationOutput {
+  plan: CodeGenerationPlan;
+  generated_files: GeneratedFile[];
+  total_files: number;
+  total_size_bytes: number;
+  summary: string;
+}
+

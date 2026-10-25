@@ -7,6 +7,7 @@ export interface ProjectResponse {
   description?: string | null;
   status: ProjectStatus;
   settings?: Record<string, any>;
+  owner_id?: string | null;
   created_at: string;
   updated_at: string;
   requirements_count?: number;

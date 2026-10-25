@@ -18,7 +18,7 @@ class AnalysisSeverity(str, enum.Enum):
 class RequirementAmbiguity(BaseModel):
     """Finding representing an ambiguous, vague, or underspecified requirement."""
 
-    requirement_id: uuid.UUID = Field(
+    requirement_id: uuid.UUID | str = Field(
         ...,
         description="UUID of the ambiguous requirement present in canonical context",
     )
@@ -46,11 +46,11 @@ class RequirementAmbiguity(BaseModel):
 class RequirementConflict(BaseModel):
     """Finding representing a logical inconsistency or contradiction between two requirements."""
 
-    requirement_id: uuid.UUID = Field(
+    requirement_id: uuid.UUID | str = Field(
         ...,
         description="UUID of the first conflicting requirement in canonical context",
     )
-    related_requirement_id: uuid.UUID = Field(
+    related_requirement_id: uuid.UUID | str = Field(
         ...,
         description="UUID of the contradicting requirement in canonical context",
     )
@@ -101,7 +101,7 @@ class RequirementRefinement(BaseModel):
     This is an advisory suggestion only. The agent NEVER mutates or updates requirements in the database.
     """
 
-    requirement_id: uuid.UUID = Field(
+    requirement_id: uuid.UUID | str = Field(
         ...,
         description="UUID of the target requirement in canonical context",
     )

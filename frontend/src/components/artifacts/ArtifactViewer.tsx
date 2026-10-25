@@ -9,14 +9,22 @@ import { RequirementAnalysisArtifact } from './RequirementAnalysisArtifact';
 import { TestCaseArtifact } from './TestCaseArtifact';
 import { CodeReviewArtifact } from './CodeReviewArtifact';
 import { ExplainabilityArtifact } from './ExplainabilityArtifact';
+import { CodeGenerationArtifact } from './CodeGenerationArtifact';
 import { UnknownArtifact } from './UnknownArtifact';
 import { Layers } from 'lucide-react';
 
 interface ArtifactViewerProps {
   artifacts: Record<string, any>;
+  projectId?: string;
+  workflowExecutionId?: string;
 }
 
-export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ artifacts }) => {
+
+export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({
+  artifacts,
+  projectId,
+  workflowExecutionId,
+}) => {
   const artifactKeys = Object.keys(artifacts);
 
   const [selectedKey, setSelectedKey] = useState<string>(() => {
@@ -36,6 +44,25 @@ export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ artifacts }) => 
   const renderSpecificArtifact = (key: string, data: any) => {
     if (!data || typeof data !== 'object') {
       return <UnknownArtifact artifactKey={key} data={data} />;
+    }
+
+    // Code Generation Artifact
+    if ('generated_files' in data && 'total_files' in data) {
+      return (
+        <CodeGenerationArtifact
+          artifact={data}
+          projectId={projectId}
+          workflowExecutionId={workflowExecutionId}
+          existingExecution={artifacts['sandbox_execution'] || artifacts['test_execution']}
+          existingAnalysis={artifacts['static_analysis']}
+          existingFailureAnalysis={artifacts['failure_analysis']}
+          existingRemediationProposal={artifacts['remediation_proposal']}
+          existingRemediationVerification={artifacts['remediation_verification']}
+          existingAITestSuite={artifacts['ai_test_suite']}
+          existingAITestExecution={artifacts['ai_test_execution']}
+          originalArtifact={artifacts['code_generation_v1']}
+        />
+      );
     }
 
     // Risk Prediction Artifact

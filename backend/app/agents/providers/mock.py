@@ -32,6 +32,21 @@ class MockLLMProvider(AbstractLLMProvider):
     def provider_name(self) -> str:
         return "mock"
 
+    @property
+    def default_model(self) -> str:
+        return getattr(self, "_default_model", "mock-model")
+
+    @property
+    def last_usage_metadata(self) -> dict[str, Any] | None:
+        return {
+            "provider": self.provider_name,
+            "model": "mock-model",
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "total_tokens": 30,
+        }
+
+
     def register_response(self, text: str) -> None:
         """Queue a string response to be returned on subsequent generate calls."""
         self._canned_responses.append(text)
@@ -99,12 +114,17 @@ class MockLLMProvider(AbstractLLMProvider):
             )
 
         if self._canned_structured:
+            for idx, candidate in enumerate(self._canned_structured):
+                if isinstance(candidate, response_model):
+                    return self._canned_structured.pop(idx)
+
             model_inst = self._canned_structured.pop(0)
             if isinstance(model_inst, response_model):
                 return model_inst
             # If dictionary or mismatch, try to validate into expected model
             if isinstance(model_inst, BaseModel):
                 return response_model.model_validate(model_inst.model_dump())
+
 
         if self._canned_responses:
             raw_json = self._canned_responses.pop(0)

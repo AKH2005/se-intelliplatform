@@ -15,14 +15,22 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 # Create global async engine
+engine_kwargs = {
+    "echo": settings.DEBUG,
+    "future": True,
+}
+if "sqlite" not in (settings.DATABASE_URL or ""):
+    engine_kwargs.update({
+        "pool_pre_ping": True,
+        "pool_size": 10,
+        "max_overflow": 20,
+    })
+
 engine: AsyncEngine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    future=True,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
+    **engine_kwargs,
 )
+
 
 # Create sessionmaker bound to engine
 AsyncSessionLocal = async_sessionmaker(

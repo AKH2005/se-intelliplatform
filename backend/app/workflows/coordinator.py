@@ -1,5 +1,6 @@
 """Authoritative Deterministic Multi-Agent Workflow Coordinator."""
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -19,6 +20,8 @@ from app.workflows.contracts import (
     WorkflowStepStatus,
 )
 from app.workflows.pipelines import resolve_step_kwargs
+from app.telemetry.contracts import EventSeverity, ExecutionEventType, ExecutionKind
+from app.telemetry.publisher import ExecutionEventPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +82,28 @@ class WorkflowCoordinator:
             f"for project [{project_id}] [workflow_exec_id={workflow_execution_id}]"
         )
 
+        await ExecutionEventPublisher.emit(
+            event_type=ExecutionEventType.WORKFLOW_STARTED,
+            project_id=project_id,
+            execution_id=workflow_execution_id,
+            execution_kind=ExecutionKind.WORKFLOW,
+            source="WorkflowCoordinator",
+            status="RUNNING",
+            payload={
+                "workflow_id": workflow.workflow_id,
+                "workflow_version": workflow.version,
+                "workflow_name": workflow.name,
+                "total_steps": len(workflow.steps),
+                "steps": [s.step_id for s in workflow.steps],
+                "phase": f"Started {workflow.name}",
+            },
+        )
+
         step_results: list[WorkflowStepResult] = []
-        artifacts: dict[str, Any] = {}
-        step_status_map: dict[str, WorkflowStepStatus] = {}
+        artifacts: dict[str, Any] = dict(getattr(workflow_input, "initial_artifacts", {}) or {})
+        step_status_map: dict[str, WorkflowStepStatus] = {
+            k: WorkflowStepStatus.COMPLETED for k in artifacts if artifacts[k] is not None
+        }
         errors: list[str] = []
         warnings: list[str] = []
 
@@ -89,6 +111,26 @@ class WorkflowCoordinator:
         for step in workflow.steps:
             step_id = step.step_id
             agent_id = step.agent_id
+
+            # 0. Check if step was already completed in pre-seeded artifacts
+            if step_id in artifacts and artifacts[step_id] is not None:
+                logger.info(
+                    f"Step [{step_id}] already resolved in project artifacts, reusing existing outcome."
+                )
+                reused_res = WorkflowStepResult(
+                    step_id=step_id,
+                    agent_id=agent_id,
+                    status=WorkflowStepStatus.COMPLETED,
+                    execution_id=None,
+                    agent_result=None,
+                    error=None,
+                    skip_reason=None,
+                    started_at=started_at,
+                    completed_at=datetime.now(timezone.utc),
+                )
+                step_results.append(reused_res)
+                step_status_map[step_id] = WorkflowStepStatus.COMPLETED
+                continue
 
             # 1. Dependency Precondition Verification
             prereq_failed = False
@@ -191,6 +233,22 @@ class WorkflowCoordinator:
                 f"Executing step [{step_id}] (agent: [{agent_id}]) in workflow [{workflow.workflow_id}]"
             )
 
+            await ExecutionEventPublisher.emit(
+                event_type=ExecutionEventType.WORKFLOW_STEP_STARTED,
+                project_id=project_id,
+                execution_id=workflow_execution_id,
+                execution_kind=ExecutionKind.WORKFLOW,
+                source="WorkflowCoordinator",
+                status="RUNNING",
+                payload={
+                    "workflow_id": workflow.workflow_id,
+                    "step_id": step_id,
+                    "agent_id": agent_id,
+                    "phase": f"Step: {step_id}",
+                    "total_steps": len(workflow.steps),
+                },
+            )
+
             try:
                 agent_result: AgentResult[Any] = await self.executor.execute(
                     agent=agent,
@@ -226,6 +284,23 @@ class WorkflowCoordinator:
                 step_results.append(failed_res)
                 step_status_map[step_id] = WorkflowStepStatus.FAILED
                 errors.append(f"Step '{step_id}' failed: {exc}")
+
+                await ExecutionEventPublisher.emit(
+                    event_type=ExecutionEventType.WORKFLOW_STEP_FAILED,
+                    project_id=project_id,
+                    execution_id=workflow_execution_id,
+                    execution_kind=ExecutionKind.WORKFLOW,
+                    source="WorkflowCoordinator",
+                    status="RUNNING",
+                    severity=EventSeverity.ERROR,
+                    payload={
+                        "workflow_id": workflow.workflow_id,
+                        "step_id": step_id,
+                        "agent_id": agent_id,
+                        "error": str(exc),
+                        "phase": f"Failed step: {step_id}",
+                    },
+                )
                 continue
 
             step_completed_at = datetime.now(timezone.utc)
@@ -251,6 +326,23 @@ class WorkflowCoordinator:
                     artifacts[step_id] = agent_result.output
                     if step_id != agent_id:
                         artifacts[agent_id] = agent_result.output
+
+                await ExecutionEventPublisher.emit(
+                    event_type=ExecutionEventType.WORKFLOW_STEP_COMPLETED,
+                    project_id=project_id,
+                    execution_id=workflow_execution_id,
+                    execution_kind=ExecutionKind.WORKFLOW,
+                    source="WorkflowCoordinator",
+                    status="RUNNING",
+                    payload={
+                        "workflow_id": workflow.workflow_id,
+                        "step_id": step_id,
+                        "agent_id": agent_id,
+                        "agent_execution_id": str(agent_result.execution_id) if agent_result else None,
+                        "duration_seconds": round((step_completed_at - step_started_at).total_seconds(), 3),
+                        "phase": f"Completed step: {step_id}",
+                    },
+                )
             else:
                 step_res = WorkflowStepResult(
                     step_id=step_id,
@@ -268,6 +360,28 @@ class WorkflowCoordinator:
                 err_msg = agent_result.error.message if agent_result.error else "Unknown agent execution failure"
                 errors.append(f"Step '{step_id}' failed: {err_msg}")
 
+                await ExecutionEventPublisher.emit(
+                    event_type=ExecutionEventType.WORKFLOW_STEP_FAILED,
+                    project_id=project_id,
+                    execution_id=workflow_execution_id,
+                    execution_kind=ExecutionKind.WORKFLOW,
+                    source="WorkflowCoordinator",
+                    status="RUNNING",
+                    severity=EventSeverity.ERROR,
+                    payload={
+                        "workflow_id": workflow.workflow_id,
+                        "step_id": step_id,
+                        "agent_id": agent_id,
+                        "error": err_msg,
+                        "phase": f"Failed step: {step_id}",
+                    },
+                )
+
+            # Optional inter-step pacing for rate-limited providers
+            inter_step_delay = float(workflow_input.options.get("inter_step_delay", 0.0))
+            if inter_step_delay > 0.0 and step != workflow.steps[-1]:
+                await asyncio.sleep(inter_step_delay)
+
         # 6. Determine Deterministic Terminal Workflow Status
         final_status = self._calculate_workflow_status(workflow, step_results)
         completed_at = datetime.now(timezone.utc)
@@ -276,6 +390,29 @@ class WorkflowCoordinator:
             f"Workflow execution finished [{workflow.workflow_id}] status=[{final_status.value}] "
             f"completed_steps={len([s for s in step_results if s.status == WorkflowStepStatus.COMPLETED])}/"
             f"{len(workflow.steps)}"
+        )
+
+        terminal_evt = (
+            ExecutionEventType.WORKFLOW_COMPLETED
+            if final_status in (WorkflowStatus.COMPLETED, WorkflowStatus.PARTIAL_SUCCESS)
+            else ExecutionEventType.WORKFLOW_FAILED
+        )
+        await ExecutionEventPublisher.emit(
+            event_type=terminal_evt,
+            project_id=project_id,
+            execution_id=workflow_execution_id,
+            execution_kind=ExecutionKind.WORKFLOW,
+            source="WorkflowCoordinator",
+            status=final_status.value,
+            severity=EventSeverity.INFO if terminal_evt == ExecutionEventType.WORKFLOW_COMPLETED else EventSeverity.ERROR,
+            payload={
+                "workflow_id": workflow.workflow_id,
+                "status": final_status.value,
+                "duration_seconds": round((completed_at - started_at).total_seconds(), 3),
+                "completed_steps": len([s for s in step_results if s.status == WorkflowStepStatus.COMPLETED]),
+                "total_steps": len(workflow.steps),
+                "phase": f"Workflow {final_status.value.lower()}",
+            },
         )
 
         return WorkflowResult(

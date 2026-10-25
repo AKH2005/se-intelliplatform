@@ -54,6 +54,29 @@
   --shadow-md: 0 4px 12px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.6), 0 4px 8px -4px rgba(0, 0, 0, 0.4);
   --shadow-glow: 0 0 25px -5px var(--accent-primary-glow);
+  --shadow-elevation: 0 8px 30px rgba(0, 0, 0, 0.45);
+
+  /* Elevated surfaces */
+  --bg-surface-elevated: #192036;
+  --bg-surface-subtle: #0e1320;
+  --border-card: rgba(255, 255, 255, 0.07);
+  --border-card-hover: rgba(99, 102, 241, 0.35);
+
+  /* Layout Dimensions */
+  --sidebar-width: 250px;
+  --sidebar-collapsed-width: 68px;
+  --assistant-dock-width: 350px;
+  --header-height: 60px;
+
+  /* SDLC Stage Accents */
+  --sdlc-describe: #38bdf8;
+  --sdlc-analyze: #818cf8;
+  --sdlc-design: #a855f7;
+  --sdlc-build: #ec4899;
+  --sdlc-run: #f97316;
+  --sdlc-test: #eab308;
+  --sdlc-debug: #ef4444;
+  --sdlc-improve: #10b981;
 
   /* Spacing */
   --space-xs: 0.25rem;

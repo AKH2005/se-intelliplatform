@@ -1,13 +1,26 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthProvider } from './context/AuthContext';
 import { ProjectProvider } from './context/ProjectContext';
+import { isProjectNotFoundError } from './utils/projectRecovery';
 import { App } from './App';
 import './styles/tokens.css';
 import './styles/globals.css';
 import './styles/components.css';
 
 const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error) => {
+      if (isProjectNotFoundError(error)) {
+        window.dispatchEvent(
+          new CustomEvent('project:not-found', {
+            detail: { error },
+          })
+        );
+      }
+    },
+  }),
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
@@ -26,9 +39,11 @@ const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <ProjectProvider>
-        <App />
-      </ProjectProvider>
+      <AuthProvider>
+        <ProjectProvider>
+          <App />
+        </ProjectProvider>
+      </AuthProvider>
     </QueryClientProvider>
   </React.StrictMode>
 );

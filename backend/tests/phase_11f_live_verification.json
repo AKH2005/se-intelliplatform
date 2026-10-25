@@ -1,0 +1,139 @@
+{
+  "timestamp": "2026-10-01T14:17:44.918653+00:00",
+  "groq": {
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "status": "COMPLETED",
+    "elapsed_seconds": 3.55,
+    "is_valid": true,
+    "validation_errors": [],
+    "test_count": 3,
+    "tests": [
+      {
+        "test_id": "TEST-001",
+        "name": "test_add_positive_integers",
+        "category": "HAPPY_PATH",
+        "target_file": "app/calculator.py",
+        "target_symbol": "add",
+        "requirement_ids": [
+          "792c8f18-5739-40da-8c3e-35fb9326e3f2"
+        ],
+        "code": "def test_add_positive_integers():\n    from app.calculator import add\n    assert add(2, 3) == 5\n    assert add(0, 10) == 10\n    assert add(-5, 7) == 2"
+      },
+      {
+        "test_id": "TEST-002",
+        "name": "test_divide_normal_floats",
+        "category": "HAPPY_PATH",
+        "target_file": "app/calculator.py",
+        "target_symbol": "divide",
+        "requirement_ids": [
+          "b168ec58-6144-4550-8aad-5ad7af682d9d"
+        ],
+        "code": "def test_divide_normal_floats():\n    from app.calculator import divide\n    result = divide(10.0, 2.0)\n    assert result == 5.0\n    result2 = divide(-9.0, 3.0)\n    assert result2 == -3.0"
+      },
+      {
+        "test_id": "TEST-003",
+        "name": "test_divide_by_zero_raises",
+        "category": "ERROR_HANDLING",
+        "target_file": "app/calculator.py",
+        "target_symbol": "divide",
+        "requirement_ids": [
+          "b168ec58-6144-4550-8aad-5ad7af682d9d"
+        ],
+        "code": "def test_divide_by_zero_raises():\n    import pytest\n    from app.calculator import divide\n    with pytest.raises(ValueError) as exc:\n        divide(5.0, 0.0)\n    assert 'Cannot divide by zero' in str(exc.value)"
+      }
+    ],
+    "compiled_test_file": "\"\"\"AI-Generated Test Suite for Project Verification.\"\"\"\n\nimport pytest\n\n# Test ID: TEST-001 [HAPPY_PATH]\n# Description: Verify addition of two positive integers\n# Target: app/calculator.py -> add\ndef test_add_positive_integers():\n    from app.calculator import add\n    assert add(2, 3) == 5\n    assert add(0, 10) == 10\n    assert add(-5, 7) == 2\n\n# Test ID: TEST-002 [HAPPY_PATH]\n# Description: Verify division of non-zero floats returns correct result\n# Target: app/calculator.py -> divide\ndef test_divide_normal_floats():\n    from app.calculator import divide\n    result = divide(10.0, 2.0)\n    assert result == 5.0\n    result2 = divide(-9.0, 3.0)\n    assert result2 == -3.0\n\n# Test ID: TEST-003 [ERROR_HANDLING]\n# Description: Ensure divide raises ValueError when divisor is zero\n# Target: app/calculator.py -> divide\ndef test_divide_by_zero_raises():\n    import pytest\n    from app.calculator import divide\n    with pytest.raises(ValueError) as exc:\n        divide(5.0, 0.0)\n    assert 'Cannot divide by zero' in str(exc.value)\n",
+    "metadata": {
+      "provider": "groq",
+      "attempts": 1,
+      "latency_seconds": 3.55,
+      "usage": {
+        "provider": "groq",
+        "model": "openai/gpt-oss-120b",
+        "prompt_tokens": 1229,
+        "completion_tokens": 1399,
+        "total_tokens": 2628
+      }
+    }
+  },
+  "gemini": {
+    "provider": "gemini",
+    "model": "gemini-2.5-flash",
+    "status": "COMPLETED",
+    "elapsed_seconds": 8.69,
+    "is_valid": true,
+    "validation_errors": [],
+    "test_count": 4,
+    "tests": [
+      {
+        "test_id": "TC001",
+        "name": "test_add_positive_integers",
+        "category": "HAPPY_PATH",
+        "target_file": "app/calculator.py",
+        "target_symbol": "add",
+        "requirement_ids": [
+          "792c8f18-5739-40da-8c3e-35fb9326e3f2"
+        ],
+        "code": "def test_add_positive_integers():\n    from app.calculator import add\n    result = add(2, 3)\n    assert result == 5"
+      },
+      {
+        "test_id": "TC002",
+        "name": "test_add_negative_integers",
+        "category": "HAPPY_PATH",
+        "target_file": "app/calculator.py",
+        "target_symbol": "add",
+        "requirement_ids": [
+          "792c8f18-5739-40da-8c3e-35fb9326e3f2"
+        ],
+        "code": "def test_add_negative_integers():\n    from app.calculator import add\n    result = add(-5, -10)\n    assert result == -15"
+      },
+      {
+        "test_id": "TC003",
+        "name": "test_divide_positive_floats",
+        "category": "HAPPY_PATH",
+        "target_file": "app/calculator.py",
+        "target_symbol": "divide",
+        "requirement_ids": [
+          "b168ec58-6144-4550-8aad-5ad7af682d9d"
+        ],
+        "code": "def test_divide_positive_floats():\n    from app.calculator import divide\n    result = divide(10.0, 2.0)\n    assert result == 5.0"
+      },
+      {
+        "test_id": "TC004",
+        "name": "test_divide_by_zero_raises_error",
+        "category": "ERROR_HANDLING",
+        "target_file": "app/calculator.py",
+        "target_symbol": "divide",
+        "requirement_ids": [
+          "b168ec58-6144-4550-8aad-5ad7af682d9d"
+        ],
+        "code": "import pytest\nfrom app.calculator import divide\n\ndef test_divide_by_zero_raises_error():\n    with pytest.raises(ValueError, match='Cannot divide by zero'):\n        divide(10.0, 0.0)"
+      }
+    ],
+    "compiled_test_file": "\"\"\"AI-Generated Test Suite for Project Verification.\"\"\"\n\nimport pytest\n\n# Test ID: TC001 [HAPPY_PATH]\n# Description: Verify addition of two positive integers.\n# Target: app/calculator.py -> add\ndef test_add_positive_integers():\n    from app.calculator import add\n    result = add(2, 3)\n    assert result == 5\n\n# Test ID: TC002 [HAPPY_PATH]\n# Description: Verify addition of two negative integers.\n# Target: app/calculator.py -> add\ndef test_add_negative_integers():\n    from app.calculator import add\n    result = add(-5, -10)\n    assert result == -15\n\n# Test ID: TC003 [HAPPY_PATH]\n# Description: Verify division of two positive floats.\n# Target: app/calculator.py -> divide\ndef test_divide_positive_floats():\n    from app.calculator import divide\n    result = divide(10.0, 2.0)\n    assert result == 5.0\n\n# Test ID: TC004 [ERROR_HANDLING]\n# Description: Verify that dividing by zero raises a ValueError.\n# Target: app/calculator.py -> divide\nimport pytest\nfrom app.calculator import divide\n\ndef test_divide_by_zero_raises_error():\n    with pytest.raises(ValueError, match='Cannot divide by zero'):\n        divide(10.0, 0.0)\n",
+    "metadata": {
+      "provider": "gemini",
+      "attempts": 1,
+      "latency_seconds": 8.691,
+      "usage": {
+        "provider": "gemini",
+        "model": "gemini-2.5-flash",
+        "prompt_tokens": 1551,
+        "completion_tokens": 903,
+        "total_tokens": 3417
+      }
+    }
+  },
+  "docker_execution": {
+    "status": "PASSED",
+    "exit_code": 0,
+    "duration_seconds": 1.4,
+    "tests_total": 3,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "stdout": "...                                                                      [100%]\n3 passed in 0.16s\n",
+    "stderr": "",
+    "original_artifact_preserved": true
+  }
+}

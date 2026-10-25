@@ -1,9 +1,10 @@
 """Project Domain Entity Model."""
 
 import enum
+import uuid
 from typing import Any
-from sqlalchemy import Enum, Index, String, Text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Enum, ForeignKey, Index, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
@@ -47,6 +48,14 @@ class Project(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         index=True,
     )
 
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="User UUID owning this project (null for legacy/unowned)",
+    )
+
     settings: Mapped[dict[str, Any]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"),
         default=dict,
@@ -55,6 +64,10 @@ class Project(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     # Relationships
+    owner: Mapped["User | None"] = relationship(  # noqa: F821
+        "User",
+        back_populates="projects",
+    )
     requirements: Mapped[list["Requirement"]] = relationship(  # noqa: F821
         "Requirement",
         back_populates="project",
@@ -66,6 +79,12 @@ class Project(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         back_populates="project",
         cascade="all, delete-orphan",
         order_by="ContextSnapshot.version.desc()",
+    )
+    environments: Mapped[list["Environment"]] = relationship(  # noqa: F821
+        "Environment",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="Environment.created_at.asc()",
     )
 
     __table_args__ = (

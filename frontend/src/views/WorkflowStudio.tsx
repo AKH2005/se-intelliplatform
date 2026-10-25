@@ -6,10 +6,12 @@ import { contextApi } from '../services/contextApi';
 import { WorkflowSelector } from '../components/workflows/WorkflowSelector';
 import { WorkflowRunner } from '../components/workflows/WorkflowRunner';
 import { WorkflowExecutionView } from '../components/workflows/WorkflowExecutionView';
+import { WorkflowDagView } from '../components/visualization/WorkflowDagView';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { ErrorAlert } from '../components/common/ErrorAlert';
 import { EmptyState } from '../components/common/EmptyState';
 import { WorkflowExecuteRequest, WorkflowResultResponse } from '../types/workflow';
+import { LiveExecutionFeed } from '../components/telemetry/LiveExecutionFeed';
 
 export const WorkflowStudio: React.FC = () => {
   const queryClient = useQueryClient();
@@ -96,6 +98,18 @@ export const WorkflowStudio: React.FC = () => {
             }}
           />
 
+          {/* Workflow DAG Topology Visualizer */}
+          {selectedWorkflow && (
+            <WorkflowDagView
+              steps={selectedWorkflow.steps}
+              completedStepIds={
+                executionResult?.step_results
+                  ?.filter((s) => s.status === 'COMPLETED')
+                  .map((s) => s.step_id) || []
+              }
+            />
+          )}
+
           {/* Workflow Runner Configuration */}
           {selectedWorkflow && (
             <WorkflowRunner
@@ -108,6 +122,17 @@ export const WorkflowStudio: React.FC = () => {
               isExecuting={executeMutation.isPending}
             />
           )}
+
+          {/* Real-Time Execution Telemetry Feed (Phase 12) */}
+          <LiveExecutionFeed
+            projectId={selectedProjectId}
+            executionId={executionResult?.workflow_execution_id}
+            title={
+              executionResult
+                ? `Telemetry: Execution ${executionResult.workflow_execution_id.slice(0, 8)}...`
+                : 'Real-Time Execution Telemetry'
+            }
+          />
 
           {/* Execution Result & Artifacts */}
           {executionResult && <WorkflowExecutionView result={executionResult} />}

@@ -113,3 +113,70 @@ def register_default_agents(registry: AgentRegistry | None = None) -> None:
         target.register(exp_agent)
 
 
+def register_code_generation_agents(registry: AgentRegistry | None = None) -> None:
+    """Register Code Generation intelligence agents in an idempotent manner."""
+    target = registry if registry is not None else agent_registry
+    from app.agents.code_generation.planning_agent import CodeGenerationPlanningAgent
+    from app.agents.code_generation.generation_agent import CodeGenerationAgent
+
+    plan_agent = CodeGenerationPlanningAgent()
+    if not target.has(plan_agent.metadata.agent_id):
+        target.register(plan_agent)
+
+    codegen_agent = CodeGenerationAgent()
+    if not target.has(codegen_agent.metadata.agent_id):
+        target.register(codegen_agent)
+
+
+def register_failure_analysis_agents(registry: AgentRegistry | None = None) -> None:
+    """Register Failure Analysis intelligence agents in an idempotent manner."""
+    target = registry if registry is not None else agent_registry
+    from app.agents.failure_analysis.agent import FailureAnalysisAgent
+
+    fa_agent = FailureAnalysisAgent()
+    if not target.has(fa_agent.metadata.agent_id):
+        target.register(fa_agent)
+
+
+def register_remediation_agents(registry: AgentRegistry | None = None) -> None:
+    """Register Remediation intelligence agents in an idempotent manner."""
+    target = registry if registry is not None else agent_registry
+    from app.agents.remediation.agent import RemediationProposalAgent
+
+    rem_agent = RemediationProposalAgent()
+    if not target.has(rem_agent.metadata.agent_id):
+        target.register(rem_agent)
+
+
+def register_test_generation_agents(registry: AgentRegistry | None = None) -> None:
+    """Register AI Test Generation intelligence agents in an idempotent manner."""
+    target = registry if registry is not None else agent_registry
+    from app.agents.test_generation.agent import TestGenerationAgent
+
+    tg_agent = TestGenerationAgent()
+    if not target.has(tg_agent.metadata.agent_id):
+        target.register(tg_agent)
+
+
+def register_browser_journey_agents(registry: AgentRegistry | None = None) -> None:
+    """Register AI Browser Journey Generation intelligence agents in an idempotent manner."""
+    target = registry if registry is not None else agent_registry
+    from app.agents.browser_journey.agent import BrowserJourneyGenerationAgent
+
+    bj_agent = BrowserJourneyGenerationAgent()
+    if not target.has(bj_agent.metadata.agent_id):
+        target.register(bj_agent)
+
+
+def register_all_agents(registry: AgentRegistry | None = None) -> None:
+    """Register all platform agents idempotently across all phases."""
+    target = registry if registry is not None else agent_registry
+    register_default_agents(target)
+    register_code_generation_agents(target)
+    register_failure_analysis_agents(target)
+    register_remediation_agents(target)
+    register_test_generation_agents(target)
+    register_browser_journey_agents(target)
+
+
+

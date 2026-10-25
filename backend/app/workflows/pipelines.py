@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 WORKFLOW_SOFTWARE_DESIGN_ID = "software-design-workflow"
 WORKFLOW_PROJECT_ESTIMATION_ID = "project-estimation-workflow"
 WORKFLOW_COMPREHENSIVE_AUDIT_ID = "comprehensive-audit-workflow"
+WORKFLOW_CODE_GENERATION_ID = "code-generation-workflow"
+WORKFLOW_BROWSER_JOURNEY_ID = "browser-journey-workflow"
 
 
 # ==============================================================================
@@ -55,6 +57,84 @@ def build_software_design_workflow() -> WorkflowDefinition:
                 required=True,
                 depends_on=["requirement-analysis", "architecture-recommendation"],
                 description="Propose relational entities, relationships, indexes, and constraints enriched by architecture and requirement analysis",
+            ),
+        ],
+    )
+
+
+def build_code_generation_workflow() -> WorkflowDefinition:
+    """Build the Code Generation Workflow definition.
+
+    Sequence:
+    1. requirement-analysis (MANDATORY)
+    2. architecture-recommendation (MANDATORY, depends on requirement-analysis)
+    3. database-design (MANDATORY, depends on requirement-analysis, architecture-recommendation)
+    4. code-generation-planning (MANDATORY, depends on database-design)
+    5. code-generation (MANDATORY, depends on code-generation-planning)
+    """
+    return WorkflowDefinition(
+        workflow_id=WORKFLOW_CODE_GENERATION_ID,
+        version="1.0.0",
+        name="Code Generation Workflow",
+        description="Executes requirement analysis, architecture recommendation, database design, scaffold planning, and verified code generation producing a deployable project scaffold artifact.",
+        steps=[
+            WorkflowStep(
+                step_id="requirement-analysis",
+                agent_id="requirement-analysis",
+                required=True,
+                depends_on=[],
+                description="Analyze canonical requirements for ambiguities, conflicts, and gaps",
+            ),
+            WorkflowStep(
+                step_id="architecture-recommendation",
+                agent_id="architecture-recommendation",
+                required=True,
+                depends_on=["requirement-analysis"],
+                description="Propose structural architecture styles, components, and trade-offs",
+            ),
+            WorkflowStep(
+                step_id="database-design",
+                agent_id="database-design",
+                required=True,
+                depends_on=["requirement-analysis", "architecture-recommendation"],
+                description="Propose relational entities, relationships, indexes, and constraints",
+            ),
+            WorkflowStep(
+                step_id="code-generation-planning",
+                agent_id="code-generation-planning",
+                required=True,
+                depends_on=["database-design"],
+                description="Synthesize design outputs into a concrete file manifest and scaffold plan",
+            ),
+            WorkflowStep(
+                step_id="code-generation",
+                agent_id="code-generation",
+                required=True,
+                depends_on=["code-generation-planning"],
+                description="Generate verified, syntactically valid source files strictly matching the planned manifest",
+            ),
+        ],
+    )
+
+
+def build_browser_journey_workflow() -> WorkflowDefinition:
+    """Build the Browser Journey Generation Workflow definition.
+
+    Sequence:
+    1. browser-journey-generation (MANDATORY)
+    """
+    return WorkflowDefinition(
+        workflow_id=WORKFLOW_BROWSER_JOURNEY_ID,
+        version="1.0.0",
+        name="Browser Journey Generation Workflow",
+        description="Generates AI browser user journeys from bounded project requirements and routes for deterministic validation and Phase 11J browser execution.",
+        steps=[
+            WorkflowStep(
+                step_id="browser-journey-generation",
+                agent_id="browser-journey-generation",
+                required=True,
+                depends_on=[],
+                description="Generate candidate browser user journeys from bounded project requirements and routes",
             ),
         ],
     )
@@ -270,6 +350,94 @@ def resolve_step_kwargs(
             return {"explainability_input": explainability_input}, None
         except Exception as exc:
             return {}, f"Failed to construct ExplainabilityInput: {exc}"
+
+    # 5. Code Generation Planning routing: inject upstream design artifacts
+    if agent_id == "code-generation-planning":
+        req_out = artifacts.get("requirement-analysis")
+        arch_out = artifacts.get("architecture-recommendation")
+        db_out = artifacts.get("database-design")
+        return {
+            "requirement_analysis": req_out,
+            "architecture_recommendation": arch_out,
+            "database_design": db_out,
+        }, None
+
+    # 6. Code Generation routing: inject plan from code-generation-planning and upstream design artifacts
+    if agent_id == "code-generation":
+        plan = artifacts.get("code-generation-planning")
+        if plan is None:
+            return {}, "CodeGenerationPlan was not produced by upstream planning step."
+        req_out = artifacts.get("requirement-analysis")
+        arch_out = artifacts.get("architecture-recommendation")
+        db_out = artifacts.get("database-design")
+        return {
+            "plan": plan,
+            "requirement_analysis": req_out,
+            "architecture_recommendation": arch_out,
+            "database_design": db_out,
+        }, None
+
+    # 7. Failure Analysis routing: inject execution, static analysis, and design artifacts
+    if agent_id == "failure-analysis":
+        exec_res = artifacts.get("sandbox_execution")
+        static_res = artifacts.get("static_analysis")
+        code_out = artifacts.get("code-generation") or artifacts.get("code_generation")
+        req_out = artifacts.get("requirement-analysis")
+        arch_out = artifacts.get("architecture-recommendation")
+        db_out = artifacts.get("database-design")
+
+        # Determine if failure analysis is needed
+        needs_analysis = False
+        if exec_res is not None:
+            status = getattr(exec_res, "status", None)
+            exit_code = getattr(exec_res, "exit_code", 0)
+            tests_failed = getattr(exec_res, "tests_failed", 0)
+            status_val = status.value if hasattr(status, "value") else str(status)
+            if status_val != "PASSED" or exit_code != 0 or tests_failed > 0:
+                needs_analysis = True
+
+        if static_res is not None:
+            err_count = getattr(static_res, "error_count", 0)
+            status = getattr(static_res, "status", None)
+            status_val = status.value if hasattr(status, "value") else str(status)
+            if err_count > 0 or status_val in ("VALIDATION_ERROR", "ANALYSIS_ERROR"):
+                needs_analysis = True
+
+        if not needs_analysis:
+            return {}, "No execution or static analysis failure detected. Failure analysis skipped."
+
+        return {
+            "execution_result": exec_res,
+            "static_analysis_result": static_res,
+            "code_generation": code_out,
+            "requirement_analysis": req_out,
+            "architecture_recommendation": arch_out,
+            "database_design": db_out,
+        }, None
+
+    # 8. Remediation Proposal routing: requires failure diagnosis and code generation artifact
+    if agent_id == "remediation-proposal":
+        diag = artifacts.get("failure_analysis")
+        if diag is None:
+            return {}, "No failure diagnosis found. Remediation proposal skipped."
+        code_out = artifacts.get("code-generation") or artifacts.get("code_generation")
+        if code_out is None:
+            return {}, "No generated code artifact found to remediate."
+        return {
+            "diagnosis": diag,
+            "code_generation": code_out,
+            "static_analysis_result": artifacts.get("static_analysis"),
+            "execution_result": artifacts.get("sandbox_execution"),
+            "architecture_recommendation": artifacts.get("architecture-recommendation"),
+            "database_design": artifacts.get("database-design"),
+        }, None
+
+    # 9. Browser Journey Generation routing
+    if agent_id == "browser-journey-generation":
+        bj_input = getattr(workflow_input, "browser_journey_input", None)
+        if bj_input is not None:
+            return {"browser_journey_input": bj_input}, None
+        return {}, None
 
     # Default: independent agents consume canonical ProjectContextResponse (no additional kwargs)
     return {}, None

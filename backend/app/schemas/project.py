@@ -126,5 +126,6 @@ class ProjectResponse(ProjectBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID = Field(..., description="Unique UUID identifier")
+    owner_id: uuid.UUID | None = Field(default=None, description="Owner user UUID if assigned")
     created_at: datetime = Field(..., description="Creation timestamp (UTC)")
     updated_at: datetime = Field(..., description="Last update timestamp (UTC)")
