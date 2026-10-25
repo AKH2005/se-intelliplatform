@@ -114,6 +114,11 @@ class DevelopmentVersionResponse(BaseModel):
     remediation_reference: str | None = Field(default=None)
     created_at: datetime = Field(...)
 
+    @property
+    def id(self) -> uuid.UUID:
+        """Alias for version_id for uniform object access."""
+        return self.version_id
+
 
 class DevelopmentVersionListResponse(BaseModel):
     """Paginated or complete list of development versions for a project."""

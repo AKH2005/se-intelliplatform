@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import get_current_user_optional, get_db
 from app.core.config import settings
 from app.core.exceptions import ForbiddenError, NotFoundError, UnauthorizedError
-from app.core.security import decode_access_token
+from app.core.security import create_preview_token, decode_access_token, decode_preview_token
 from app.models.project import Project
 from app.models.user import User
 from app.runtime.preview_runtime_manager import preview_runtime_manager
@@ -36,11 +36,13 @@ class RuntimeStatusResponse(BaseModel):
     status: str  # "RUNNING", "READY", "UNAVAILABLE", "STARTING", "BUILDING", "FAILED", "STOPPED", "IDLE"
     port: int = 8001
     preview_url: str = settings.PREVIEW_RUNTIME_URL
+    preview_token: Optional[str] = None
     is_healthy: bool
     project_id: Optional[str] = None
     project_name: Optional[str] = None
     active_mode: str = "taskflow"
     detail: str
+
 
 
 def resolve_project_mode(project: Optional[Project], requested_mode: Optional[str] = None) -> str:
@@ -72,24 +74,32 @@ def resolve_project_mode(project: Optional[Project], requested_mode: Optional[st
     return "custom"
 
 
-def compute_preview_url(project_id: uuid.UUID, active_mode: str, is_healthy_port_8001: bool) -> tuple[str, int]:
+def compute_preview_url(
+    project_id: uuid.UUID,
+    active_mode: str,
+    is_healthy_port_8001: bool,
+    preview_token: Optional[str] = None,
+) -> tuple[str, int]:
     """Compute production-safe or local development preview URL and port."""
     is_prod = settings.ENVIRONMENT == "production"
+    effective_port = 443 if is_prod else 8001
     is_custom_external = (
         bool(settings.PREVIEW_RUNTIME_URL)
         and "127.0.0.1:8001" not in settings.PREVIEW_RUNTIME_URL
         and "localhost:8001" not in settings.PREVIEW_RUNTIME_URL
     )
 
+    token_suffix = f"&preview_token={preview_token}" if preview_token else ""
+
     if is_custom_external:
         base = settings.PREVIEW_RUNTIME_URL.rstrip("/")
-        return f"{base}/?project_id={project_id}&app={active_mode}", 443 if is_prod else 8001
+        return f"{base}/?project_id={project_id}&app={active_mode}{token_suffix}", effective_port
 
     if is_healthy_port_8001 and not is_prod:
-        return f"http://127.0.0.1:8001/?project_id={project_id}&app={active_mode}", 8001
+        return f"http://127.0.0.1:8001/?project_id={project_id}&app={active_mode}{token_suffix}", 8001
 
     # Default to HTTPS-compatible FastAPI route for production Render and local development
-    return f"{settings.API_V1_STR}/projects/{project_id}/runtime/preview?app={active_mode}", 8001
+    return f"{settings.API_V1_STR}/projects/{project_id}/runtime/preview?app={active_mode}{token_suffix}", effective_port
 
 
 async def _resolve_project(
@@ -121,12 +131,25 @@ async def _resolve_project(
 async def get_project_preview_html(
     project_id: uuid.UUID = Path(..., description="Project UUID"),
     app_type: Optional[str] = Query(None, alias="app", description="Optional mode override"),
-    token: Optional[str] = Query(None, description="Optional bearer token for iframe embedding"),
+    preview_token: Optional[str] = Query(None, description="Short-lived project-scoped preview token"),
+    token: Optional[str] = Query(None, description="Legacy bearer token for iframe embedding"),
     session: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ) -> HTMLResponse:
     """Serve project-specific interactive application prototype over HTTPS."""
-    # Authenticate via query token if Authorization header is omitted by browser iframe
+    # 1. Authenticate via short-lived project-scoped preview token if Authorization header omitted
+    if current_user is None and preview_token:
+        try:
+            payload = decode_preview_token(preview_token, expected_project_id=project_id)
+            if payload and "sub" in payload:
+                u_id = uuid.UUID(payload["sub"])
+                stmt = select(User).where(User.id == u_id, User.is_active.is_(True))
+                res = await session.execute(stmt)
+                current_user = res.scalar_one_or_none()
+        except Exception as exc:
+            logger.debug(f"Preview token verification failed for preview iframe: {exc}")
+
+    # 2. Authenticate via legacy query token if Authorization header is omitted by browser iframe
     if current_user is None and token:
         try:
             payload = decode_access_token(token)
@@ -137,6 +160,7 @@ async def get_project_preview_html(
                 current_user = res.scalar_one_or_none()
         except Exception as exc:
             logger.debug(f"Query token verification failed for preview iframe: {exc}")
+
 
     project = await _resolve_project(project_id, session, current_user)
     mode = resolve_project_mode(project, app_type)
@@ -179,7 +203,7 @@ async def get_runtime_status(
     """Probe real health check and resolve project-specific live preview URL."""
     project = await _resolve_project(project_id, session, current_user)
     healthy, msg, details = await preview_runtime_manager.check_health(timeout=0.6)
-    if healthy and project:
+    if healthy and project and settings.ENVIRONMENT != "production":
         try:
             await preview_runtime_manager.sync_context(
                 project_id=str(project_id),
@@ -190,10 +214,14 @@ async def get_runtime_status(
             logger.debug(f"Could not sync runtime context on status check: {exc}")
 
     active_mode = resolve_project_mode(project)
-    preview_url, port = compute_preview_url(project_id, active_mode, healthy)
-
-    # In production on Render, integrated FastAPI preview ensures the application is always running
     is_prod = settings.ENVIRONMENT == "production"
+
+    preview_tok = None
+    if current_user is not None:
+        preview_tok = create_preview_token(user_id=current_user.id, project_id=project_id)
+
+    preview_url, port = compute_preview_url(project_id, active_mode, healthy, preview_token=preview_tok)
+
     effective_healthy = healthy if not is_prod else True
     effective_status = "RUNNING" if effective_healthy else "UNAVAILABLE"
     effective_detail = msg if healthy else (f"Application preview ready ({active_mode})." if is_prod else msg)
@@ -202,6 +230,7 @@ async def get_runtime_status(
         status=effective_status,
         port=port,
         preview_url=preview_url,
+        preview_token=preview_tok,
         is_healthy=effective_healthy,
         project_id=str(project_id),
         project_name=project.name if project else None,
@@ -229,15 +258,20 @@ async def start_runtime(
     )
 
     active_mode = resolve_project_mode(project)
-    preview_url, port = compute_preview_url(project_id, active_mode, healthy)
-
     is_prod = settings.ENVIRONMENT == "production"
+
+    preview_tok = None
+    if current_user is not None:
+        preview_tok = create_preview_token(user_id=current_user.id, project_id=project_id)
+
+    preview_url, port = compute_preview_url(project_id, active_mode, healthy, preview_token=preview_tok)
     effective_healthy = healthy if not is_prod else True
 
     return RuntimeStatusResponse(
         status="RUNNING" if effective_healthy else "FAILED",
         port=port,
         preview_url=preview_url,
+        preview_token=preview_tok,
         is_healthy=effective_healthy,
         project_id=str(project_id),
         project_name=project.name if project else None,
@@ -265,15 +299,20 @@ async def restart_runtime(
     )
 
     active_mode = resolve_project_mode(project)
-    preview_url, port = compute_preview_url(project_id, active_mode, healthy)
-
     is_prod = settings.ENVIRONMENT == "production"
+
+    preview_tok = None
+    if current_user is not None:
+        preview_tok = create_preview_token(user_id=current_user.id, project_id=project_id)
+
+    preview_url, port = compute_preview_url(project_id, active_mode, healthy, preview_token=preview_tok)
     effective_healthy = healthy if not is_prod else True
 
     return RuntimeStatusResponse(
         status="RUNNING" if effective_healthy else "FAILED",
         port=port,
         preview_url=preview_url,
+        preview_token=preview_tok,
         is_healthy=effective_healthy,
         project_id=str(project_id),
         project_name=project.name if project else None,
@@ -297,16 +336,22 @@ async def stop_runtime(
     preview_runtime_manager.stop_runtime()
 
     active_mode = resolve_project_mode(project)
-    preview_url, port = compute_preview_url(project_id, active_mode, False)
+    preview_tok = None
+    if current_user is not None:
+        preview_tok = create_preview_token(user_id=current_user.id, project_id=project_id)
+
+    preview_url, port = compute_preview_url(project_id, active_mode, False, preview_token=preview_tok)
 
     return RuntimeStatusResponse(
         status="STOPPED",
         port=port,
         preview_url=preview_url,
+        preview_token=preview_tok,
         is_healthy=False,
         project_id=str(project_id),
         project_name=project.name if project else None,
         active_mode=active_mode,
         detail="Application preview runtime stopped.",
     )
+
 

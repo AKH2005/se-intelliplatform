@@ -13,6 +13,7 @@ from app.api.dependencies import (
     get_db,
     get_engineering_action_service,
 )
+from app.core.config import settings
 from app.core.exceptions import NotFoundError
 from app.models.assistant import AssistantConversation, AssistantMessage
 from app.models.project import Project
@@ -141,6 +142,10 @@ async def send_message(
                 feature_type=dev_intent["intent"],
             )
 
+            is_prod = settings.ENVIRONMENT == "production"
+            port_label = "HTTPS" if is_prod else "port 8001"
+            runtime_port = 443 if is_prod else 8001
+
             if ok:
                 action_id = "FAST_PATH_UPDATE"
                 action_status = ActionStatus.SUCCESS
@@ -148,18 +153,18 @@ async def send_message(
                     f"{dev_intent['acknowledgment']}\n\n"
                     f"Plan:\n" + "\n".join(f"• {item}" for item in dev_intent["plan_items"]) + "\n\n"
                     f"● Applying changes...\n"
-                    f"✓ Application runtime updated on port 8001.\n"
+                    f"✓ Application runtime updated on {port_label}.\n"
                     f"✓ {dev_intent['completed_summary']}\n\n"
                     f"{dev_intent['conclusion']}"
                 )
                 action_result = ActionResult(
                     action_id="FAST_PATH_UPDATE",
                     status=ActionStatus.SUCCESS,
-                    summary=f"Application runtime updated with {dev_intent['summary']} on port 8001.",
+                    summary=f"Application runtime updated with {dev_intent['summary']} on {port_label}.",
                     data={
                         "runtime_updated": True,
                         "feature": dev_intent["intent"],
-                        "port": 8001,
+                        "port": runtime_port,
                         "details": details,
                     },
                 )
@@ -178,8 +183,9 @@ async def send_message(
                     status=ActionStatus.FAILED,
                     summary=f"Application runtime update failed: {apply_msg}",
                     errors=[apply_msg],
-                    data={"runtime_updated": False, "port": 8001},
+                    data={"runtime_updated": False, "port": runtime_port},
                 )
+
 
     if reply_content is None:
         # Standard workflow: context snapshot -> LLM structured reasoning -> engineering action

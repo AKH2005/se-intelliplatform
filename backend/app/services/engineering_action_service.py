@@ -1246,8 +1246,18 @@ class EngineeringActionService:
 
             # Idempotency check: if already active version, return without duplicate transition
             current_active = await self.version_service.get_active_version(project_id)
-            if current_active and current_active.id == ver_uuid:
-                return current_active.model_dump(mode="json"), f"Version v{current_active.version_number} is already active."
+            cand_id = getattr(current_active, "id", None)
+            if not isinstance(cand_id, (uuid.UUID, str)):
+                cand_id = getattr(current_active, "version_id", None)
+            if isinstance(cand_id, str):
+                try:
+                    cand_id = uuid.UUID(cand_id)
+                except ValueError:
+                    cand_id = None
+
+            if current_active and cand_id == ver_uuid:
+                dump_data = current_active.model_dump(mode="json") if hasattr(current_active, "model_dump") else {}
+                return dump_data, f"Version v{getattr(current_active, 'version_number', '')} is already active."
 
             reason = parameters.get("reason") or "Activated via Intelli Assistant"
             res = await self.version_service.activate_version(
@@ -1264,8 +1274,18 @@ class EngineeringActionService:
 
             # Idempotency check: if already targeting the requested version, return current state
             current_active = await self.version_service.get_active_version(project_id)
-            if current_active and current_active.id == target_uuid:
-                return current_active.model_dump(mode="json"), f"Version v{current_active.version_number} is already active."
+            cand_id = getattr(current_active, "id", None)
+            if not isinstance(cand_id, (uuid.UUID, str)):
+                cand_id = getattr(current_active, "version_id", None)
+            if isinstance(cand_id, str):
+                try:
+                    cand_id = uuid.UUID(cand_id)
+                except ValueError:
+                    cand_id = None
+
+            if current_active and cand_id == target_uuid:
+                dump_data = current_active.model_dump(mode="json") if hasattr(current_active, "model_dump") else {}
+                return dump_data, f"Version v{getattr(current_active, 'version_number', '')} is already active."
 
             reason = parameters.get("reason") or "Rollback via Intelli Assistant"
             res = await self.version_service.rollback_version(

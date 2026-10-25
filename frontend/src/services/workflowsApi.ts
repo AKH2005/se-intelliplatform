@@ -3,7 +3,7 @@ import {
   WorkflowMetadataResponse,
   WorkflowResultResponse,
 } from '../types/workflow';
-import { apiClient } from './apiClient';
+import { apiClient, RequestOptions } from './apiClient';
 
 export const workflowsApi = {
   list: (): Promise<WorkflowMetadataResponse[]> => {
@@ -14,7 +14,18 @@ export const workflowsApi = {
     return apiClient.get<WorkflowMetadataResponse>(`/workflows/${workflowId}`);
   },
 
-  execute: (workflowId: string, request: WorkflowExecuteRequest): Promise<WorkflowResultResponse> => {
-    return apiClient.post<WorkflowResultResponse>(`/workflows/${workflowId}/execute`, request);
+  execute: (
+    workflowId: string,
+    request: WorkflowExecuteRequest,
+    options?: RequestOptions
+  ): Promise<WorkflowResultResponse> => {
+    return apiClient.post<WorkflowResultResponse>(
+      `/workflows/${workflowId}/execute`,
+      request,
+      {
+        timeoutMs: 180000,
+        ...options,
+      }
+    );
   },
 };

@@ -328,7 +328,30 @@ class WorkflowService:
         await self.session.commit()
         await self.session.refresh(execution_record)
 
+        # 7. Automatically register DevelopmentVersion for successful code generation
+        if workflow.workflow_id == "code-generation-workflow" and result.status in (
+            WorkflowStatus.COMPLETED,
+            WorkflowStatus.PARTIAL_SUCCESS,
+        ):
+            has_code = "code-generation" in result.artifacts or "code_generation" in result.artifacts
+            if has_code:
+                try:
+                    from app.services.development_version_service import DevelopmentVersionService
+                    dev_service = DevelopmentVersionService(self.session)
+                    key = "code-generation" if "code-generation" in result.artifacts else "code_generation"
+                    await dev_service.register_version_from_workflow(
+                        project_id=request.project_id,
+                        workflow_execution_id=workflow_execution_id,
+                        artifact_key=key,
+                        source_reason="INITIAL_GENERATION",
+                    )
+                except Exception as reg_exc:
+                    logger.warning(
+                        f"Could not automatically register DevelopmentVersion for execution {workflow_execution_id}: {reg_exc}"
+                    )
+
         return result
+
 
     async def list_project_workflow_history(
         self,

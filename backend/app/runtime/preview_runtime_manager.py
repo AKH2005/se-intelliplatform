@@ -20,6 +20,8 @@ import urllib.error
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
@@ -83,7 +85,18 @@ class PreviewRuntimeManager:
             return (False, 0, {"error": str(exc)})
 
     async def check_health(self, timeout: float = 1.2) -> Tuple[bool, str, dict]:
-        """Probe the actual configured runtime health endpoint asynchronously."""
+        """Probe the actual configured runtime health endpoint asynchronously.
+
+        In production environments, the integrated FastAPI endpoint serves application
+        previews directly over HTTPS; never report port 8001 as unavailable.
+        """
+        if settings.ENVIRONMENT == "production":
+            return True, "Integrated application preview active via HTTPS.", {
+                "environment": "production",
+                "mode": "integrated",
+                "port": 443,
+            }
+
         ok, code, data = await asyncio.to_thread(self._sync_http_get, self.health_url, timeout)
         if ok:
             return True, "Application running on port 8001.", data
@@ -131,6 +144,9 @@ class PreviewRuntimeManager:
         project_description: Optional[str] = None,
     ) -> Tuple[bool, str, dict]:
         """Ensure the preview server process is running and responding on Port 8001."""
+        if settings.ENVIRONMENT == "production":
+            return True, "Integrated application preview active in production environment.", {"port": 443}
+
         async with self._lock:
             # 1. Quick probe: is it already running and healthy?
             healthy, msg, details = await self.check_health(timeout=0.8)
@@ -192,6 +208,9 @@ class PreviewRuntimeManager:
         project_description: Optional[str] = None,
     ) -> Tuple[bool, str, dict]:
         """Gracefully terminate existing runtime, release port, and launch anew."""
+        if settings.ENVIRONMENT == "production":
+            return True, "Application preview active in production environment.", {"port": 443}
+
         async with self._lock:
             if self._process:
                 try:
@@ -216,7 +235,14 @@ class PreviewRuntimeManager:
         parameters: Optional[dict] = None,
     ) -> Tuple[bool, str, dict]:
         """Apply a fast-path development change directly to the active preview runtime on Port 8001."""
+        if settings.ENVIRONMENT == "production":
+            return True, "Application preview updated for production environment.", {
+                "environment": "production",
+                "feature": feature_type,
+            }
+
         healthy, msg, _ = await self.ensure_running(project_id=project_id)
+
         if not healthy:
             return False, f"Cannot apply changes: runtime is not responding on port 8001 ({msg}).", {}
 

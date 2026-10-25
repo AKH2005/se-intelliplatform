@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { PreviewWorkspace } from '../views/PreviewWorkspace';
 import { ProjectContext, ProjectContextValue } from '../context/ProjectContext';
 import { previewRuntimeApi } from '../services/previewRuntimeApi';
+import { workflowsApi } from '../services/workflowsApi';
 import { ProjectResponse } from '../types/project';
 
 // Mock previewRuntimeApi
@@ -12,6 +13,13 @@ vi.mock('../services/previewRuntimeApi', () => ({
     start: vi.fn(),
     restart: vi.fn(),
     resolvePreviewUrl: vi.fn((_id, url) => url || 'http://127.0.0.1:8001/'),
+  },
+}));
+
+// Mock workflowsApi
+vi.mock('../services/workflowsApi', () => ({
+  workflowsApi: {
+    execute: vi.fn(),
   },
 }));
 
@@ -199,6 +207,60 @@ describe('PreviewWorkspace Runtime Lifecycle & Port 8001 Health Probing', () => 
     expect(genCodeBtn).toBeInTheDocument();
     fireEvent.click(genCodeBtn);
     expect(onNavigate).toHaveBeenCalledWith('development');
+  });
+
+  it('triggers Generate AI Code workflow and displays error detail when workflow fails', async () => {
+    const snakeProject: ProjectResponse = {
+      id: '7a12b345-6789-4bcd-8ef0-123456789abc',
+      name: 'Retro Snake Arcade',
+      slug: 'retro-snake-arcade',
+      description: 'Classic arcade snake game',
+      status: 'IN_PROGRESS',
+      created_at: '2026-10-25T00:00:00Z',
+      updated_at: '2026-10-25T00:00:00Z',
+    };
+
+    vi.mocked(previewRuntimeApi.getStatus).mockResolvedValueOnce({
+      status: 'RUNNING',
+      port: 8001,
+      preview_url: '/api/v1/projects/7a12b345-6789-4bcd-8ef0-123456789abc/runtime/preview?app=snake_game',
+      is_healthy: true,
+      project_id: snakeProject.id,
+      project_name: snakeProject.name,
+      active_mode: 'snake_game',
+      detail: 'Application preview ready (snake_game).',
+    });
+
+    vi.mocked(workflowsApi.execute).mockResolvedValueOnce({
+      workflow_execution_id: 'exec-failed-123',
+      workflow_id: 'code-generation-workflow',
+      workflow_version: '1.0.0',
+      status: 'FAILED',
+      started_at: '2026-10-25T00:00:00Z',
+      completed_at: '2026-10-25T00:00:05Z',
+      step_results: [],
+      artifacts: {},
+      errors: ['Step code-generation failed: Syntax validation error.'],
+      warnings: [],
+      metadata: {},
+    });
+
+    renderWithProject(snakeProject);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Retro Snake Arcade/i)).toBeInTheDocument();
+    });
+
+    const generateBtn = screen.getByRole('button', { name: /Generate AI Code/i });
+    expect(generateBtn).toBeInTheDocument();
+    fireEvent.click(generateBtn);
+
+    await waitFor(() => {
+      expect(workflowsApi.execute).toHaveBeenCalledWith('code-generation-workflow', {
+        project_id: snakeProject.id,
+      });
+      expect(screen.getByText(/Workflow finished with status FAILED: Step code-generation failed: Syntax validation error./i)).toBeInTheDocument();
+    });
   });
 });
 

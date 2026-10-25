@@ -18,7 +18,7 @@ export const previewRuntimeApi = {
     return apiClient.post<RuntimeStatusResponse>(`/projects/${projectId}/runtime/stop`, {});
   },
 
-  resolvePreviewUrl: (projectId: string, rawUrl?: string, app?: string, token?: string): string => {
+  resolvePreviewUrl: (projectId: string, rawUrl?: string, app?: string, previewToken?: string): string => {
     const base = apiClient.getBaseUrl();
     const rootBase = base.replace(/\/api\/v1\/?$/, '');
 
@@ -31,9 +31,10 @@ export const previewRuntimeApi = {
       (typeof window !== 'undefined' && window.location.protocol === 'https:') ||
       (typeof import.meta !== 'undefined' && import.meta.env?.PROD)
     ) {
-      // In production or on HTTPS, convert any residual loopback URL to the backend HTTPS endpoint
+      // In production or on HTTPS, convert any residual loopback URL to the backend HTTPS endpoint preserving query string
       if (url.includes('127.0.0.1:8001') || url.includes('localhost:8001')) {
-        url = `${base}/projects/${encodeURIComponent(projectId)}/runtime/preview`;
+        const queryPart = url.includes('?') ? url.substring(url.indexOf('?')) : '';
+        url = `${base}/projects/${encodeURIComponent(projectId)}/runtime/preview${queryPart}`;
       }
     }
 
@@ -41,8 +42,8 @@ export const previewRuntimeApi = {
     if (app && !url.includes('app=')) {
       params.push(`app=${encodeURIComponent(app)}`);
     }
-    if (token && !url.includes('token=')) {
-      params.push(`token=${encodeURIComponent(token)}`);
+    if (previewToken && !url.includes('preview_token=')) {
+      params.push(`preview_token=${encodeURIComponent(previewToken)}`);
     }
 
     if (params.length > 0) {
@@ -52,4 +53,5 @@ export const previewRuntimeApi = {
     return url;
   },
 };
+
 

@@ -88,3 +88,58 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
         return payload
     except jwt.PyJWTError:
         return None
+
+
+PREVIEW_TOKEN_EXPIRE_MINUTES = 15
+
+
+def create_preview_token(
+    user_id: Any,
+    project_id: Any,
+    expires_minutes: int = PREVIEW_TOKEN_EXPIRE_MINUTES,
+) -> str:
+    """Create a short-lived, project-scoped JWT token for embedding preview iframes.
+
+    Restricted strictly to the preview scope ('scope': 'preview') and bound to
+    a specific project and user. Cannot be used for general API access.
+    """
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=expires_minutes)
+    payload = {
+        "sub": str(user_id),
+        "project_id": str(project_id),
+        "scope": "preview",
+        "iat": now,
+        "exp": expire,
+    }
+    return jwt.encode(
+        payload,
+        settings.SECRET_KEY,
+        algorithm=JWT_ALGORITHM,
+    )
+
+
+def decode_preview_token(
+    token: str,
+    expected_project_id: Any | None = None,
+) -> dict[str, Any] | None:
+    """Decode and verify a short-lived project-scoped preview token.
+
+    Validates signature, expiration, 'preview' scope, and project binding.
+    Returns payload dict if valid, or None if expired/tampered/wrong project.
+    """
+    try:
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[JWT_ALGORITHM],
+        )
+        if payload.get("scope") != "preview":
+            return None
+        if expected_project_id is not None:
+            if str(payload.get("project_id")) != str(expected_project_id):
+                return None
+        return payload
+    except jwt.PyJWTError:
+        return None
+

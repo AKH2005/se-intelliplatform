@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { NavigationTab } from '../components/layout/Sidebar';
 import { previewRuntimeApi } from '../services/previewRuntimeApi';
+import { workflowsApi } from '../services/workflowsApi';
 import { RuntimeLifecycleStatus } from '../types/previewRuntime';
 
 interface PreviewWorkspaceProps {
@@ -54,6 +55,44 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
   const [isRestarting, setIsRestarting] = useState<boolean>(false);
   const [showDetails, setShowDetails] = useState<boolean>(false);
 
+  // AI Code generation state
+  const [isGeneratingCode, setIsGeneratingCode] = useState<boolean>(false);
+  const [codeGenMessage, setCodeGenMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleGenerateCode = async () => {
+    if (!selectedProject?.id || isGeneratingCode) return;
+    setIsGeneratingCode(true);
+    setCodeGenMessage(null);
+    try {
+      const res = await workflowsApi.execute('code-generation-workflow', {
+        project_id: selectedProject.id,
+      });
+      if (res.status === 'COMPLETED' || res.status === 'PARTIAL_SUCCESS') {
+        setCodeGenMessage({
+          type: 'success',
+          text: 'AI Code Generation completed successfully! Multi-file code scaffold is now registered in Code Studio.',
+        });
+      } else {
+        const errorDetail =
+          res.errors && res.errors.length > 0
+            ? res.errors.join('; ')
+            : 'Workflow did not produce completed artifacts.';
+        setCodeGenMessage({
+          type: 'error',
+          text: `Workflow finished with status ${res.status}: ${errorDetail}`,
+        });
+      }
+    } catch (err: any) {
+      setCodeGenMessage({
+        type: 'error',
+        text: err?.response?.data?.detail || err?.message || 'Failed to execute code generation workflow.',
+      });
+    } finally {
+      setIsGeneratingCode(false);
+    }
+  };
+
+
   const checkHealthAndSync = useCallback(
     async (autoStart = true) => {
       if (!selectedProject?.id) {
@@ -70,12 +109,12 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
         const res = await previewRuntimeApi.getStatus(selectedProject.id);
         if (activeRequestIdRef.current !== reqId) return;
 
-        const token = localStorage.getItem('access_token') || localStorage.getItem('token') || undefined;
+        const previewToken = res.preview_token;
         const resolvedUrl = previewRuntimeApi.resolvePreviewUrl(
           selectedProject.id,
           res.preview_url,
           res.active_mode,
-          token
+          previewToken
         );
         setActiveMode(res.active_mode || 'custom');
 
@@ -83,18 +122,19 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
           setRuntimeStatus('RUNNING');
           setRuntimePort(res.port || 8001);
           setPreviewUrl(resolvedUrl);
-          setRuntimeDetail(res.detail || 'Application running on port 8001.');
+          setRuntimeDetail(res.detail || 'Application running.');
         } else if (autoStart) {
           // Attempt automatic start if runtime is not running
           setRuntimeStatus('STARTING');
           const startRes = await previewRuntimeApi.start(selectedProject.id);
           if (activeRequestIdRef.current !== reqId) return;
 
+          const startPreviewToken = startRes.preview_token || res.preview_token;
           const startResolvedUrl = previewRuntimeApi.resolvePreviewUrl(
             selectedProject.id,
             startRes.preview_url,
             startRes.active_mode,
-            token
+            startPreviewToken
           );
           setActiveMode(startRes.active_mode || res.active_mode || 'custom');
 
@@ -102,7 +142,7 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
             setRuntimeStatus('RUNNING');
             setRuntimePort(startRes.port || 8001);
             setPreviewUrl(startResolvedUrl);
-            setRuntimeDetail(startRes.detail || 'Application running on port 8001.');
+            setRuntimeDetail(startRes.detail || 'Application running.');
           } else {
             setRuntimeStatus(startRes.status === 'FAILED' ? 'FAILED' : 'UNAVAILABLE');
             setRuntimeDetail(startRes.detail || 'Application runtime is unavailable.');
@@ -135,12 +175,12 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
     if (selectedProject?.id) {
       try {
         const res = await previewRuntimeApi.getStatus(selectedProject.id);
-        const token = localStorage.getItem('access_token') || localStorage.getItem('token') || undefined;
+        const previewToken = res.preview_token;
         const resolvedUrl = previewRuntimeApi.resolvePreviewUrl(
           selectedProject.id,
           res.preview_url,
           res.active_mode,
-          token
+          previewToken
         );
         setActiveMode(res.active_mode || 'custom');
         if (res.is_healthy && res.status === 'RUNNING') {
@@ -177,12 +217,12 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
     setRuntimeStatus('STARTING');
     try {
       const res = await previewRuntimeApi.restart(selectedProject.id);
-      const token = localStorage.getItem('access_token') || localStorage.getItem('token') || undefined;
+      const previewToken = res.preview_token;
       const resolvedUrl = previewRuntimeApi.resolvePreviewUrl(
         selectedProject.id,
         res.preview_url,
         res.active_mode,
-        token
+        previewToken
       );
       setActiveMode(res.active_mode || 'custom');
       if (res.is_healthy && res.status === 'RUNNING') {
@@ -202,6 +242,7 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
       setIsRestarting(false);
     }
   };
+
 
   const viewportWidth =
     deviceViewport === 'mobile' ? '375px' : deviceViewport === 'tablet' ? '768px' : '100%';
@@ -400,8 +441,9 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
           </span>
 
           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            Port {runtimePort}
+            {runtimePort === 443 ? 'HTTPS' : `Port ${runtimePort}`}
           </span>
+
         </div>
 
         {/* Device Switcher */}
@@ -567,9 +609,9 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
           style={{
             width: viewportWidth,
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '0.4rem 0.85rem',
+            flexDirection: 'column',
+            gap: '0.45rem',
+            padding: '0.5rem 0.85rem',
             marginBottom: '0.5rem',
             background: 'rgba(255, 255, 255, 0.03)',
             border: '1px solid var(--border-subtle)',
@@ -580,32 +622,67 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
             transition: 'width 0.3s ease',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Sparkles size={13} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
-            <span>
-              <strong>Live Interactive Prototype:</strong> Testing UI, controls, and workflows. To synthesize multi-file backend & frontend code, open the Development Workspace.
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Sparkles size={13} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+              <span>
+                <strong>Live Interactive Prototype:</strong> Testing UI, controls, and workflows (built-in interactive template). To synthesize multi-file backend & frontend source code, click Generate AI Code.
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Button
+                id="btn-preview-generate-code"
+                variant="primary"
+                size="sm"
+                onClick={handleGenerateCode}
+                isLoading={isGeneratingCode}
+                style={{
+                  background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cyan))',
+                  fontWeight: 600,
+                  fontSize: '0.75rem',
+                  padding: '0.25rem 0.75rem',
+                }}
+              >
+                <Sparkles size={13} style={{ marginRight: '0.3rem' }} />
+                Generate AI Code
+              </Button>
+              {onNavigate && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('development')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--accent-cyan)',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    textDecoration: 'underline',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Open Code Studio →
+                </button>
+              )}
+            </div>
           </div>
-          {onNavigate && (
-            <button
-              type="button"
-              onClick={() => onNavigate('development')}
+          {codeGenMessage && (
+            <div
+              id="preview-codegen-message"
               style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--accent-cyan)',
-                fontWeight: 600,
-                cursor: 'pointer',
-                fontSize: '0.75rem',
-                textDecoration: 'underline',
-                whiteSpace: 'nowrap',
-                marginLeft: '0.5rem',
+                padding: '0.35rem 0.65rem',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.73rem',
+                background: codeGenMessage.type === 'success' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                color: codeGenMessage.type === 'success' ? '#34d399' : '#f87171',
+                border: `1px solid ${codeGenMessage.type === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
               }}
             >
-              Open Code Studio →
-            </button>
+              {codeGenMessage.text}
+            </div>
           )}
         </div>
+
 
         <div
           style={{

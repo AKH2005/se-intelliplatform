@@ -5,15 +5,15 @@ const client = new HttpClient();
 
 export const authApi = {
   async register(data: RegisterCredentials): Promise<TokenResponse> {
-    return client.post<TokenResponse>('/auth/register', data);
+    return client.post<TokenResponse>('/auth/register', data, { timeoutMs: 60000 });
   },
 
   async login(data: LoginCredentials): Promise<TokenResponse> {
-    return client.post<TokenResponse>('/auth/login', data);
+    return client.post<TokenResponse>('/auth/login', data, { timeoutMs: 60000 });
   },
 
   async getMe(): Promise<User> {
-    return client.get<User>('/auth/me');
+    return client.get<User>('/auth/me', { timeoutMs: 60000 });
   },
 
   async logout(): Promise<{ status: string; message: string }> {

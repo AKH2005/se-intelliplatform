@@ -259,12 +259,13 @@ class DevelopmentVersionService:
         )
         self.session.add(change)
 
-        # 8. Set initial active pointer if no active version exists and this version is VERIFIED
+        # 8. Set initial active pointer if no active version exists
         proj_settings = dict(project.settings or {})
-        if not proj_settings.get("active_version_id") and initial_status == DevelopmentVersionStatus.VERIFIED:
+        if not proj_settings.get("active_version_id"):
             proj_settings["active_version_id"] = str(version_id)
             project.settings = proj_settings
             flag_modified(project, "settings")
+
 
         await self.session.commit()
         await self.session.refresh(dev_version)
@@ -419,23 +420,46 @@ class DevelopmentVersionService:
         await self._bootstrap_versions_if_empty(project_id)
         active_id_str = (project.settings or {}).get("active_version_id")
         if not active_id_str:
+            stmt_fallback = (
+                select(DevelopmentVersion)
+                .where(DevelopmentVersion.project_id == project_id)
+                .order_by(DevelopmentVersion.version_number.desc())
+                .limit(1)
+            )
+            res_fb = await self.session.execute(stmt_fallback)
+            fallback_v = res_fb.scalar_one_or_none()
+            if fallback_v:
+                return self._map_version_response(fallback_v, active_version_id=fallback_v.id)
             return None
 
         try:
             active_uuid = uuid.UUID(active_id_str)
         except ValueError:
-            return None
+            active_uuid = None
 
-        stmt = select(DevelopmentVersion).where(
-            DevelopmentVersion.id == active_uuid,
-            DevelopmentVersion.project_id == project_id,
+        if active_uuid:
+            stmt = select(DevelopmentVersion).where(
+                DevelopmentVersion.id == active_uuid,
+                DevelopmentVersion.project_id == project_id,
+            )
+            res = await self.session.execute(stmt)
+            version = res.scalar_one_or_none()
+            if version:
+                return self._map_version_response(version, active_version_id=active_uuid)
+
+        # Fallback to latest available version
+        stmt_fallback = (
+            select(DevelopmentVersion)
+            .where(DevelopmentVersion.project_id == project_id)
+            .order_by(DevelopmentVersion.version_number.desc())
+            .limit(1)
         )
-        res = await self.session.execute(stmt)
-        version = res.scalar_one_or_none()
-        if not version:
-            return None
+        res_fb = await self.session.execute(stmt_fallback)
+        fallback_v = res_fb.scalar_one_or_none()
+        if fallback_v:
+            return self._map_version_response(fallback_v, active_version_id=fallback_v.id)
+        return None
 
-        return self._map_version_response(version, active_version_id=active_uuid)
 
 
     async def activate_version(
