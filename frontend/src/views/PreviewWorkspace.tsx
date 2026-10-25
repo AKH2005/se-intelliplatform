@@ -47,6 +47,7 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
   // Authoritative runtime lifecycle state
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeLifecycleStatus>('HEALTH_CHECKING');
   const [runtimePort, setRuntimePort] = useState<number>(8001);
+  const [activeMode, setActiveMode] = useState<string>('taskflow');
   const [previewUrl, setPreviewUrl] = useState<string>('http://127.0.0.1:8001/');
   const [runtimeDetail, setRuntimeDetail] = useState<string>('');
   const [isChecking, setIsChecking] = useState<boolean>(false);
@@ -69,10 +70,19 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
         const res = await previewRuntimeApi.getStatus(selectedProject.id);
         if (activeRequestIdRef.current !== reqId) return;
 
+        const token = localStorage.getItem('access_token') || localStorage.getItem('token') || undefined;
+        const resolvedUrl = previewRuntimeApi.resolvePreviewUrl(
+          selectedProject.id,
+          res.preview_url,
+          res.active_mode,
+          token
+        );
+        setActiveMode(res.active_mode || 'custom');
+
         if (res.is_healthy && (res.status === 'RUNNING' || res.status === 'READY')) {
           setRuntimeStatus('RUNNING');
           setRuntimePort(res.port || 8001);
-          setPreviewUrl(res.preview_url || 'http://127.0.0.1:8001/');
+          setPreviewUrl(resolvedUrl);
           setRuntimeDetail(res.detail || 'Application running on port 8001.');
         } else if (autoStart) {
           // Attempt automatic start if runtime is not running
@@ -80,10 +90,18 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
           const startRes = await previewRuntimeApi.start(selectedProject.id);
           if (activeRequestIdRef.current !== reqId) return;
 
+          const startResolvedUrl = previewRuntimeApi.resolvePreviewUrl(
+            selectedProject.id,
+            startRes.preview_url,
+            startRes.active_mode,
+            token
+          );
+          setActiveMode(startRes.active_mode || res.active_mode || 'custom');
+
           if (startRes.is_healthy && (startRes.status === 'RUNNING' || startRes.status === 'READY')) {
             setRuntimeStatus('RUNNING');
             setRuntimePort(startRes.port || 8001);
-            setPreviewUrl(startRes.preview_url || 'http://127.0.0.1:8001/');
+            setPreviewUrl(startResolvedUrl);
             setRuntimeDetail(startRes.detail || 'Application running on port 8001.');
           } else {
             setRuntimeStatus(startRes.status === 'FAILED' ? 'FAILED' : 'UNAVAILABLE');
@@ -117,8 +135,17 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
     if (selectedProject?.id) {
       try {
         const res = await previewRuntimeApi.getStatus(selectedProject.id);
+        const token = localStorage.getItem('access_token') || localStorage.getItem('token') || undefined;
+        const resolvedUrl = previewRuntimeApi.resolvePreviewUrl(
+          selectedProject.id,
+          res.preview_url,
+          res.active_mode,
+          token
+        );
+        setActiveMode(res.active_mode || 'custom');
         if (res.is_healthy && res.status === 'RUNNING') {
           setRuntimeStatus('RUNNING');
+          setPreviewUrl(resolvedUrl);
           setRefreshKey(Date.now());
         } else {
           setRuntimeStatus('UNAVAILABLE');
@@ -150,10 +177,18 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
     setRuntimeStatus('STARTING');
     try {
       const res = await previewRuntimeApi.restart(selectedProject.id);
+      const token = localStorage.getItem('access_token') || localStorage.getItem('token') || undefined;
+      const resolvedUrl = previewRuntimeApi.resolvePreviewUrl(
+        selectedProject.id,
+        res.preview_url,
+        res.active_mode,
+        token
+      );
+      setActiveMode(res.active_mode || 'custom');
       if (res.is_healthy && res.status === 'RUNNING') {
         setRuntimeStatus('RUNNING');
         setRuntimePort(res.port || 8001);
-        setPreviewUrl(res.preview_url || 'http://127.0.0.1:8001/');
+        setPreviewUrl(resolvedUrl);
         setRuntimeDetail(res.detail || 'Application restarted successfully.');
         setRefreshKey(Date.now());
       } else {
@@ -338,6 +373,32 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
             </span>
           )}
 
+          {/* Mode Badge */}
+          <span
+            id="preview-mode-badge"
+            style={{
+              padding: '0.15rem 0.55rem',
+              borderRadius: '4px',
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              background: activeMode === 'snake_game' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(99, 102, 241, 0.15)',
+              color: activeMode === 'snake_game' ? '#38bdf8' : '#a5b4fc',
+              border: `1px solid ${activeMode === 'snake_game' ? 'rgba(56, 189, 248, 0.3)' : 'rgba(99, 102, 241, 0.3)'}`,
+            }}
+          >
+            {activeMode === 'snake_game'
+              ? '🎮 Snake Game'
+              : activeMode === 'eventhub'
+              ? '🎪 EventHub'
+              : activeMode === 'ecommerce'
+              ? '🛍️ ShopSphere'
+              : activeMode === 'management'
+              ? '📊 Management System'
+              : activeMode === 'taskflow'
+              ? '📋 TaskFlow'
+              : '🚀 Custom Prototype'}
+          </span>
+
           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
             Port {runtimePort}
           </span>
@@ -409,6 +470,19 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
 
         {/* Right Actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {onNavigate && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Code2 size={13} />}
+              onClick={() => onNavigate('development')}
+              title="Open Development Workspace to synthesize or inspect full production code"
+              style={{ fontSize: '0.78rem' }}
+            >
+              Generate Code
+            </Button>
+          )}
+
           <Button
             variant="ghost"
             size="sm"
@@ -488,10 +562,55 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
           overflow: 'hidden',
         }}
       >
+        {/* Informative Prototype & Code Responsibilities Banner */}
         <div
           style={{
             width: viewportWidth,
-            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0.4rem 0.85rem',
+            marginBottom: '0.5rem',
+            background: 'rgba(255, 255, 255, 0.03)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-md)',
+            fontSize: '0.75rem',
+            color: 'var(--text-muted)',
+            flexShrink: 0,
+            transition: 'width 0.3s ease',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Sparkles size={13} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+            <span>
+              <strong>Live Interactive Prototype:</strong> Testing UI, controls, and workflows. To synthesize multi-file backend & frontend code, open the Development Workspace.
+            </span>
+          </div>
+          {onNavigate && (
+            <button
+              type="button"
+              onClick={() => onNavigate('development')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--accent-cyan)',
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontSize: '0.75rem',
+                textDecoration: 'underline',
+                whiteSpace: 'nowrap',
+                marginLeft: '0.5rem',
+              }}
+            >
+              Open Code Studio →
+            </button>
+          )}
+        </div>
+
+        <div
+          style={{
+            width: viewportWidth,
+            height: 'calc(100% - 35px)',
             maxWidth: '100%',
             display: 'flex',
             flexDirection: 'column',

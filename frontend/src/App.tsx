@@ -163,10 +163,37 @@ export const App: React.FC = () => {
   // Helper to extract realistic starter requirements from natural language description
   const extractStarterRequirements = (desc: string) => {
     const text = desc.toLowerCase();
+    const isGameApp = text.includes('game') || text.includes('snake') || text.includes('arcade');
     const isEventApp = text.includes('event');
     const isTaskApp = text.includes('task');
+    const isShopApp = text.includes('shop') || text.includes('store') || text.includes('commerce') || text.includes('product') || text.includes('cart');
+    const isManageApp = text.includes('student') || text.includes('employee') || text.includes('manage') || text.includes('admin') || text.includes('record');
 
-    if (isEventApp) {
+    if (isGameApp) {
+      return [
+        { title: 'HTML5 Canvas 2D game rendering engine.', description: 'Smooth 60fps rendering with coordinate grid calculation.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Responsive directional controls (Keyboard Arrow/WASD & Touch D-Pad).', description: 'Real-time steering with prevent-reverse safeguards.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Real-time score calculation and persistent high-score tracking.', description: 'Score accumulation and localStorage persistent high scores.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Dynamic food generation, speed ramping, and self-collision boundaries.', description: 'Automated food placement avoiding snake body and boundary death triggers.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Modular game lifecycle (Start, Pause, Reset, Difficulty Speed select).', description: 'Game state machine controlling active, paused, and game-over states.', type: 'FUNCTIONAL' as const, priority: 'MEDIUM' as const },
+        { title: 'Interactive Live Preview prototype.', description: 'Direct browser game prototype on SE IntelliPlatform preview runtime.', type: 'NON_FUNCTIONAL' as const, priority: 'HIGH' as const },
+      ];
+    } else if (isShopApp) {
+      return [
+        { title: 'Product catalog browsing with category filters and search.', description: 'Browse and filter available catalog products dynamically.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Interactive shopping cart with live subtotal calculation.', description: 'Add/remove items and calculate line item totals in real time.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Streamlined checkout modal with customer order summary.', description: 'Checkout form with shipping details and order confirmation.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Stock availability validation before order completion.', description: 'Validates inventory count before order placement.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Production-ready REST APIs for products and orders.', description: 'Endpoints for catalog query and order checkout processing.', type: 'NON_FUNCTIONAL' as const, priority: 'HIGH' as const },
+      ];
+    } else if (isManageApp) {
+      return [
+        { title: 'Entity record directory with status indicators and search.', description: 'Filter and inspect member/employee/student records dynamically.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'KPI metrics dashboard summarizing active vs pending records.', description: 'Key performance indicators aggregating system records.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Inline status toggling and record creation workflow.', description: 'Create and update member records with validation.', type: 'FUNCTIONAL' as const, priority: 'MEDIUM' as const },
+        { title: 'Export records to standardized CSV dataset.', description: 'One-click client-side CSV export of active directory.', type: 'FUNCTIONAL' as const, priority: 'MEDIUM' as const },
+      ];
+    } else if (isEventApp) {
       return [
         { title: 'Users can browse available events.', description: 'Users can browse available events with details and scheduling.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
         { title: 'Users can search and filter events by category and date.', description: 'Filter events by taxonomy, tags, and date range.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },

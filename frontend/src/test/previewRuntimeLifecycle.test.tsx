@@ -11,6 +11,7 @@ vi.mock('../services/previewRuntimeApi', () => ({
     getStatus: vi.fn(),
     start: vi.fn(),
     restart: vi.fn(),
+    resolvePreviewUrl: vi.fn((_id, url) => url || 'http://127.0.0.1:8001/'),
   },
 }));
 
@@ -162,4 +163,42 @@ describe('PreviewWorkspace Runtime Lifecycle & Port 8001 Health Probing', () => 
 
     expect(screen.getByText(/Application running/i)).toBeInTheDocument();
   });
+
+  it('renders Snake Game project with game mode badge and Generate Code button', async () => {
+    const snakeProject: ProjectResponse = {
+      id: '7a12b345-6789-4bcd-8ef0-123456789abc',
+      name: 'Retro Snake Arcade',
+      slug: 'retro-snake-arcade',
+      description: 'Classic arcade snake game with persistent high score',
+      status: 'IN_PROGRESS',
+      created_at: '2026-10-25T00:00:00Z',
+      updated_at: '2026-10-25T00:00:00Z',
+    };
+
+    vi.mocked(previewRuntimeApi.getStatus).mockResolvedValueOnce({
+      status: 'RUNNING',
+      port: 8001,
+      preview_url: '/api/v1/projects/7a12b345-6789-4bcd-8ef0-123456789abc/runtime/preview?app=snake_game',
+      is_healthy: true,
+      project_id: snakeProject.id,
+      project_name: snakeProject.name,
+      active_mode: 'snake_game',
+      detail: 'Application preview ready (snake_game).',
+    });
+
+    const onNavigate = vi.fn();
+    renderWithProject(snakeProject, { onNavigate });
+
+    // Verify mode badge
+    await waitFor(() => {
+      expect(screen.getByText(/Snake Game/i)).toBeInTheDocument();
+    });
+
+    // Verify Generate Code action button is available
+    const genCodeBtn = screen.getByRole('button', { name: /Generate Code/i });
+    expect(genCodeBtn).toBeInTheDocument();
+    fireEvent.click(genCodeBtn);
+    expect(onNavigate).toHaveBeenCalledWith('development');
+  });
 });
+
