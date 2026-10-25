@@ -26,11 +26,24 @@ def test_valid_default_configuration():
 
 
 def test_custom_database_url_normalization():
-    """Verify that a standard postgresql:// URL gets converted to postgresql+psycopg://."""
-    s = Settings(
+    """Verify that postgresql:// and postgres:// URLs get converted to postgresql+psycopg://, and existing postgresql+psycopg:// URLs are preserved."""
+    # Standard postgresql://
+    s1 = Settings(
         DATABASE_URL="postgresql://user:pass@dbhost:5433/customdb",
     )
-    assert s.DATABASE_URL == "postgresql+psycopg://user:pass@dbhost:5433/customdb"
+    assert s1.DATABASE_URL == "postgresql+psycopg://user:pass@dbhost:5433/customdb"
+
+    # Neon / cloud provider postgres:// scheme
+    s2 = Settings(
+        DATABASE_URL="postgres://neon_user:neon_pass@ep-cool-1234.us-east-2.aws.neon.tech/neondb?sslmode=require",
+    )
+    assert s2.DATABASE_URL == "postgresql+psycopg://neon_user:neon_pass@ep-cool-1234.us-east-2.aws.neon.tech/neondb?sslmode=require"
+
+    # Already configured postgresql+psycopg:// scheme preserved
+    s3 = Settings(
+        DATABASE_URL="postgresql+psycopg://user:pass@dbhost:5432/existingdb",
+    )
+    assert s3.DATABASE_URL == "postgresql+psycopg://user:pass@dbhost:5432/existingdb"
 
 
 def test_log_level_normalization():

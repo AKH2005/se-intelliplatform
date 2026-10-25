@@ -121,6 +121,9 @@ class Settings(BaseSettings):
                 f"postgresql+psycopg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@"
                 f"{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
             )
+        elif self.DATABASE_URL.startswith("postgres://"):
+            # Ensure async psycopg driver is explicitly targeted for Neon/Postgres URLs
+            self.DATABASE_URL = self.DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
         elif self.DATABASE_URL.startswith("postgresql://"):
             # Ensure async psycopg driver is explicitly targeted
             self.DATABASE_URL = self.DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
