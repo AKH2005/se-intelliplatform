@@ -17,6 +17,7 @@ from app.agents.database_design.contracts import (
     DatabaseDesignOutput,
     DatabaseParadigm,
 )
+from app.agents.exceptions import ProviderError, TransientProviderError
 from app.agents.database_design.prompts import (
     SYSTEM_PROMPT,
     build_database_design_prompt,
@@ -127,11 +128,32 @@ class DatabaseDesignAgent(AbstractBaseAgent[DatabaseDesignOutput]):
             temperature=kwargs.get("temperature", 0.0),
         )
 
-        # 1. Generate structured candidate from provider
-        candidate_or_output = await provider.generate_structured(
-            request=request,
-            response_model=DatabaseDesignCandidate,
+        max_generate_attempts = kwargs.get(
+            "max_generate_attempts",
+            1 if getattr(provider, "provider_name", "") == "mock" else 2,
         )
+        candidate_or_output = None
+        for attempt in range(1, max_generate_attempts + 1):
+            try:
+                candidate_or_output = await provider.generate_structured(
+                    request=request,
+                    response_model=DatabaseDesignCandidate,
+                )
+                break
+            except TransientProviderError:
+                # Let transient errors (rate limits, timeouts) bubble up to AgentExecutor's retry policy
+                raise
+            except ProviderError as pe:
+                if attempt < max_generate_attempts:
+                    logger.warning(
+                        f"DatabaseDesignAgent structured output validation failed on attempt {attempt}/{max_generate_attempts}: {pe.detail}. "
+                        "Retrying generation with controlled retry..."
+                    )
+                    continue
+                logger.error(
+                    f"DatabaseDesignAgent structured output validation failed after {max_generate_attempts} attempts: {pe.detail}"
+                )
+                raise pe
 
         # 2. Extract model data
         if isinstance(candidate_or_output, DatabaseDesignOutput):

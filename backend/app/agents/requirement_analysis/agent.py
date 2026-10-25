@@ -11,6 +11,7 @@ from app.agents.contracts import (
     AgentType,
     ValidationResult,
 )
+from app.agents.exceptions import ProviderError, TransientProviderError
 from app.agents.providers.base import (
     AbstractLLMProvider,
     LLMMessage,
@@ -104,11 +105,31 @@ class RequirementAnalysisAgent(AbstractBaseAgent[RequirementAnalysisOutput]):
             temperature=kwargs.get("temperature", 0.0),
         )
 
-        # 1. Request structured candidate from provider
-        candidate_or_output = await provider.generate_structured(
-            request=request,
-            response_model=RequirementAnalysisCandidate,
+        max_generate_attempts = kwargs.get(
+            "max_generate_attempts",
+            1 if getattr(provider, "provider_name", "") == "mock" else 2,
         )
+        candidate_or_output = None
+        for attempt in range(1, max_generate_attempts + 1):
+            try:
+                candidate_or_output = await provider.generate_structured(
+                    request=request,
+                    response_model=RequirementAnalysisCandidate,
+                )
+                break
+            except TransientProviderError:
+                raise
+            except ProviderError as pe:
+                if attempt < max_generate_attempts:
+                    logger.warning(
+                        f"RequirementAnalysisAgent structured output validation failed on attempt {attempt}/{max_generate_attempts}: {pe.detail}. "
+                        "Retrying generation with controlled retry..."
+                    )
+                    continue
+                logger.error(
+                    f"RequirementAnalysisAgent structured output validation failed after {max_generate_attempts} attempts: {pe.detail}"
+                )
+                raise pe
 
         # 2. Extract AI qualitative fields (handling candidate, output, or dict)
         if isinstance(candidate_or_output, RequirementAnalysisOutput):

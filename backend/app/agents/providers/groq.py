@@ -177,6 +177,9 @@ class GroqProvider(AbstractLLMProvider):
 
     def _handle_groq_exception(self, exc: Exception, response_model_name: str | None = None) -> None:
         """Map Groq SDK exceptions to platform exception hierarchy."""
+        if isinstance(exc, (ProviderError, TransientProviderError)):
+            raise exc
+
         exc_name = type(exc).__name__
         msg = str(exc)
 

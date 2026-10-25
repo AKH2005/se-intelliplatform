@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 import pytest
 from httpx import AsyncClient
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.architecture_recommendation.agent import ArchitectureRecommendationAgent
@@ -33,7 +34,9 @@ from app.agents.database_design import (
     RelationshipRecommendation,
     RelationshipType,
 )
+from app.agents.exceptions import ProviderError, TransientProviderError
 from app.agents.execution import AgentExecutor
+from app.agents.providers.groq import GroqProvider
 from app.agents.providers.mock import MockLLMProvider
 from app.agents.registry import AgentRegistry, register_default_agents
 from app.agents.requirement_analysis.agent import RequirementAnalysisAgent
@@ -820,3 +823,274 @@ async def test_database_design_agent_discovery_via_api(client: AsyncClient):
     assert target["name"] == "Database Design Agent"
     assert target["version"] == "1.0.0"
     assert target["agent_type"] == "RECOMMENDATION"
+
+
+# --------------------------------------------------------------------------
+# 12. Regression Tests: Empty Defaults, Empty Entity Lists & AI Output Parsing
+# --------------------------------------------------------------------------
+def test_attribute_recommendation_empty_default_value_normalized_to_none():
+    """Verify empty or whitespace default_value is safely normalized to None without inventing defaults."""
+    # Empty string should normalize to None
+    attr_empty = AttributeRecommendation(
+        name="test_col",
+        data_type=DataType.STRING,
+        description="A test column",
+        default_value="",
+    )
+    assert attr_empty.default_value is None
+
+    # Whitespace-only string should normalize to None
+    attr_whitespace = AttributeRecommendation(
+        name="test_col",
+        data_type=DataType.INTEGER,
+        description="A test integer column",
+        default_value="   ",
+    )
+    assert attr_whitespace.default_value is None
+
+    # Explicit None remains None
+    attr_none = AttributeRecommendation(
+        name="test_col",
+        data_type=DataType.BOOLEAN,
+        description="A test boolean column",
+        default_value=None,
+    )
+    assert attr_none.default_value is None
+
+
+def test_attribute_recommendation_valid_default_value_preserved():
+    """Verify non-empty default values are preserved exactly as declared."""
+    attr_zero = AttributeRecommendation(
+        name="count",
+        data_type=DataType.INTEGER,
+        description="Counter initialized to zero",
+        default_value="0",
+    )
+    assert attr_zero.default_value == "0"
+
+    attr_uuid = AttributeRecommendation(
+        name="id",
+        data_type=DataType.UUID,
+        description="Unique identifier",
+        default_value="uuid_generate_v4()",
+    )
+    assert attr_uuid.default_value == "uuid_generate_v4()"
+
+
+def test_architecture_traceability_empty_entity_names_raises_validation_error():
+    """Verify that an empty entity_names list strictly raises ValidationError (never silently allowed)."""
+    # Empty list must fail schema validation (min_length=1)
+    with pytest.raises(ValidationError) as exc_info:
+        DatabaseArchitectureTrace(
+            architecture_component="AuthService",
+            entity_names=[],
+            rationale="Authenticates users",
+        )
+    assert "entity_names" in str(exc_info.value)
+
+    # Whitespace-only items also fail schema validation after normalization
+    with pytest.raises(ValidationError) as exc_info:
+        DatabaseArchitectureTrace(
+            architecture_component="AuthService",
+            entity_names=["   "],
+            rationale="Authenticates users",
+        )
+    assert "entity_names" in str(exc_info.value)
+
+
+def test_architecture_traceability_normalization_and_valid_cases():
+    """Verify entity_names normalization handles comma-separated strings and valid lists."""
+    # Valid list
+    trace_list = DatabaseArchitectureTrace(
+        architecture_component="AuthService",
+        entity_names=["User", "Session"],
+        rationale="Persists user credentials and active sessions",
+    )
+    assert trace_list.entity_names == ["User", "Session"]
+
+    # Comma-separated string normalization
+    trace_str = DatabaseArchitectureTrace(
+        architecture_component="AuthService",
+        entity_names="User, Session",
+        rationale="Persists user credentials and active sessions",
+    )
+    assert trace_str.entity_names == ["User", "Session"]
+
+
+def test_requirement_traceability_empty_entity_names_raises_validation_error():
+    """Verify requirement_traceability with empty entity_names strictly raises ValidationError."""
+    with pytest.raises(ValidationError) as exc_info:
+        DatabaseRequirementTrace(
+            requirement_id=uuid.uuid4(),
+            entity_names=[],
+            rationale="Satisfies canonical requirement",
+        )
+    assert "entity_names" in str(exc_info.value)
+
+
+def test_database_design_candidate_with_empty_default_and_valid_traceability(valid_db_candidate):
+    """Verify a full DatabaseDesignCandidate with empty default_value normalizes cleanly."""
+    candidate_dict = valid_db_candidate.model_dump()
+    # Emulate LLM returning empty string default_value for an attribute
+    candidate_dict["entities"][0]["attributes"][0]["default_value"] = ""
+
+    parsed = DatabaseDesignCandidate.model_validate(candidate_dict)
+    assert parsed.entities[0].attributes[0].default_value is None
+    assert len(parsed.entities) > 0
+
+
+def test_groq_provider_parse_and_validate_empty_default_as_none():
+    """Verify GroqProvider._parse_and_validate correctly parses AI output with empty default_value."""
+    provider = GroqProvider(api_key="gsk_dummy_test_key_for_unit_tests")
+    raw_ai_json = """
+    {
+        "summary": "Valid logical schema for testing normalization",
+        "database_paradigm": "RELATIONAL",
+        "entities": [
+            {
+                "name": "User",
+                "description": "User entity with empty default value",
+                "purpose": "Stores registered user credentials",
+                "attributes": [
+                    {
+                        "name": "user_id",
+                        "data_type": "UUID",
+                        "nullable": false,
+                        "description": "Primary key identifier",
+                        "default_value": "",
+                        "unique": true
+                    }
+                ],
+                "primary_key": {
+                    "attributes": ["user_id"],
+                    "is_composite": false
+                }
+            }
+        ],
+        "relationships": [],
+        "indexes": [],
+        "constraints": [],
+        "trade_offs": [],
+        "assumptions": [],
+        "constraints_notes": [],
+        "unknowns": [],
+        "requirement_traceability": [],
+        "architecture_traceability": []
+    }
+    """
+    candidate = provider._parse_and_validate(raw_ai_json, DatabaseDesignCandidate)
+    assert candidate.entities[0].attributes[0].default_value is None
+    assert candidate.entities[0].name == "User"
+
+
+def test_groq_provider_raises_provider_error_on_empty_entity_names():
+    """Verify GroqProvider raises ProviderError with clear error when entity_names is empty."""
+    provider = GroqProvider(api_key="gsk_dummy_test_key_for_unit_tests")
+    raw_ai_json = """
+    {
+        "summary": "Schema with invalid empty entity_names",
+        "database_paradigm": "RELATIONAL",
+        "entities": [
+            {
+                "name": "User",
+                "description": "User entity",
+                "purpose": "Stores user credentials",
+                "attributes": [
+                    {
+                        "name": "user_id",
+                        "data_type": "UUID",
+                        "nullable": false,
+                        "description": "Primary key identifier",
+                        "default_value": null,
+                        "unique": true
+                    }
+                ],
+                "primary_key": {
+                    "attributes": ["user_id"],
+                    "is_composite": false
+                }
+            }
+        ],
+        "relationships": [],
+        "indexes": [],
+        "constraints": [],
+        "trade_offs": [],
+        "assumptions": [],
+        "constraints_notes": [],
+        "unknowns": [],
+        "requirement_traceability": [],
+        "architecture_traceability": [
+            {
+                "architecture_component": "FrontendUI",
+                "entity_names": [],
+                "rationale": "Non-persistent frontend component"
+            }
+        ]
+    }
+    """
+    with pytest.raises(ProviderError) as exc_info:
+        provider._parse_and_validate(raw_ai_json, DatabaseDesignCandidate)
+
+    err = exc_info.value
+    assert err.transient is False
+    assert "Groq structured output failed Pydantic schema validation for DatabaseDesignCandidate" in err.message
+    assert "entity_names" in err.message
+
+
+def test_groq_provider_raises_provider_error_on_malformed_json():
+    """Verify GroqProvider raises ProviderError with clear error on malformed JSON."""
+    provider = GroqProvider(api_key="gsk_dummy_test_key_for_unit_tests")
+    malformed_json = "```json\n{\"summary\": \"Truncated output without closing bracket...\n```"
+
+    with pytest.raises(ProviderError) as exc_info:
+        provider._parse_and_validate(malformed_json, DatabaseDesignCandidate)
+
+    err = exc_info.value
+    assert err.transient is False
+    assert "Groq output was not valid JSON" in err.message
+
+
+@pytest.mark.asyncio
+async def test_database_design_agent_controlled_retry_on_schema_failure(sample_db_context, valid_db_candidate):
+    """Verify DatabaseDesignAgent retries when candidate generation encounters a schema validation failure."""
+    context, _, _ = sample_db_context
+    valid_db_candidate.architecture_traceability = []
+    agent = DatabaseDesignAgent()
+
+    # Create mock provider simulating schema validation failure on attempt 1, success on attempt 2
+    provider = MockLLMProvider()
+    provider.simulate_permanent_failure(
+        ProviderError(
+            message="Groq structured output failed Pydantic schema validation for DatabaseDesignCandidate: 1 validation error",
+            provider_name="groq",
+            transient=False,
+        )
+    )
+
+    # Calling with max_generate_attempts=1 must fail
+    analysis_data = await agent.analyze(context)
+    with pytest.raises(ProviderError) as exc_info:
+        await agent.generate(analysis_data, provider, max_generate_attempts=1)
+    assert "schema validation for DatabaseDesignCandidate" in str(exc_info.value)
+
+    # Calling with fallback where attempt 2 succeeds:
+    class RetryingMockProvider(MockLLMProvider):
+        def __init__(self, candidate):
+            super().__init__()
+            self.attempt = 0
+            self.candidate = candidate
+
+        async def generate_structured(self, request, response_model):
+            self.attempt += 1
+            if self.attempt == 1:
+                raise ProviderError(
+                    message="Groq structured output failed Pydantic schema validation for DatabaseDesignCandidate: entity_names empty",
+                    provider_name="groq",
+                    transient=False,
+                )
+            return self.candidate
+
+    retrying_provider = RetryingMockProvider(valid_db_candidate)
+    output = await agent.generate(analysis_data, retrying_provider, max_generate_attempts=2)
+    assert output is not None
+    assert retrying_provider.attempt == 2

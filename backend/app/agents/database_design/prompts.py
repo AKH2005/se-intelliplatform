@@ -19,6 +19,7 @@ Core Principles & Directives:
 4. Entity & Primary Key Integrity:
    - Every entity in `entities` MUST have a unique name.
    - Within each entity, attribute names MUST be unique.
+   - Attribute Default Values: If an attribute has NO default value, set `default_value` to `null` (or omit the field). NEVER output an empty string `""` for `default_value`. If a default value is intended, provide a valid, non-empty expression (e.g. '0', 'CURRENT_TIMESTAMP', 'uuid_generate_v4()'). Never invent artificial defaults when none is intended.
    - MANDATORY: EVERY SINGLE entity in `entities` (including audit, log, history, or associative entities) MUST explicitly include the `primary_key` object: `{"attributes": ["<id_attribute>"], "is_composite": false}`. Never omit `primary_key` from any entity.
    - If `primary_key.attributes` has more than 1 attribute, set `is_composite=True`.
 5. Explicit Foreign-Key Ownership:
@@ -32,8 +33,12 @@ Core Principles & Directives:
    - In `indexes`, `entity` and its `attributes` MUST exist in declared entities. Index names must be unique.
    - In `constraints`, `entity` and its `attributes` MUST exist in declared entities.
 7. Traceability:
-   - In `requirement_traceability`, every `requirement_id` must be an exact UUID from the canonical requirements, and `entity_names` must exist in declared entities.
-   - In `architecture_traceability`, if architecture recommendations were provided, `architecture_component` MUST match an exact component name from the architecture input, and `entity_names` must exist in declared entities. If no architecture recommendations were provided, keep `architecture_traceability` empty.
+   - In `requirement_traceability`, every `requirement_id` must be an exact UUID from the canonical requirements, and `entity_names` must be a non-empty list of entity names declared in `entities` (each entry must contain at least one entity name). Only trace requirements that are realized or stored by persistent entities.
+   - In `architecture_traceability`, ONLY include architecture components that directly manage, store, or query persistent database entities:
+     - Each entry in `architecture_traceability` MUST contain `architecture_component` matching an exact component name from the architecture input, and `entity_names` MUST be a non-empty list containing AT LEAST ONE declared entity name (e.g. `["User"]`).
+     - NEVER output an empty list `[]` for `entity_names`.
+     - Non-persistence components (such as frontend UI, browser clients, web pages, or API routers) that do not manage database entities MUST NOT be included in `architecture_traceability`.
+     - If no architecture recommendations were provided, keep `architecture_traceability` empty `[]`.
 8. Trade-Offs: Every trade-off item in `trade_offs` MUST specify at least one advantage and at least one disadvantage.
 9. Distinguish Categories:
    - Facts: Derived directly from requirements.
@@ -41,7 +46,7 @@ Core Principles & Directives:
    - Trade-offs: Honest pros and cons of selected data models versus alternatives.
    - Unknowns: Open questions regarding retention, encryption, or auditing requiring stakeholder answers.
 10. Advisory Nature: Never declare that a schema has been migrated, deployed, or executed. These are advisory recommendations for human engineering review.
-11. Return structured candidate recommendations conforming strictly to the required schema.
+11. Return structured candidate recommendations conforming strictly to the required schema. Ensure all required fields have valid, non-empty values.
 """
 
 
@@ -98,6 +103,11 @@ def build_database_design_prompt(
             arch_parts.append("Logical Architecture Components:")
             for c in architecture_recommendation.components:
                 arch_parts.append(f"  - Component: {c.name}: {c.responsibility}")
+            arch_parts.append(
+                "\n  * IMPORTANT RULE for architecture_traceability: Only include components that directly manage or persist database entities. "
+                "Every entry in `architecture_traceability` MUST have `entity_names` containing at least one declared entity name. "
+                "Do NOT include non-persistent components (like UI or Frontend), and NEVER output an empty list `[]` for entity_names."
+            )
         arch_block = "\n".join(arch_parts)
 
     prompt = (
@@ -116,6 +126,9 @@ def build_database_design_prompt(
         f"Based on the project context and upstream inputs above, recommend a logical database design. "
         f"Propose recommended database paradigm, logical entities, attributes with data types, primary keys, "
         f"relationships with explicit foreign key ownership, performance indexes, domain constraints, "
-        f"trade-off analyses, assumptions, unknowns, requirement traceability, and architecture component traceability."
+        f"trade-off analyses, assumptions, unknowns, requirement traceability, and architecture component traceability.\n\n"
+        f"CRITICAL SCHEMA RULES:\n"
+        f"- For attribute default values: Set `default_value` to null (or omit it) when no default is intended. Never use empty string \"\".\n"
+        f"- For architecture_traceability: Include only components that own database entities, and ensure `entity_names` has at least one entity name. Never use empty list []."
     )
     return prompt

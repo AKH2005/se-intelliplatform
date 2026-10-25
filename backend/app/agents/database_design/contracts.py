@@ -2,7 +2,8 @@
 
 import enum
 import uuid
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class DatabaseParadigm(str, enum.Enum):
@@ -70,12 +71,24 @@ class AttributeRecommendation(BaseModel):
     )
     default_value: str | None = Field(
         default=None,
-        description="Optional default value or generator expression (e.g. 'uuid_generate_v4()', '0')",
+        min_length=1,
+        description="Optional default value or generator expression (e.g. 'uuid_generate_v4()', '0'). Must be null or omitted if no default exists.",
     )
     unique: bool = Field(
         default=False,
         description="True if individual attribute uniqueness is required",
     )
+
+    @field_validator("default_value", mode="before")
+    @classmethod
+    def normalize_default_value(cls, v: Any) -> str | None:
+        """Normalize empty or whitespace strings to None (unambiguous absent default)."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            stripped = v.strip()
+            return stripped if stripped else None
+        return v
 
 
 class PrimaryKeyRecommendation(BaseModel):
@@ -90,6 +103,16 @@ class PrimaryKeyRecommendation(BaseModel):
         default=False,
         description="True if primary key is composed of more than one attribute",
     )
+
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def normalize_attributes(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            parts = [p.strip() for p in v.split(",") if p.strip()]
+            return parts
+        if isinstance(v, list):
+            return [p.strip() if isinstance(p, str) else p for p in v if not isinstance(p, str) or p.strip()]
+        return v
 
 
 class EntityRecommendation(BaseModel):
@@ -187,6 +210,16 @@ class RelationshipRecommendation(BaseModel):
         description="UUIDs of requirements driving this relationship",
     )
 
+    @field_validator("junction_entity", mode="before")
+    @classmethod
+    def normalize_junction_entity(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            stripped = v.strip()
+            return stripped if stripped else None
+        return v
+
 
 class IndexRecommendation(BaseModel):
     """Performance or uniqueness index recommendation."""
@@ -216,6 +249,16 @@ class IndexRecommendation(BaseModel):
         description="Performance or lookup rationale justifying this index",
     )
 
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def normalize_index_attributes(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            parts = [p.strip() for p in v.split(",") if p.strip()]
+            return parts
+        if isinstance(v, list):
+            return [p.strip() if isinstance(p, str) else p for p in v if not isinstance(p, str) or p.strip()]
+        return v
+
 
 class ConstraintRecommendation(BaseModel):
     """Additional integrity or domain business rule constraint."""
@@ -243,6 +286,26 @@ class ConstraintRecommendation(BaseModel):
         description="Engineering justification for this integrity rule",
     )
 
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def normalize_constraint_attributes(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            parts = [p.strip() for p in v.split(",") if p.strip()]
+            return parts
+        if isinstance(v, list):
+            return [p.strip() if isinstance(p, str) else p for p in v if not isinstance(p, str) or p.strip()]
+        return v
+
+    @field_validator("expression_or_reference", mode="before")
+    @classmethod
+    def normalize_expression_or_reference(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            stripped = v.strip()
+            return stripped if stripped else None
+        return v
+
 
 class DatabaseRequirementTrace(BaseModel):
     """Traceability link connecting canonical requirements to database entities."""
@@ -261,6 +324,16 @@ class DatabaseRequirementTrace(BaseModel):
         min_length=5,
         description="Explanation of how the entity data model satisfies the requirement",
     )
+
+    @field_validator("entity_names", mode="before")
+    @classmethod
+    def normalize_req_entity_names(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            parts = [p.strip() for p in v.split(",") if p.strip()]
+            return parts
+        if isinstance(v, list):
+            return [p.strip() if isinstance(p, str) else p for p in v if not isinstance(p, str) or p.strip()]
+        return v
 
 
 class DatabaseArchitectureTrace(BaseModel):
@@ -281,6 +354,16 @@ class DatabaseArchitectureTrace(BaseModel):
         min_length=5,
         description="Explanation of data responsibility and persistence coupling",
     )
+
+    @field_validator("entity_names", mode="before")
+    @classmethod
+    def normalize_arch_entity_names(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            parts = [p.strip() for p in v.split(",") if p.strip()]
+            return parts
+        if isinstance(v, list):
+            return [p.strip() if isinstance(p, str) else p for p in v if not isinstance(p, str) or p.strip()]
+        return v
 
 
 class DatabaseTradeOff(BaseModel):
@@ -321,6 +404,16 @@ class DatabaseTradeOff(BaseModel):
         min_length=5,
         description="Compromises required by the alternative",
     )
+
+    @field_validator("advantages", "disadvantages", mode="before")
+    @classmethod
+    def normalize_tradeoff_lists(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            parts = [p.strip() for p in v.split(",") if p.strip()]
+            return parts
+        if isinstance(v, list):
+            return [p.strip() if isinstance(p, str) else p for p in v if not isinstance(p, str) or p.strip()]
+        return v
 
 
 class DatabaseDesignCandidate(BaseModel):

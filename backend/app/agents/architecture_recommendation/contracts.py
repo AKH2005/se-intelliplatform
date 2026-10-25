@@ -2,7 +2,8 @@
 
 import enum
 import uuid
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ArchitectureStyle(str, enum.Enum):
@@ -157,6 +158,16 @@ class TradeOffAnalysis(BaseModel):
         description="Compromise or overhead required if selecting the alternative",
     )
 
+    @field_validator("advantages", "disadvantages", mode="before")
+    @classmethod
+    def normalize_tradeoff_lists(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            parts = [p.strip() for p in v.split(",") if p.strip()]
+            return parts
+        if isinstance(v, list):
+            return [p.strip() if isinstance(p, str) else p for p in v if not isinstance(p, str) or p.strip()]
+        return v
+
 
 class ArchitectureRequirementTrace(BaseModel):
     """Traceability mapping linking canonical requirements to recommended components."""
@@ -175,6 +186,16 @@ class ArchitectureRequirementTrace(BaseModel):
         min_length=5,
         description="Explanation of how the assigned components satisfy the requirement",
     )
+
+    @field_validator("component_names", mode="before")
+    @classmethod
+    def normalize_component_names(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            parts = [p.strip() for p in v.split(",") if p.strip()]
+            return parts
+        if isinstance(v, list):
+            return [p.strip() if isinstance(p, str) else p for p in v if not isinstance(p, str) or p.strip()]
+        return v
 
 
 class ArchitectureRecommendationCandidate(BaseModel):
