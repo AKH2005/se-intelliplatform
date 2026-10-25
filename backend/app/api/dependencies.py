@@ -1,5 +1,6 @@
 """API Dependencies and Inversion of Control."""
 
+from typing import Any
 import uuid
 from collections.abc import AsyncGenerator
 from fastapi import Depends
@@ -7,6 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.providers.base import AbstractLLMProvider
 from app.core.database import get_db
 from app.core.exceptions import ForbiddenError, NotFoundError, UnauthorizedError
 from app.core.security import decode_access_token

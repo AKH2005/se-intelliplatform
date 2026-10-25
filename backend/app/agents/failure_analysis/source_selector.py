@@ -1,7 +1,7 @@
 """Deterministic Relevant Source Selection & Evidence Bounding for Failure Analysis."""
 
 import re
-from typing import Sequence
+from typing import Any, Sequence
 from app.agents.code_generation.contracts import GeneratedFile
 from app.agents.failure_analysis.contracts import RelevantSourceFile
 from app.sandbox.contracts import ExecutionResult

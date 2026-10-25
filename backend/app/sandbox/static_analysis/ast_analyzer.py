@@ -20,7 +20,7 @@ class ParsedModuleData:
         self.file_path = file_path
         self.content = content
         self.tree: ast.AST | None = None
-        self.syntax_error: ast.SyntaxError | None = None
+        self.syntax_error: SyntaxError | None = None
         self.imports: list[tuple[str, list[str], int]] = []  # (module, [names], line)
         self.functions: list[tuple[str, int]] = []  # (name, line)
         self.classes: list[tuple[str, int]] = []  # (name, line)
