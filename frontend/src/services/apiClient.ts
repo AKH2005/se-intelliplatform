@@ -1,12 +1,25 @@
 import { ApiError, ProblemDetails } from '../types/api';
 
-const DEFAULT_BASE_URL = 'http://localhost:8000/api/v1';
+const DEFAULT_DEV_BASE_URL = 'http://localhost:8000/api/v1';
+const DEFAULT_PROD_BASE_URL = 'https://se-intelliplatform-backend.onrender.com/api/v1';
 
 function getBaseUrl(): string {
+  let url = '';
   if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) {
-    return import.meta.env.VITE_API_BASE_URL;
+    url = import.meta.env.VITE_API_BASE_URL.trim();
+  } else if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.PROD) {
+    url = DEFAULT_PROD_BASE_URL;
+  } else {
+    url = DEFAULT_DEV_BASE_URL;
   }
-  return DEFAULT_BASE_URL;
+
+  // Strip trailing slashes
+  url = url.replace(/\/+$/, '');
+  // Ensure /api/v1 prefix is appended if omitted
+  if (!url.endsWith('/api/v1')) {
+    url = `${url}/api/v1`;
+  }
+  return url;
 }
 
 function generateCorrelationId(): string {

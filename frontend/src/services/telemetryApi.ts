@@ -44,10 +44,7 @@ export class TelemetryApiClient {
     executionId?: string,
     sinceSequence: number = 0
   ): string {
-    const rawBase =
-      typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL
-        ? import.meta.env.VITE_API_BASE_URL
-        : 'http://localhost:8000/api/v1';
+    const rawBase = this.client.getBaseUrl();
 
     const wsBase = rawBase.replace(/^http:\/\//i, 'ws://').replace(/^https:\/\//i, 'wss://');
     let url = `${wsBase}/projects/${encodeURIComponent(projectId)}/telemetry/ws?since_sequence=${sinceSequence}`;

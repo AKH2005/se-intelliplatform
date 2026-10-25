@@ -91,4 +91,11 @@ describe('Centralized API Client', () => {
       expect(calledOptions.headers.get('X-Correlation-ID')).toBe(customCorrelationId);
     }
   });
+
+  it('uses configured environment URL or default localhost in local/test environment', () => {
+    const defaultClient = new HttpClient();
+    const expected = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+    expect(defaultClient.getBaseUrl()).toBe(expected);
+  });
 });
+
