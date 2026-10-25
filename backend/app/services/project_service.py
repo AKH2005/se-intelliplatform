@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from typing import Sequence
+from typing import Any, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
