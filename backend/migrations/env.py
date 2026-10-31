@@ -18,6 +18,7 @@ from app.models import (  # noqa: F401
     project,
     requirement,
     workflow_execution,
+    preview,
 )
 
 config = context.config

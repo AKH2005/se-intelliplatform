@@ -1,29 +1,38 @@
 """Pytest Configuration, Fixtures, and Test Environment Setup."""
 
 import os
+import sys
+
+# Configure Windows event loop policy for async compatibility
+if sys.platform == "win32":
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from collections.abc import AsyncGenerator
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 # Set testing environment before importing app
+TEST_DB_URL = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ["ENVIRONMENT"] = "testing"
 os.environ["DEBUG"] = "true"
 os.environ["LOG_LEVEL"] = "WARNING"
+os.environ["DATABASE_URL"] = TEST_DB_URL
 
 from app.core.config import settings
+from app.core import database as db_module
 from app.core.database import get_db
 from app.main import app
 from app.models.base import Base
-
-
-# Determine test engine: use PostgreSQL if configured or SQLite async for fast unit/integration
-TEST_DB_URL = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
 test_engine = create_async_engine(
     TEST_DB_URL,
     echo=False,
     future=True,
+    connect_args={"check_same_thread": False} if "sqlite" in TEST_DB_URL else {},
+    poolclass=StaticPool if "sqlite" in TEST_DB_URL else None,
 )
 
 TestingSessionLocal = async_sessionmaker(
@@ -33,6 +42,10 @@ TestingSessionLocal = async_sessionmaker(
     autocommit=False,
     autoflush=False,
 )
+
+# Bind global core database engine & sessionmaker to test engine during test runs
+db_module.engine = test_engine
+db_module.AsyncSessionLocal = TestingSessionLocal
 
 
 @pytest.fixture(autouse=True)

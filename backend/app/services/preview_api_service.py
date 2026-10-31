@@ -2,319 +2,416 @@
 
 Provides persistent, project-isolated API data for Live Preview applications
 (TaskFlow/Kanban, Snake Game, Executive Analytics, EventHub, E-Commerce).
-Ensures database schema migrations (project_id scoping, scores table) and WAL-safe operations.
+Uses the configured PostgreSQL database (Neon in production) via SQLAlchemy AsyncSession.
 """
 
-import json
+from datetime import datetime, timezone
 import logging
-import os
-import sqlite3
-from pathlib import Path
-from typing import Any, Optional
+import uuid
+from typing import Any, Optional, Union
+from sqlalchemy import inspect, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core import database as db_module
+from app.models.base import Base
+from app.models.preview import PreviewScore, PreviewTask
 
 logger = logging.getLogger(__name__)
 
-# Resolve absolute path to se_intelliplatform.db
-DB_FILE = Path(__file__).resolve().parent.parent.parent / "se_intelliplatform.db"
 
-
-def get_sqlite_conn() -> sqlite3.Connection:
-    """Create a SQLite connection with timeout and WAL journal mode."""
-    conn = sqlite3.connect(str(DB_FILE), timeout=30.0)
-    conn.row_factory = sqlite3.Row
+def parse_project_uuid(project_id: Optional[Union[str, uuid.UUID]]) -> Optional[uuid.UUID]:
+    """Parse string or UUID into valid uuid.UUID or None."""
+    if not project_id:
+        return None
+    if isinstance(project_id, uuid.UUID):
+        return project_id
     try:
-        conn.execute("PRAGMA busy_timeout = 30000")
-        conn.execute("PRAGMA journal_mode = WAL")
+        clean = str(project_id).strip()
+        if not clean:
+            return None
+        return uuid.UUID(clean)
     except Exception:
-        pass
-    return conn
+        try:
+            return uuid.uuid5(uuid.NAMESPACE_DNS, clean)
+        except Exception:
+            return None
 
 
 class PreviewApiService:
     """Service for handling preview application APIs across FastAPI and preview runtime."""
 
     @staticmethod
-    def ensure_schema() -> None:
-        """Ensure all required preview tables and columns exist with backward compatibility."""
+    async def ensure_schema() -> None:
+        """Ensure all required preview tables and columns exist on the active database engine."""
         try:
-            conn = get_sqlite_conn()
-            cur = conn.cursor()
+            async with db_module.engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
 
-            # 1. Ensure preview_tasks table exists
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS preview_tasks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title TEXT NOT NULL,
-                    description TEXT DEFAULT '',
-                    priority TEXT DEFAULT 'MEDIUM',
-                    status TEXT DEFAULT 'PENDING',
-                    due_date TEXT DEFAULT '2026-12-31',
-                    project_id TEXT DEFAULT ''
-                )
-            """)
+                def _migrate_columns(sync_conn):
+                    inspector = inspect(sync_conn)
+                    tables = inspector.get_table_names()
+                    if "preview_tasks" in tables:
+                        cols = [c["name"] for c in inspector.get_columns("preview_tasks")]
+                        if "project_id" not in cols:
+                            try:
+                                sync_conn.execute(text("ALTER TABLE preview_tasks ADD COLUMN project_id VARCHAR(64)"))
+                            except Exception:
+                                pass
+                        if "created_at" not in cols:
+                            try:
+                                sync_conn.execute(text("ALTER TABLE preview_tasks ADD COLUMN created_at TIMESTAMP"))
+                            except Exception:
+                                pass
+                        if "updated_at" not in cols:
+                            try:
+                                sync_conn.execute(text("ALTER TABLE preview_tasks ADD COLUMN updated_at TIMESTAMP"))
+                            except Exception:
+                                pass
 
-            # Verify if project_id column exists on preview_tasks
-            cur.execute("PRAGMA table_info(preview_tasks)")
-            columns = [c["name"] for c in cur.fetchall()]
-            if "project_id" not in columns:
-                try:
-                    cur.execute("ALTER TABLE preview_tasks ADD COLUMN project_id TEXT DEFAULT ''")
-                    logger.info("Migrated preview_tasks: added project_id column.")
-                except Exception as exc:
-                    logger.debug("ALTER TABLE preview_tasks project_id already applied or skipped: %s", exc)
+                    if "preview_scores" in tables:
+                        cols = [c["name"] for c in inspector.get_columns("preview_scores")]
+                        if "project_id" not in cols:
+                            try:
+                                sync_conn.execute(text("ALTER TABLE preview_scores ADD COLUMN project_id VARCHAR(64)"))
+                            except Exception:
+                                pass
+                        if "created_at" not in cols:
+                            try:
+                                sync_conn.execute(text("ALTER TABLE preview_scores ADD COLUMN created_at TIMESTAMP"))
+                            except Exception:
+                                pass
+                        if "updated_at" not in cols:
+                            try:
+                                sync_conn.execute(text("ALTER TABLE preview_scores ADD COLUMN updated_at TIMESTAMP"))
+                            except Exception:
+                                pass
 
-            # 2. Ensure preview_scores table exists for Arcade / Snake Game
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS preview_scores (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    project_id TEXT DEFAULT '',
-                    player_name TEXT DEFAULT 'Player 1',
-                    score INTEGER NOT NULL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-
-            # Seed initial scores if empty
-            cur.execute("SELECT COUNT(*) as count FROM preview_scores")
-            count = cur.fetchone()["count"]
-            if count == 0:
-                cur.executemany(
-                    "INSERT INTO preview_scores (project_id, player_name, score) VALUES (?, ?, ?)",
-                    [
-                        ("", "NeonViper", 320),
-                        ("", "CyberSnake", 240),
-                        ("", "RetroGamer", 180),
-                        ("", "PixelMaster", 120),
-                    ]
-                )
-
-            conn.commit()
-            conn.close()
+                await conn.run_sync(_migrate_columns)
         except Exception as exc:
             logger.warning("Could not auto-ensure preview database schema: %s", exc)
 
     @classmethod
-    def get_tasks(cls, project_id: Optional[str] = None) -> list[dict[str, Any]]:
+    async def get_tasks(
+        cls,
+        project_id: Optional[Union[str, uuid.UUID]] = None,
+        session: Optional[AsyncSession] = None,
+    ) -> list[dict[str, Any]]:
         """Retrieve tasks, isolating by project_id while seeding defaults if empty."""
-        cls.ensure_schema()
-        clean_pid = str(project_id or "").strip()
-        conn = get_sqlite_conn()
-        cur = conn.cursor()
+        p_uuid = parse_project_uuid(project_id)
 
-        if clean_pid:
-            cur.execute(
-                "SELECT id, title, description, priority, status, due_date, project_id FROM preview_tasks WHERE project_id = ? ORDER BY id ASC",
-                (clean_pid,)
-            )
-            rows = cur.fetchall()
-            if not rows:
-                # Seed initial starter tasks for this project
-                initial = [
-                    (clean_pid, "Review Architecture Blueprint", "Inspect domain models, services, and endpoints.", "HIGH", "COMPLETED", "2026-11-15"),
-                    (clean_pid, "Implement Core Feature Set", "Build and integrate primary application logic.", "HIGH", "IN_PROGRESS", "2026-11-20"),
-                    (clean_pid, "Verify Live Preview Integration", "Ensure end-to-end API communication and real-time UI updates.", "MEDIUM", "PENDING", "2026-11-25"),
-                ]
-                cur.executemany(
-                    "INSERT INTO preview_tasks (project_id, title, description, priority, status, due_date) VALUES (?, ?, ?, ?, ?, ?)",
-                    initial
-                )
-                conn.commit()
-                cur.execute(
-                    "SELECT id, title, description, priority, status, due_date, project_id FROM preview_tasks WHERE project_id = ? ORDER BY id ASC",
-                    (clean_pid,)
-                )
-                rows = cur.fetchall()
-        else:
-            cur.execute("SELECT id, title, description, priority, status, due_date, project_id FROM preview_tasks ORDER BY id ASC")
-            rows = cur.fetchall()
-            if not rows:
-                initial = [
-                    ("", "Setup Project Scaffolding", "Initialize database models and API routes.", "HIGH", "COMPLETED", "2026-10-15"),
-                    ("", "Design Task Management UI", "Create responsive task dashboard and action cards.", "MEDIUM", "PENDING", "2026-10-20"),
-                ]
-                cur.executemany(
-                    "INSERT INTO preview_tasks (project_id, title, description, priority, status, due_date) VALUES (?, ?, ?, ?, ?, ?)",
-                    initial
-                )
-                conn.commit()
-                cur.execute("SELECT id, title, description, priority, status, due_date, project_id FROM preview_tasks ORDER BY id ASC")
-                rows = cur.fetchall()
+        if session is not None:
+            return await cls._get_tasks_with_session(p_uuid, session)
 
-        tasks = []
-        for r in rows:
-            tasks.append({
-                "id": r["id"],
-                "title": r["title"],
-                "description": r["description"] or "",
-                "priority": r["priority"] or "MEDIUM",
-                "status": r["status"] or "PENDING",
-                "due_date": r["due_date"] or "2026-12-31",
-                "project_id": r["project_id"] or "",
-            })
-        conn.close()
-        return tasks
+        async with db_module.AsyncSessionLocal() as local_session:
+            return await cls._get_tasks_with_session(p_uuid, local_session)
 
     @classmethod
-    def create_task(cls, data: dict[str, Any], project_id: Optional[str] = None) -> dict[str, Any]:
+    async def _get_tasks_with_session(
+        cls,
+        p_uuid: Optional[uuid.UUID],
+        session: AsyncSession,
+    ) -> list[dict[str, Any]]:
+        if p_uuid is not None:
+            stmt = select(PreviewTask).where(PreviewTask.project_id == p_uuid).order_by(PreviewTask.id.asc())
+        else:
+            stmt = select(PreviewTask).where(PreviewTask.project_id.is_(None)).order_by(PreviewTask.id.asc())
+
+        res = await session.execute(stmt)
+        tasks = list(res.scalars().all())
+
+        if not tasks:
+            # Seed starter tasks for this project
+            if p_uuid is not None:
+                initial = [
+                    PreviewTask(
+                        project_id=p_uuid,
+                        title="Review Architecture Blueprint",
+                        description="Inspect domain models, services, and endpoints.",
+                        priority="HIGH",
+                        status="COMPLETED",
+                        due_date="2026-11-15",
+                    ),
+                    PreviewTask(
+                        project_id=p_uuid,
+                        title="Implement Core Feature Set",
+                        description="Build and integrate primary application logic.",
+                        priority="HIGH",
+                        status="IN_PROGRESS",
+                        due_date="2026-11-20",
+                    ),
+                    PreviewTask(
+                        project_id=p_uuid,
+                        title="Verify Live Preview Integration",
+                        description="Ensure end-to-end API communication and real-time UI updates.",
+                        priority="MEDIUM",
+                        status="PENDING",
+                        due_date="2026-11-25",
+                    ),
+                ]
+            else:
+                initial = [
+                    PreviewTask(
+                        project_id=None,
+                        title="Setup Project Scaffolding",
+                        description="Initialize database models and API routes.",
+                        priority="HIGH",
+                        status="COMPLETED",
+                        due_date="2026-10-15",
+                    ),
+                    PreviewTask(
+                        project_id=None,
+                        title="Design Task Management UI",
+                        description="Create responsive task dashboard and action cards.",
+                        priority="MEDIUM",
+                        status="PENDING",
+                        due_date="2026-10-20",
+                    ),
+                ]
+
+            session.add_all(initial)
+            await session.commit()
+            for t in initial:
+                await session.refresh(t)
+            return [t.to_dict() for t in initial]
+
+        return [t.to_dict() for t in tasks]
+
+    @classmethod
+    async def create_task(
+        cls,
+        data: dict[str, Any],
+        project_id: Optional[Union[str, uuid.UUID]] = None,
+        session: Optional[AsyncSession] = None,
+    ) -> dict[str, Any]:
         """Create a new task scoped to project_id."""
-        cls.ensure_schema()
-        clean_pid = str(project_id or data.get("project_id") or "").strip()
-        title = (data.get("title") or "Untitled Task").strip()
-        desc = (data.get("description") or "").strip()
-        priority = (data.get("priority") or "MEDIUM").strip()
-        status = (data.get("status") or "PENDING").strip()
-        due_date = (data.get("due_date") or "2026-12-31").strip()
+        p_uuid = parse_project_uuid(project_id or data.get("project_id"))
 
-        conn = get_sqlite_conn()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO preview_tasks (project_id, title, description, priority, status, due_date) VALUES (?, ?, ?, ?, ?, ?)",
-            (clean_pid, title, desc, priority, status, due_date)
+        if session is not None:
+            return await cls._create_task_with_session(data, p_uuid, session)
+
+        async with db_module.AsyncSessionLocal() as local_session:
+            return await cls._create_task_with_session(data, p_uuid, local_session)
+
+    @classmethod
+    async def _create_task_with_session(
+        cls,
+        data: dict[str, Any],
+        p_uuid: Optional[uuid.UUID],
+        session: AsyncSession,
+    ) -> dict[str, Any]:
+        task = PreviewTask(
+            project_id=p_uuid,
+            title=(data.get("title") or "Untitled Task").strip(),
+            description=(data.get("description") or "").strip(),
+            priority=(data.get("priority") or "MEDIUM").strip(),
+            status=(data.get("status") or "PENDING").strip(),
+            due_date=(data.get("due_date") or "2026-12-31").strip(),
         )
-        task_id = cur.lastrowid
-        conn.commit()
-        conn.close()
-
-        return {
-            "id": task_id,
-            "title": title,
-            "description": desc,
-            "priority": priority,
-            "status": status,
-            "due_date": due_date,
-            "project_id": clean_pid,
-        }
+        session.add(task)
+        await session.commit()
+        await session.refresh(task)
+        return task.to_dict()
 
     @classmethod
-    def get_task(cls, task_id: int, project_id: Optional[str] = None) -> Optional[dict[str, Any]]:
-        """Retrieve single task by ID."""
-        cls.ensure_schema()
-        clean_pid = str(project_id or "").strip()
-        conn = get_sqlite_conn()
-        cur = conn.cursor()
-        if clean_pid:
-            cur.execute(
-                "SELECT id, title, description, priority, status, due_date, project_id FROM preview_tasks WHERE id = ? AND (project_id = ? OR project_id = '')",
-                (task_id, clean_pid)
-            )
-        else:
-            cur.execute(
-                "SELECT id, title, description, priority, status, due_date, project_id FROM preview_tasks WHERE id = ?",
-                (task_id,)
-            )
-        row = cur.fetchone()
-        conn.close()
-        if not row:
-            return None
-        return {
-            "id": row["id"],
-            "title": row["title"],
-            "description": row["description"] or "",
-            "priority": row["priority"] or "MEDIUM",
-            "status": row["status"] or "PENDING",
-            "due_date": row["due_date"] or "2026-12-31",
-            "project_id": row["project_id"] or "",
-        }
+    async def get_task(
+        cls,
+        task_id: int,
+        project_id: Optional[Union[str, uuid.UUID]] = None,
+        session: Optional[AsyncSession] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Retrieve single task by ID with optional project scoping."""
+        p_uuid = parse_project_uuid(project_id)
+
+        if session is not None:
+            return await cls._get_task_with_session(task_id, p_uuid, session)
+
+        async with db_module.AsyncSessionLocal() as local_session:
+            return await cls._get_task_with_session(task_id, p_uuid, local_session)
 
     @classmethod
-    def update_task(cls, task_id: int, data: dict[str, Any], project_id: Optional[str] = None) -> Optional[dict[str, Any]]:
+    async def _get_task_with_session(
+        cls,
+        task_id: int,
+        p_uuid: Optional[uuid.UUID],
+        session: AsyncSession,
+    ) -> Optional[dict[str, Any]]:
+        stmt = select(PreviewTask).where(PreviewTask.id == task_id)
+        if p_uuid is not None:
+            stmt = stmt.where(PreviewTask.project_id == p_uuid)
+
+        res = await session.execute(stmt)
+        task = res.scalar_one_or_none()
+        return task.to_dict() if task else None
+
+    @classmethod
+    async def update_task(
+        cls,
+        task_id: int,
+        data: dict[str, Any],
+        project_id: Optional[Union[str, uuid.UUID]] = None,
+        session: Optional[AsyncSession] = None,
+    ) -> Optional[dict[str, Any]]:
         """Update fields on an existing task."""
-        existing = cls.get_task(task_id, project_id)
-        if not existing:
-            return None
+        p_uuid = parse_project_uuid(project_id)
 
-        updated_title = data.get("title", existing["title"])
-        updated_desc = data.get("description", existing["description"])
-        updated_priority = data.get("priority", existing["priority"])
-        updated_status = data.get("status", existing["status"])
-        updated_due = data.get("due_date", existing["due_date"])
+        if session is not None:
+            return await cls._update_task_with_session(task_id, data, p_uuid, session)
 
-        conn = get_sqlite_conn()
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE preview_tasks SET title = ?, description = ?, priority = ?, status = ?, due_date = ? WHERE id = ?",
-            (updated_title, updated_desc, updated_priority, updated_status, updated_due, task_id)
-        )
-        conn.commit()
-        conn.close()
-
-        return {
-            "id": task_id,
-            "title": updated_title,
-            "description": updated_desc,
-            "priority": updated_priority,
-            "status": updated_status,
-            "due_date": updated_due,
-            "project_id": existing.get("project_id", ""),
-        }
+        async with db_module.AsyncSessionLocal() as local_session:
+            return await cls._update_task_with_session(task_id, data, p_uuid, local_session)
 
     @classmethod
-    def delete_task(cls, task_id: int, project_id: Optional[str] = None) -> bool:
+    async def _update_task_with_session(
+        cls,
+        task_id: int,
+        data: dict[str, Any],
+        p_uuid: Optional[uuid.UUID],
+        session: AsyncSession,
+    ) -> Optional[dict[str, Any]]:
+        stmt = select(PreviewTask).where(PreviewTask.id == task_id)
+        if p_uuid is not None:
+            stmt = stmt.where(PreviewTask.project_id == p_uuid)
+
+        res = await session.execute(stmt)
+        task = res.scalar_one_or_none()
+        if not task:
+            return None
+
+        if "title" in data:
+            task.title = str(data["title"]).strip()
+        if "description" in data:
+            task.description = str(data["description"]).strip()
+        if "priority" in data:
+            task.priority = str(data["priority"]).strip()
+        if "status" in data:
+            task.status = str(data["status"]).strip()
+        if "due_date" in data:
+            task.due_date = str(data["due_date"]).strip()
+
+        await session.commit()
+        await session.refresh(task)
+        return task.to_dict()
+
+    @classmethod
+    async def delete_task(
+        cls,
+        task_id: int,
+        project_id: Optional[Union[str, uuid.UUID]] = None,
+        session: Optional[AsyncSession] = None,
+    ) -> bool:
         """Delete task by ID."""
-        existing = cls.get_task(task_id, project_id)
-        if not existing:
+        p_uuid = parse_project_uuid(project_id)
+
+        if session is not None:
+            return await cls._delete_task_with_session(task_id, p_uuid, session)
+
+        async with db_module.AsyncSessionLocal() as local_session:
+            return await cls._delete_task_with_session(task_id, p_uuid, local_session)
+
+    @classmethod
+    async def _delete_task_with_session(
+        cls,
+        task_id: int,
+        p_uuid: Optional[uuid.UUID],
+        session: AsyncSession,
+    ) -> bool:
+        stmt = select(PreviewTask).where(PreviewTask.id == task_id)
+        if p_uuid is not None:
+            stmt = stmt.where(PreviewTask.project_id == p_uuid)
+
+        res = await session.execute(stmt)
+        task = res.scalar_one_or_none()
+        if not task:
             return False
 
-        conn = get_sqlite_conn()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM preview_tasks WHERE id = ?", (task_id,))
-        conn.commit()
-        conn.close()
+        await session.delete(task)
+        await session.commit()
         return True
 
     @classmethod
-    def get_scores(cls, project_id: Optional[str] = None) -> list[dict[str, Any]]:
+    async def get_scores(
+        cls,
+        project_id: Optional[Union[str, uuid.UUID]] = None,
+        session: Optional[AsyncSession] = None,
+    ) -> list[dict[str, Any]]:
         """Retrieve leaderboard scores for Snake Game."""
-        cls.ensure_schema()
-        clean_pid = str(project_id or "").strip()
-        conn = get_sqlite_conn()
-        cur = conn.cursor()
-        if clean_pid:
-            cur.execute(
-                "SELECT id, player_name, score, created_at FROM preview_scores WHERE project_id = ? OR project_id = '' ORDER BY score DESC LIMIT 10",
-                (clean_pid,)
-            )
-        else:
-            cur.execute("SELECT id, player_name, score, created_at FROM preview_scores ORDER BY score DESC LIMIT 10")
-        rows = cur.fetchall()
-        conn.close()
-        return [
-            {
-                "id": r["id"],
-                "player_name": r["player_name"],
-                "score": r["score"],
-                "created_at": r["created_at"],
-            }
-            for r in rows
-        ]
+        p_uuid = parse_project_uuid(project_id)
+
+        if session is not None:
+            return await cls._get_scores_with_session(p_uuid, session)
+
+        async with db_module.AsyncSessionLocal() as local_session:
+            return await cls._get_scores_with_session(p_uuid, local_session)
 
     @classmethod
-    def add_score(cls, score: int, player_name: str = "Player", project_id: Optional[str] = None) -> dict[str, Any]:
+    async def _get_scores_with_session(
+        cls,
+        p_uuid: Optional[uuid.UUID],
+        session: AsyncSession,
+    ) -> list[dict[str, Any]]:
+        stmt = select(PreviewScore)
+        if p_uuid is not None:
+            stmt = stmt.where((PreviewScore.project_id == p_uuid) | (PreviewScore.project_id.is_(None)))
+        stmt = stmt.order_by(PreviewScore.score.desc()).limit(10)
+
+        res = await session.execute(stmt)
+        scores = list(res.scalars().all())
+
+        if not scores:
+            initial = [
+                PreviewScore(project_id=p_uuid, player_name="NeonViper", score=320),
+                PreviewScore(project_id=p_uuid, player_name="CyberSnake", score=240),
+                PreviewScore(project_id=p_uuid, player_name="RetroGamer", score=180),
+                PreviewScore(project_id=p_uuid, player_name="PixelMaster", score=120),
+            ]
+            session.add_all(initial)
+            await session.commit()
+            for s in initial:
+                await session.refresh(s)
+            return [s.to_dict() for s in initial]
+
+        return [s.to_dict() for s in scores]
+
+    @classmethod
+    async def add_score(
+        cls,
+        score: int,
+        player_name: str = "Player 1",
+        project_id: Optional[Union[str, uuid.UUID]] = None,
+        session: Optional[AsyncSession] = None,
+    ) -> dict[str, Any]:
         """Save a new score for Snake Game."""
-        cls.ensure_schema()
-        clean_pid = str(project_id or "").strip()
-        clean_player = str(player_name or "Player").strip()[:32]
+        p_uuid = parse_project_uuid(project_id)
+        clean_player = str(player_name or "Player 1").strip()[:64]
 
-        conn = get_sqlite_conn()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO preview_scores (project_id, player_name, score) VALUES (?, ?, ?)",
-            (clean_pid, clean_player, int(score))
-        )
-        new_id = cur.lastrowid
-        conn.commit()
-        conn.close()
+        if session is not None:
+            return await cls._add_score_with_session(score, clean_player, p_uuid, session)
 
-        return {
-            "id": new_id,
-            "player_name": clean_player,
-            "score": int(score),
-            "project_id": clean_pid,
-            "status": "SAVED",
-        }
+        async with db_module.AsyncSessionLocal() as local_session:
+            return await cls._add_score_with_session(score, clean_player, p_uuid, local_session)
 
     @classmethod
-    def get_analytics_metrics(cls, project_id: Optional[str] = None) -> dict[str, Any]:
+    async def _add_score_with_session(
+        cls,
+        score: int,
+        player_name: str,
+        p_uuid: Optional[uuid.UUID],
+        session: AsyncSession,
+    ) -> dict[str, Any]:
+        score_rec = PreviewScore(
+            project_id=p_uuid,
+            player_name=player_name,
+            score=int(score),
+        )
+        session.add(score_rec)
+        await session.commit()
+        await session.refresh(score_rec)
+        res = score_rec.to_dict()
+        res["status"] = "SAVED"
+        return res
+
+    @classmethod
+    def get_analytics_metrics(cls, project_id: Optional[Union[str, uuid.UUID]] = None) -> dict[str, Any]:
         """Provide rich data for Executive Analytics Dashboard."""
         return {
             "summary": {
@@ -351,6 +448,5 @@ class PreviewApiService:
                 {"cohort": "Aug 2026", "m0": 100, "m1": 94, "m2": 88},
                 {"cohort": "Sep 2026", "m0": 100, "m1": 95},
                 {"cohort": "Oct 2026", "m0": 100},
-            ]
+            ],
         }
-

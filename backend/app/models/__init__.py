@@ -32,6 +32,7 @@ from app.models.environment import (
     EnvironmentStatus,
     EnvironmentType,
 )
+from app.models.preview import PreviewScore, PreviewTask
 from app.models.user import User, UserRole
 
 __all__ = [
@@ -64,5 +65,7 @@ __all__ = [
     "DeploymentRecord",
     "DeploymentStatus",
     "DeploymentOperation",
+    "PreviewTask",
+    "PreviewScore",
 ]
 

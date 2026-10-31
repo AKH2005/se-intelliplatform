@@ -15,13 +15,12 @@ DB_PATH = Path(__file__).resolve().parent.parent.parent / 'se_intelliplatform.db
 import sqlite3
 
 def get_db_conn():
-    conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
     try:
-        conn.execute("PRAGMA busy_timeout = 30000")
-        conn.execute("PRAGMA journal_mode = WAL")
+        conn = sqlite3.connect(str(DB_PATH), timeout=5.0)
+        conn.execute("PRAGMA busy_timeout = 5000")
+        return conn
     except Exception:
-        pass
-    return conn
+        return sqlite3.connect(":memory:")
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, status, Query
@@ -544,15 +543,15 @@ class ScoreCreate(BaseModel):
 
 @app.get("/scores")
 @app.get("/api/scores")
-def get_scores_endpoint(project_id: Optional[str] = None):
+async def get_scores_endpoint(project_id: Optional[str] = None):
     p_id = project_id or active_project_context.get("project_id")
-    return PreviewApiService.get_scores(p_id)
+    return await PreviewApiService.get_scores(p_id)
 
 @app.post("/scores", status_code=status.HTTP_201_CREATED)
 @app.post("/api/scores", status_code=status.HTTP_201_CREATED)
-def add_score_endpoint(payload: ScoreCreate, project_id: Optional[str] = None):
+async def add_score_endpoint(payload: ScoreCreate, project_id: Optional[str] = None):
     p_id = project_id or active_project_context.get("project_id")
-    return PreviewApiService.add_score(payload.score, payload.player_name or "Player 1", p_id)
+    return await PreviewApiService.add_score(payload.score, payload.player_name or "Player 1", p_id)
 
 @app.get("/metrics")
 @app.get("/api/metrics")

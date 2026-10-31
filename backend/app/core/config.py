@@ -144,6 +144,11 @@ class Settings(BaseSettings):
 
         # Fail-fast security validation: Prevent default insecure credentials in production
         if self.ENVIRONMENT in ("production", "staging"):
+            if not self.DATABASE_URL or "sqlite" in self.DATABASE_URL.lower():
+                raise ValueError(
+                    f"A valid PostgreSQL DATABASE_URL pointing to the production database (e.g. Neon PostgreSQL) "
+                    f"is required in {self.ENVIRONMENT} environment. SQLite databases are strictly prohibited in production."
+                )
             is_using_default_pass = self.POSTGRES_PASSWORD == "postgres_password" and (
                 not self.DATABASE_URL or "postgres_password" in self.DATABASE_URL
             )

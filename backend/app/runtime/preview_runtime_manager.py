@@ -95,8 +95,8 @@ class PreviewRuntimeManager:
         if settings.ENVIRONMENT == "production":
             try:
                 from app.services.preview_api_service import PreviewApiService
-                PreviewApiService.ensure_schema()
-                tasks_sample = PreviewApiService.get_tasks(project_id)
+                await PreviewApiService.ensure_schema()
+                tasks_sample = await PreviewApiService.get_tasks(project_id)
                 api_healthy = True
             except Exception as exc:
                 logger.warning(f"Production preview API health probe failed: {exc}")

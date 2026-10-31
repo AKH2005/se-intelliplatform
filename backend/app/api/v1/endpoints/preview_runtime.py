@@ -633,11 +633,11 @@ async def project_preview_api_proxy(
     # Handle Tasks
     if norm_subpath == "tasks":
         if method == "GET":
-            tasks = PreviewApiService.get_tasks(pid_str)
+            tasks = await PreviewApiService.get_tasks(pid_str, session=session)
             return JSONResponse(status_code=200, content=tasks)
         elif method == "POST":
             body = await request.json()
-            created = PreviewApiService.create_task(body, pid_str)
+            created = await PreviewApiService.create_task(body, pid_str, session=session)
             return JSONResponse(status_code=201, content=created)
     elif norm_subpath.startswith("tasks/"):
         parts = norm_subpath.split("/")
@@ -646,18 +646,18 @@ async def project_preview_api_proxy(
         except (IndexError, ValueError):
             raise HTTPException(status_code=400, detail="Invalid task ID")
         if method == "GET":
-            t = PreviewApiService.get_task(task_id, pid_str)
+            t = await PreviewApiService.get_task(task_id, pid_str, session=session)
             if not t:
                 raise HTTPException(status_code=404, detail="Task not found")
             return JSONResponse(status_code=200, content=t)
         elif method in ("PUT", "PATCH"):
             body = await request.json()
-            t = PreviewApiService.update_task(task_id, body, pid_str)
+            t = await PreviewApiService.update_task(task_id, body, pid_str, session=session)
             if not t:
                 raise HTTPException(status_code=404, detail="Task not found")
             return JSONResponse(status_code=200, content=t)
         elif method == "DELETE":
-            ok = PreviewApiService.delete_task(task_id, pid_str)
+            ok = await PreviewApiService.delete_task(task_id, pid_str, session=session)
             if not ok:
                 raise HTTPException(status_code=404, detail="Task not found")
             return JSONResponse(status_code=200, content={"status": "DELETED", "id": task_id})
@@ -665,13 +665,13 @@ async def project_preview_api_proxy(
     # Handle Scores (Snake Game)
     elif norm_subpath == "scores":
         if method == "GET":
-            scores = PreviewApiService.get_scores(pid_str)
+            scores = await PreviewApiService.get_scores(pid_str, session=session)
             return JSONResponse(status_code=200, content=scores)
         elif method == "POST":
             body = await request.json()
             score = body.get("score", 0)
             player = body.get("player_name") or body.get("player") or "Player 1"
-            res = PreviewApiService.add_score(score, player, pid_str)
+            res = await PreviewApiService.add_score(score, player, pid_str, session=session)
             return JSONResponse(status_code=201, content=res)
 
     # Handle Metrics (Executive Analytics)
