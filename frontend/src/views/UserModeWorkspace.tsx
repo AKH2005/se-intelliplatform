@@ -483,33 +483,6 @@ export const UserModeWorkspace: React.FC<UserModeWorkspaceProps> = ({
     return null;
   }
 
-  function getFallbackFileTree(): FileNode[] {
-    return [
-      {
-        id: 'dir-frontend',
-        name: 'frontend',
-        path: 'frontend',
-        type: 'directory',
-        children: [
-          { id: 'f-index', name: 'index.html', path: 'frontend/index.html', type: 'file', language: 'html' },
-          { id: 'f-app', name: 'App.tsx', path: 'frontend/src/App.tsx', type: 'file', language: 'typescript' },
-          { id: 'f-pkg', name: 'package.json', path: 'frontend/package.json', type: 'file', language: 'json' },
-        ],
-      },
-      {
-        id: 'dir-backend',
-        name: 'backend',
-        path: 'backend',
-        type: 'directory',
-        children: [
-          { id: 'f-main', name: 'main.py', path: 'backend/main.py', type: 'file', language: 'python' },
-          { id: 'f-req', name: 'requirements.txt', path: 'backend/requirements.txt', type: 'file', language: 'text' },
-        ],
-      },
-      { id: 'f-readme', name: 'README.md', path: 'README.md', type: 'file', language: 'markdown' },
-    ];
-  }
-
   function getFallbackFileContent(filePath: string, appName: string = 'Application'): string {
     if (filePath.endsWith('index.html')) {
       return `<!DOCTYPE html>
