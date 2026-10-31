@@ -137,6 +137,10 @@ def create_application() -> FastAPI:
     # Mount API routers
     app.include_router(api_v1_router, prefix=settings.API_V1_STR)
 
+    # Mount Live Preview Root Route Compatibility Router
+    from app.api.preview_compatibility import preview_root_router
+    app.include_router(preview_root_router)
+
     @app.get("/health")
     def health_root():
         return {"status": "ok", "app": settings.PROJECT_NAME}

@@ -1,3 +1,7 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from app.services.preview_api_service import PreviewApiService
 """SE IntelliPlatform Generated Application Preview Server.
 
 Serves live interactive preview applications on Port 8001:
@@ -513,6 +517,49 @@ def delete_task(task_id: int):
     except Exception:
         pass
     return {"status": "DELETED", "id": task_id}
+
+@app.get("/tasks")
+def get_tasks_root():
+    return get_tasks()
+
+@app.post("/tasks", status_code=status.HTTP_201_CREATED)
+def create_task_root(task: TaskCreate):
+    return create_task(task)
+
+@app.get("/tasks/{task_id}")
+def get_task_root(task_id: int):
+    return get_task(task_id)
+
+@app.put("/tasks/{task_id}")
+def update_task_root(task_id: int, task: TaskUpdate):
+    return update_task(task_id, task)
+
+@app.delete("/tasks/{task_id}")
+def delete_task_root(task_id: int):
+    return delete_task(task_id)
+
+class ScoreCreate(BaseModel):
+    score: int
+    player_name: Optional[str] = "Player 1"
+
+@app.get("/scores")
+@app.get("/api/scores")
+def get_scores_endpoint(project_id: Optional[str] = None):
+    p_id = project_id or active_project_context.get("project_id")
+    return PreviewApiService.get_scores(p_id)
+
+@app.post("/scores", status_code=status.HTTP_201_CREATED)
+@app.post("/api/scores", status_code=status.HTTP_201_CREATED)
+def add_score_endpoint(payload: ScoreCreate, project_id: Optional[str] = None):
+    p_id = project_id or active_project_context.get("project_id")
+    return PreviewApiService.add_score(payload.score, payload.player_name or "Player 1", p_id)
+
+@app.get("/metrics")
+@app.get("/api/metrics")
+def get_metrics_endpoint(project_id: Optional[str] = None):
+    p_id = project_id or active_project_context.get("project_id")
+    return PreviewApiService.get_analytics_metrics(p_id)
+
 
 # ==============================================================================
 
@@ -2130,6 +2177,24 @@ def get_snake_game_html(title: str = "Arcade Snake Game") -> str:
       ctx.fillStyle = '#fff';
       ctx.font = '500 14px Plus Jakarta Sans';
       ctx.fillText('Score: ' + score, canvas.width / 2, canvas.height / 2 + 20);
+
+      if (score > 0) {{
+        try {{
+          var sPayload = JSON.stringify({{ score: score, player_name: 'Player 1' }});
+          var apiBase = window.__PREVIEW_API_BASE__ || '';
+          fetch(apiBase ? apiBase + '/scores' : '/scores', {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: sPayload
+          }}).catch(function() {{
+            return fetch('/api/scores', {{
+              method: 'POST',
+              headers: {{ 'Content-Type': 'application/json' }},
+              body: sPayload
+            }});
+          }}).catch(function() {{}});
+        }} catch(e) {{}}
+      }}
     }}
 
     function resetGame() {{

@@ -93,12 +93,33 @@ class PreviewRuntimeManager:
         previews directly over HTTPS; never report port 8001 as unavailable.
         """
         if settings.ENVIRONMENT == "production":
-            return True, "Integrated application preview active via HTTPS.", {
+            try:
+                from app.services.preview_api_service import PreviewApiService
+                PreviewApiService.ensure_schema()
+                tasks_sample = PreviewApiService.get_tasks(project_id)
+                api_healthy = True
+            except Exception as exc:
+                logger.warning(f"Production preview API health probe failed: {exc}")
+                api_healthy = False
+
+            if not api_healthy:
+                return False, "Integrated application preview API service degraded.", {
+                    "environment": "production",
+                    "mode": "integrated",
+                    "port": 443,
+                    "status": "FAILED",
+                    "container_status": "START_FAILED",
+                    "execution_type": "isolated_container",
+                }
+
+            return True, "Integrated application preview active via HTTPS and verified healthy.", {
                 "environment": "production",
                 "mode": "integrated",
                 "port": 443,
+                "status": "RUNNING",
                 "container_status": "RUNNING",
                 "execution_type": "isolated_container",
+                "tasks_count": len(tasks_sample),
             }
 
         if project_id and self._is_docker_available():
@@ -114,6 +135,17 @@ class PreviewRuntimeManager:
                     return False, f"Container for project {project_id} is not running.", {
                         "status": "STOPPED",
                         "container_status": "STOPPED",
+                        "execution_type": "isolated_container",
+                        "port": self.port,
+                    }
+                # Probe actual application API health within container
+                c_ok, c_code, _ = await asyncio.to_thread(self._sync_http_get, f"http://127.0.0.1:{self.port}/health", timeout)
+                if not c_ok:
+                    c_ok, c_code, _ = await asyncio.to_thread(self._sync_http_get, f"http://127.0.0.1:{self.port}/api/tasks", timeout)
+                if not c_ok:
+                    return False, f"Container running but application API is not responding (code: {c_code}).", {
+                        "status": "STARTING",
+                        "container_status": "STARTING",
                         "execution_type": "isolated_container",
                         "port": self.port,
                     }
