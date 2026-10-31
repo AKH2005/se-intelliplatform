@@ -125,14 +125,20 @@ class ApplicationRuntimeManager:
                 f"Code artifact key '{version.artifact_key}' missing in execution artifacts."
             )
 
-        generated_files = code_data.get("generated_files", [])
+        if hasattr(code_data, "generated_files"):
+            generated_files = code_data.generated_files
+        elif isinstance(code_data, dict):
+            generated_files = code_data.get("generated_files", [])
+        else:
+            generated_files = []
+
         if not generated_files:
             raise ValidationError("Generated code artifact contains zero files.")
 
         files_map: dict[str, str] = {}
         for f in generated_files:
-            p = f.get("path")
-            c = f.get("content", "")
+            p = f.get("path") if isinstance(f, dict) else getattr(f, "path", None)
+            c = f.get("content", "") if isinstance(f, dict) else getattr(f, "content", "")
             if p:
                 files_map[p] = c
 

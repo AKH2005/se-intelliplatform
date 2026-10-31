@@ -1,8 +1,10 @@
 """Abstract Base Agent Defining Identity, Contracts, and Execution Hooks."""
 
+from __future__ import annotations
+
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 from pydantic import BaseModel
 
 from app.agents.contracts import (
@@ -11,7 +13,9 @@ from app.agents.contracts import (
     ValidationResult,
 )
 from app.agents.providers.base import AbstractLLMProvider
-from app.schemas.context import ProjectContextResponse
+
+if TYPE_CHECKING:
+    from app.schemas.context import ProjectContextResponse
 
 logger = logging.getLogger(__name__)
 

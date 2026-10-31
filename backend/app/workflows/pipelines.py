@@ -103,7 +103,7 @@ def build_code_generation_workflow() -> WorkflowDefinition:
                 step_id="code-generation-planning",
                 agent_id="code-generation-planning",
                 required=True,
-                depends_on=["database-design"],
+                depends_on=["requirement-analysis", "architecture-recommendation", "database-design"],
                 description="Synthesize design outputs into a concrete file manifest and scaffold plan",
             ),
             WorkflowStep(

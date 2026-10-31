@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useProject } from '../context/ProjectContext';
+import { useMode } from '../context/ModeContext';
 import { Button } from '../components/common/Button';
 import {
   ExternalLink,
   RotateCw,
   RefreshCw,
+  Play,
+  Square,
   Monitor,
   Tablet,
   Smartphone,
@@ -38,6 +41,7 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
   onOpenCreateProject,
 }) => {
   const { selectedProject } = useProject();
+  const { switchMode } = useMode();
   const [deviceViewport, setDeviceViewport] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [refreshKey, setRefreshKey] = useState<number>(Date.now());
   const [isReloading, setIsReloading] = useState<boolean>(false);
@@ -52,8 +56,13 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
   const [previewUrl, setPreviewUrl] = useState<string>('http://127.0.0.1:8001/');
   const [runtimeDetail, setRuntimeDetail] = useState<string>('');
   const [isChecking, setIsChecking] = useState<boolean>(false);
+  const [isStarting, setIsStarting] = useState<boolean>(false);
   const [isRestarting, setIsRestarting] = useState<boolean>(false);
+  const [isStopping, setIsStopping] = useState<boolean>(false);
   const [showDetails, setShowDetails] = useState<boolean>(false);
+  const [activeVersionNumber, setActiveVersionNumber] = useState<number | undefined>(undefined);
+  const [containerStatus, setContainerStatus] = useState<string | undefined>(undefined);
+  const [containerDetail, setContainerDetail] = useState<string | undefined>(undefined);
 
   // AI Code generation state
   const [isGeneratingCode, setIsGeneratingCode] = useState<boolean>(false);
@@ -72,6 +81,11 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
           type: 'success',
           text: 'AI Code Generation completed successfully! Multi-file code scaffold is now registered in Code Studio.',
         });
+        window.dispatchEvent(new CustomEvent('se-version-refresh'));
+        // Automatically start the generated application in the isolated Docker container
+        setTimeout(() => {
+          handleStart();
+        }, 500);
       } else {
         const errorDetail =
           res.errors && res.errors.length > 0
@@ -117,6 +131,9 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
           previewToken
         );
         setActiveMode(res.active_mode || 'custom');
+        setActiveVersionNumber(res.active_version_number);
+        setContainerStatus(res.container_status);
+        setContainerDetail(res.container_detail);
 
         if (res.is_healthy && (res.status === 'RUNNING' || res.status === 'READY')) {
           setRuntimeStatus('RUNNING');
@@ -137,6 +154,9 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
             startPreviewToken
           );
           setActiveMode(startRes.active_mode || res.active_mode || 'custom');
+          setActiveVersionNumber(startRes.active_version_number || res.active_version_number);
+          setContainerStatus(startRes.container_status || res.container_status);
+          setContainerDetail(startRes.container_detail || res.container_detail);
 
           if (startRes.is_healthy && (startRes.status === 'RUNNING' || startRes.status === 'READY')) {
             setRuntimeStatus('RUNNING');
@@ -211,6 +231,56 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
     };
   }, [handleRefresh]);
 
+  const handleStart = async () => {
+    if (!selectedProject?.id || isStarting) return;
+    setIsStarting(true);
+    setRuntimeStatus('STARTING');
+    try {
+      const res = await previewRuntimeApi.start(selectedProject.id);
+      const previewToken = res.preview_token;
+      const resolvedUrl = previewRuntimeApi.resolvePreviewUrl(
+        selectedProject.id,
+        res.preview_url,
+        res.active_mode,
+        previewToken
+      );
+      setActiveMode(res.active_mode || 'custom');
+      setContainerStatus(res.container_status);
+      setContainerDetail(res.container_detail);
+      if (res.is_healthy && res.status === 'RUNNING') {
+        setRuntimeStatus('RUNNING');
+        setRuntimePort(res.port || 8001);
+        setPreviewUrl(resolvedUrl);
+        setRuntimeDetail(res.detail || 'Application running in Docker container.');
+        setRefreshKey(Date.now());
+      } else {
+        setRuntimeStatus(res.status === 'STOPPED' || res.status === 'NOT_STARTED' ? 'STOPPED' : 'FAILED');
+        setRuntimeDetail(res.detail || 'Could not start application container.');
+      }
+    } catch (err: any) {
+      setRuntimeStatus('FAILED');
+      setRuntimeDetail(err?.message || 'Error occurred while starting application container.');
+    } finally {
+      setIsStarting(false);
+    }
+  };
+
+  const handleStop = async () => {
+    if (!selectedProject?.id || isStopping) return;
+    setIsStopping(true);
+    try {
+      const res = await previewRuntimeApi.stop(selectedProject.id);
+      setRuntimeStatus('STOPPED');
+      setContainerStatus(res.container_status || 'STOPPED');
+      setContainerDetail(res.detail || 'Application container stopped.');
+      setRuntimeDetail(res.detail || 'Application stopped.');
+    } catch (err: any) {
+      setRuntimeDetail(err?.message || 'Error occurred while stopping application container.');
+    } finally {
+      setIsStopping(false);
+    }
+  };
+
   const handleRestart = async () => {
     if (!selectedProject?.id || isRestarting) return;
     setIsRestarting(true);
@@ -225,6 +295,8 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
         previewToken
       );
       setActiveMode(res.active_mode || 'custom');
+      setContainerStatus(res.container_status);
+      setContainerDetail(res.container_detail);
       if (res.is_healthy && res.status === 'RUNNING') {
         setRuntimeStatus('RUNNING');
         setRuntimePort(res.port || 8001);
@@ -267,8 +339,28 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
           background: 'var(--bg-primary)',
           padding: '2rem',
           textAlign: 'center',
+          position: 'relative',
         }}
       >
+        <div
+          style={{
+            position: 'absolute',
+            top: '1.25rem',
+            right: '1.5rem',
+          }}
+        >
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<Sparkles size={13} color="#a78bfa" />}
+            onClick={() => switchMode('user')}
+            title="Return to User Mode"
+            style={{ fontSize: '0.78rem', color: '#c4b5fd' }}
+          >
+            User Mode
+          </Button>
+        </div>
+
         <div
           style={{
             maxWidth: 480,
@@ -372,7 +464,7 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
               }}
             >
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#34d399' }} />
-              ● Application running
+              ● Docker Container Running
             </span>
           ) : runtimeStatus === 'STARTING' || runtimeStatus === 'HEALTH_CHECKING' ? (
             <span
@@ -391,7 +483,26 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
               }}
             >
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#fbbf24' }} />
-              ○ Starting application...
+              ○ Starting container...
+            </span>
+          ) : runtimeStatus === 'STOPPED' || runtimeStatus === 'NOT_STARTED' ? (
+            <span
+              id="runtime-status-badge"
+              style={{
+                padding: '0.15rem 0.6rem',
+                borderRadius: '9999px',
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                background: 'rgba(148, 163, 184, 0.15)',
+                color: '#94a3b8',
+                border: '1px solid rgba(148, 163, 184, 0.3)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#94a3b8' }} />
+              ○ Application Stopped
             </span>
           ) : (
             <span
@@ -410,7 +521,7 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
               }}
             >
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f87171' }} />
-              ○ Application unavailable
+              ✕ Application Unavailable
             </span>
           )}
 
@@ -422,28 +533,78 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
               borderRadius: '4px',
               fontSize: '0.72rem',
               fontWeight: 600,
-              background: activeMode === 'snake_game' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(99, 102, 241, 0.15)',
-              color: activeMode === 'snake_game' ? '#38bdf8' : '#a5b4fc',
-              border: `1px solid ${activeMode === 'snake_game' ? 'rgba(56, 189, 248, 0.3)' : 'rgba(99, 102, 241, 0.3)'}`,
+              background: 'rgba(99, 102, 241, 0.15)',
+              color: '#a5b4fc',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
             }}
           >
             {activeMode === 'snake_game'
               ? '🎮 Snake Game'
               : activeMode === 'eventhub'
               ? '🎪 EventHub'
-              : activeMode === 'ecommerce'
-              ? '🛍️ ShopSphere'
-              : activeMode === 'management'
-              ? '📊 Management System'
               : activeMode === 'taskflow'
               ? '📋 TaskFlow'
-              : '🚀 Custom Prototype'}
+              : '🚀 Full-Stack App'}
           </span>
 
           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
             {runtimePort === 443 ? 'HTTPS' : `Port ${runtimePort}`}
           </span>
 
+          {activeVersionNumber && (
+            <span
+              id="preview-version-badge"
+              style={{
+                padding: '0.15rem 0.55rem',
+                borderRadius: '4px',
+                fontSize: '0.70rem',
+                fontWeight: 600,
+                background: 'rgba(34, 197, 94, 0.15)',
+                color: '#4ade80',
+                border: '1px solid rgba(34, 197, 94, 0.3)',
+              }}
+              title={`Active Verified Version: v${activeVersionNumber}`}
+            >
+              v{activeVersionNumber}
+            </span>
+          )}
+
+          <span
+            id="execution-type-badge"
+            style={{
+              padding: '0.15rem 0.55rem',
+              borderRadius: '4px',
+              fontSize: '0.70rem',
+              fontWeight: 600,
+              background: 'rgba(56, 189, 248, 0.12)',
+              color: '#38bdf8',
+              border: '1px solid rgba(56, 189, 248, 0.25)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.3rem',
+            }}
+            title="Isolated Docker container runtime on 127.0.0.1:8001"
+          >
+            🐳 Docker Runtime
+          </span>
+
+          {containerStatus === 'BLOCKED' && (
+            <span
+              id="container-status-badge"
+              style={{
+                padding: '0.15rem 0.55rem',
+                borderRadius: '4px',
+                fontSize: '0.70rem',
+                fontWeight: 600,
+                background: 'rgba(239, 68, 68, 0.12)',
+                color: '#f87171',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+              }}
+              title={containerDetail || 'Container execution requires Docker Desktop daemon.'}
+            >
+              Docker Daemon: Unavailable
+            </span>
+          )}
         </div>
 
         {/* Device Switcher */}
@@ -512,6 +673,40 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
 
         {/* Right Actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {runtimeStatus !== 'RUNNING' ? (
+            <Button
+              id="btn-run-docker"
+              variant="primary"
+              size="sm"
+              icon={<Play size={13} />}
+              onClick={handleStart}
+              isLoading={isStarting}
+              style={{
+                fontSize: '0.78rem',
+                background: 'linear-gradient(135deg, #10b981, #06b6d4)',
+                fontWeight: 600,
+              }}
+            >
+              Run in Docker
+            </Button>
+          ) : (
+            <Button
+              id="btn-stop-docker"
+              variant="secondary"
+              size="sm"
+              icon={<Square size={12} />}
+              onClick={handleStop}
+              isLoading={isStopping}
+              style={{
+                fontSize: '0.78rem',
+                color: '#f87171',
+                borderColor: 'rgba(239, 68, 68, 0.3)',
+              }}
+            >
+              Stop
+            </Button>
+          )}
+
           {onNavigate && (
             <Button
               variant="secondary"
@@ -524,6 +719,17 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
               Generate Code
             </Button>
           )}
+
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<Sparkles size={13} color="#a78bfa" />}
+            onClick={() => switchMode('user')}
+            title="Return to User Mode"
+            style={{ fontSize: '0.78rem', color: '#c4b5fd' }}
+          >
+            User Mode
+          </Button>
 
           <Button
             variant="ghost"
@@ -541,7 +747,7 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
             size="sm"
             onClick={handleRestart}
             disabled={isRestarting}
-            title="Restart runtime process on Port 8001"
+            title="Restart Docker container on Port 8001"
             style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
           >
             <RefreshCw size={13} className={isRestarting ? 'animate-spin' : ''} />
@@ -626,7 +832,7 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Sparkles size={13} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
               <span>
-                <strong>Live Interactive Prototype:</strong> Testing UI, controls, and workflows (built-in interactive template). To synthesize multi-file backend & frontend source code, click Generate AI Code.
+                <strong>Live Application Runtime (Docker):</strong> Running verified full-stack React + FastAPI application in isolated container.
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -761,6 +967,8 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
               id="live-app-iframe"
               src={previewUrl}
               title="Generated Application Live Preview"
+              referrerPolicy="no-referrer"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
               style={{
                 flex: 1,
                 width: '100%',

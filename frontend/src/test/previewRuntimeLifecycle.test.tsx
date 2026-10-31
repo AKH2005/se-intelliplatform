@@ -79,7 +79,7 @@ describe('PreviewWorkspace Runtime Lifecycle & Port 8001 Health Probing', () => 
 
     // Verify status transitions to RUNNING
     await waitFor(() => {
-      expect(screen.getByText(/Application running/i)).toBeInTheDocument();
+      expect(screen.getByText(/Application running|Docker Container Running/i)).toBeInTheDocument();
     });
 
     // Verify iframe rendered with live URL
@@ -159,17 +159,17 @@ describe('PreviewWorkspace Runtime Lifecycle & Port 8001 Health Probing', () => 
     renderWithProject();
 
     await waitFor(() => {
-      expect(screen.getByText(/Application running/i)).toBeInTheDocument();
+      expect(screen.getByText(/Application running|Docker Container Running/i)).toBeInTheDocument();
     });
 
-    const restartBtn = screen.getByTitle('Restart runtime process on Port 8001');
+    const restartBtn = screen.getByTitle(/Restart.*Port 8001/i);
     fireEvent.click(restartBtn);
 
     await waitFor(() => {
       expect(previewRuntimeApi.restart).toHaveBeenCalledWith(mockProject.id);
     });
 
-    expect(screen.getByText(/Application running/i)).toBeInTheDocument();
+    expect(screen.getByText(/Application running|Docker Container Running/i)).toBeInTheDocument();
   });
 
   it('renders Snake Game project with game mode badge and Generate Code button', async () => {

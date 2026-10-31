@@ -181,6 +181,17 @@ export const DevelopmentWorkspace: React.FC<DevelopmentWorkspaceProps> = ({ onNa
     fetchVersions();
   }, [selectedProjectId]);
 
+  // Synchronize Code Studio immediately when a new version is created or activated
+  useEffect(() => {
+    const handleRemoteVersionRefresh = () => {
+      fetchVersions();
+    };
+    window.addEventListener('se-version-refresh', handleRemoteVersionRefresh);
+    return () => {
+      window.removeEventListener('se-version-refresh', handleRemoteVersionRefresh);
+    };
+  }, [selectedProjectId]);
+
   // Fetch file content when selectedFile changes
   useEffect(() => {
     if (!selectedProjectId || !selectedVersion || !selectedFile) {
@@ -352,8 +363,21 @@ export const DevelopmentWorkspace: React.FC<DevelopmentWorkspaceProps> = ({ onNa
         </div>
 
         {selectedProject && (
-          <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            Project: <strong style={{ color: 'var(--text-primary)' }}>{selectedProject.name}</strong>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+              Project: <strong style={{ color: 'var(--text-primary)' }}>{selectedProject.name}</strong>
+            </div>
+            {onNavigate && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => onNavigate('code-studio')}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Code2 size={15} />
+                Open Code Studio
+              </Button>
+            )}
           </div>
         )}
       </div>

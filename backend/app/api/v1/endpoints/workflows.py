@@ -13,8 +13,13 @@ and abuse/rate-limiting boundary.
 import uuid
 from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_workflow_service
+from app.api.dependencies import get_current_user_optional, get_db, get_workflow_service
+from app.core.exceptions import ForbiddenError, NotFoundError, UnauthorizedError
+from app.models.project import Project
+from app.models.user import User
 from app.schemas.workflow import (
     WorkflowExecuteRequest,
     WorkflowMetadataResponse,
@@ -32,6 +37,24 @@ router = APIRouter()
 project_workflows_router = APIRouter()
 
 
+async def _resolve_project(
+    project_id: uuid.UUID,
+    session: AsyncSession,
+    current_user: User | None = None,
+) -> Project:
+    stmt = select(Project).where(Project.id == project_id)
+    res = await session.execute(stmt)
+    project = res.scalar_one_or_none()
+    if not project:
+        raise NotFoundError("Project", str(project_id))
+    if project.owner_id is not None:
+        if current_user is None:
+            raise UnauthorizedError("Authentication required to access this project.")
+        if project.owner_id != current_user.id:
+            raise ForbiddenError("You do not have permission to access this project.")
+    return project
+
+
 # ==============================================================================
 # 1. Workflow Pipeline Discovery Endpoints (/workflows)
 # ==============================================================================
@@ -47,57 +70,15 @@ project_workflows_router = APIRouter()
 )
 async def list_workflows(
     service: Annotated[WorkflowService, Depends(get_workflow_service)],
+    include_extensions: Annotated[bool, Query(description="Include extension workflows (code-generation, browser journeys)")] = True,
 ) -> list[WorkflowMetadataResponse]:
     """List all available predefined workflows."""
-    workflows = service.list_workflows()
+    workflows = service.list_workflows(include_extensions=include_extensions)
     return [service.to_metadata_response(w) for w in workflows]
 
 
-@router.get(
-    "/{workflow_id}",
-    response_model=WorkflowMetadataResponse,
-    summary="Get workflow definition details",
-    description=(
-        "Retrieves detailed declarative metadata, ordered steps, and dependency invariants "
-        "for a specific predefined workflow pipeline."
-    ),
-)
-async def get_workflow(
-    workflow_id: str,
-    service: Annotated[WorkflowService, Depends(get_workflow_service)],
-) -> WorkflowMetadataResponse:
-    """Get metadata for a specific predefined workflow by ID."""
-    workflow = service.get_workflow(workflow_id)
-    return service.to_metadata_response(workflow)
-
-
 # ==============================================================================
-# 2. Workflow Execution Endpoint (/workflows/{workflow_id}/execute)
-# ==============================================================================
-
-@router.post(
-    "/{workflow_id}/execute",
-    response_model=WorkflowResultResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Execute a multi-agent workflow",
-    description=(
-        "Synchronously executes a predefined multi-agent workflow against canonical project context "
-        "or an immutable historical snapshot. Creates a persistent audit record and returns the authoritative "
-        "structured WorkflowResult envelope."
-    ),
-)
-async def execute_workflow(
-    workflow_id: str,
-    request: WorkflowExecuteRequest,
-    service: Annotated[WorkflowService, Depends(get_workflow_service)],
-) -> WorkflowResultResponse:
-    """Synchronously execute a multi-agent workflow against project context."""
-    result = await service.execute_workflow(workflow_id=workflow_id, request=request)
-    return WorkflowResultResponse.from_workflow_result(result)
-
-
-# ==============================================================================
-# 3. Workflow Execution Detail Endpoint (/workflows/executions/{workflow_execution_id})
+# 2. Workflow Execution Detail Endpoint (/workflows/executions/{workflow_execution_id})
 # ==============================================================================
 
 @router.get(
@@ -119,6 +100,56 @@ async def get_workflow_execution_detail(
 
 
 # ==============================================================================
+# 3. Workflow Definition Detail Endpoint (/workflows/{workflow_id})
+# ==============================================================================
+
+@router.get(
+    "/{workflow_id}",
+    response_model=WorkflowMetadataResponse,
+    summary="Get workflow definition details",
+    description=(
+        "Retrieves detailed declarative metadata, ordered steps, and dependency invariants "
+        "for a specific predefined workflow pipeline."
+    ),
+)
+async def get_workflow(
+    workflow_id: str,
+    service: Annotated[WorkflowService, Depends(get_workflow_service)],
+) -> WorkflowMetadataResponse:
+    """Get metadata for a specific predefined workflow by ID."""
+    workflow = service.get_workflow(workflow_id)
+    return service.to_metadata_response(workflow)
+
+
+# ==============================================================================
+# 4. Workflow Execution Endpoint (/workflows/{workflow_id}/execute)
+# ==============================================================================
+
+@router.post(
+    "/{workflow_id}/execute",
+    response_model=WorkflowResultResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Execute a multi-agent workflow",
+    description=(
+        "Synchronously executes a predefined multi-agent workflow against canonical project context "
+        "or an immutable historical snapshot. Creates a persistent audit record and returns the authoritative "
+        "structured WorkflowResult envelope."
+    ),
+)
+async def execute_workflow(
+    workflow_id: str,
+    request: WorkflowExecuteRequest,
+    service: Annotated[WorkflowService, Depends(get_workflow_service)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
+) -> WorkflowResultResponse:
+    """Synchronously execute a multi-agent workflow against project context."""
+    await _resolve_project(request.project_id, session, current_user)
+    result = await service.execute_workflow(workflow_id=workflow_id, request=request)
+    return WorkflowResultResponse.from_workflow_result(result)
+
+
+# ==============================================================================
 # 4. Project-Scoped Workflow History (/projects/{project_id}/workflows/history)
 # ==============================================================================
 
@@ -134,12 +165,15 @@ async def get_workflow_execution_detail(
 async def list_project_workflow_history(
     project_id: uuid.UUID,
     service: Annotated[WorkflowService, Depends(get_workflow_service)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
     limit: Annotated[int, Query(ge=1, le=100, description="Page limit")] = 20,
     offset: Annotated[int, Query(ge=0, description="Page offset")] = 0,
     workflow_id: Annotated[str | None, Query(description="Filter by workflow ID")] = None,
     status: Annotated[WorkflowStatus | None, Query(description="Filter by execution status")] = None,
 ) -> WorkflowHistoryListResponse:
     """Retrieve paginated workflow execution history for a given project."""
+    await _resolve_project(project_id, session, current_user)
     records, total = await service.list_project_workflow_history(
         project_id=project_id,
         limit=limit,

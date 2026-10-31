@@ -100,6 +100,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       if (typeof localStorage !== 'undefined') {
         localStorage.removeItem(TOKEN_KEY);
+        if (localStorage.getItem('se_platform_mode_remember') !== 'true') {
+          localStorage.removeItem('se_platform_mode');
+        }
       }
       setUser(null);
       setToken(null);

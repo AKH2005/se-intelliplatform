@@ -99,3 +99,51 @@ describe('Centralized API Client', () => {
   });
 });
 
+describe('Projects API Download', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('uses apiClient.getBaseUrl() and triggers file download for valid ZIP response', async () => {
+    const { projectsApi } = await import('../services/projectsApi');
+    const { apiClient } = await import('../services/apiClient');
+
+    const fakeZipBlob = new Blob(['PK\x03\x04fake-zip-binary'], { type: 'application/zip' });
+    const mockResponse = new Response(fakeZipBlob, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': 'attachment; filename="demo-project.zip"',
+      },
+    });
+
+    global.fetch = vi.fn().mockResolvedValue(mockResponse);
+    window.URL.createObjectURL = vi.fn().mockReturnValue('blob:http://localhost/fake-blob');
+    window.URL.revokeObjectURL = vi.fn();
+
+    await projectsApi.download('proj-123', 'custom-demo.zip');
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const calledUrl = (global.fetch as any).mock.calls[0][0];
+    const expectedBase = apiClient.getBaseUrl();
+    expect(calledUrl).toBe(`${expectedBase}/projects/proj-123/download`);
+    expect(window.URL.createObjectURL).toHaveBeenCalled();
+  });
+
+  it('rejects when response content-type is text/html (SPA fallback protection)', async () => {
+    const { projectsApi } = await import('../services/projectsApi');
+
+    const htmlResponse = new Response('<!DOCTYPE html><html><body>SPA Fallback</body></html>', {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+      },
+    });
+
+    global.fetch = vi.fn().mockResolvedValue(htmlResponse);
+
+    await expect(projectsApi.download('proj-html-fallback')).rejects.toThrow(
+      /Received HTML response instead of project ZIP archive/
+    );
+  });
+});

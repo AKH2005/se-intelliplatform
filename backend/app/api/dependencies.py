@@ -420,20 +420,28 @@ def build_default_mock_provider() -> MockLLMProvider:
 
 
 def get_agent_executor() -> AgentExecutor:
-    """Dependency injecting an AgentExecutor configured with platform defaults."""
+    """Dependency injecting an AgentExecutor configured with platform defaults and resilient fallback."""
     from app.agents.providers.factory import get_llm_provider
 
     mock_provider = build_default_mock_provider()
+    fallback_provider = None
     if settings.LLM_PROVIDER == "mock":
         primary_provider = mock_provider
+    elif settings.LLM_PROVIDER == "gemini":
+        primary_provider = get_llm_provider("gemini")
+        if settings.GROQ_API_KEY:
+            fallback_provider = get_llm_provider("groq")
     else:
-        primary_provider = get_llm_provider()
+        primary_provider = get_llm_provider("groq")
+        if settings.GEMINI_API_KEY:
+            fallback_provider = get_llm_provider("gemini")
 
     return AgentExecutor(
         provider=primary_provider,
         max_retries=settings.LLM_MAX_RETRIES,
         retry_delay_seconds=2.0,
         mock_provider=mock_provider,
+        fallback_provider=fallback_provider,
     )
 
 

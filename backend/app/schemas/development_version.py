@@ -21,6 +21,7 @@ class VerificationStatus(str, enum.Enum):
     PENDING = "PENDING"
     INCOMPLETE = "INCOMPLETE"
     NOT_RUN = "NOT_RUN"
+    BLOCKED = "BLOCKED"
 
 
 class VerificationRequirementLevel(str, enum.Enum):
@@ -79,7 +80,7 @@ class VerificationSnapshot(BaseModel):
 class VersionFileSummary(BaseModel):
     """Lightweight summary of a generated file belonging to a version."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     path: str = Field(..., description="Project-relative normalized path")
     size_bytes: int = Field(..., ge=0, description="File size in bytes")

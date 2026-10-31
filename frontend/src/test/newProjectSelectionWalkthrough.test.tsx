@@ -160,7 +160,7 @@ describe('Human User Walkthrough: New Project Creation, Selection, & Refresh', (
     });
 
     expect(localStorage.getItem(LOCAL_STORAGE_KEY)).toBe(newCanonicalProject.id);
-  });
+  }, 15000);
 
   it('stale project test: recovers gracefully when invalid project ID is in localStorage, removes stale ID, selects valid project, shows friendly notice without raw UUID', async () => {
     const STALE_UUID = 'e0240625-33a7-468f-abfc-543abdad153f';

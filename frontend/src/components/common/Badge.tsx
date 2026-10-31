@@ -5,6 +5,7 @@ export type BadgeVariant =
   | 'in-progress'
   | 'in_progress'
   | 'running'
+  | 'pending'
   | 'completed'
   | 'approved'
   | 'implemented'
@@ -22,18 +23,35 @@ export type BadgeVariant =
   | 'interpretation'
   | 'recommendation'
   | 'limitation'
-  | 'neutral';
+  | 'neutral'
+  | 'violet'
+  | 'info';
 
-interface BadgeProps {
+export interface BadgeProps {
   children: React.ReactNode;
   variant?: BadgeVariant | string;
+  withDot?: boolean;
+  icon?: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
 }
 
-export const Badge: React.FC<BadgeProps> = ({ children, variant = 'neutral', className = '', style }) => {
+export const Badge: React.FC<BadgeProps> = ({
+  children,
+  variant = 'neutral',
+  withDot = false,
+  icon,
+  className = '',
+  style,
+}) => {
   const normalizedVariant = variant.toLowerCase().replace(/\s+/g, '_');
   const variantClass = `badge-${normalizedVariant}`;
 
-  return <span className={`badge ${variantClass} ${className}`} style={style}>{children}</span>;
+  return (
+    <span className={`badge ${variantClass} ${className}`.trim()} style={style}>
+      {withDot && <span className="badge-dot" aria-hidden="true" />}
+      {icon && <span style={{ display: 'inline-flex', alignItems: 'center' }}>{icon}</span>}
+      {children}
+    </span>
+  );
 };

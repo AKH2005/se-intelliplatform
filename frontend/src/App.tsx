@@ -10,6 +10,7 @@ import { OverviewWorkspace } from './views/OverviewWorkspace';
 import { PreviewWorkspace } from './views/PreviewWorkspace';
 import { SpecificationWorkspace } from './views/SpecificationWorkspace';
 import { DevelopmentWorkspace } from './views/DevelopmentWorkspace';
+import { CodeStudioWorkspace } from './views/CodeStudioWorkspace';
 import { TestingWorkspace } from './views/TestingWorkspace';
 import { IssuesWorkspace } from './views/IssuesWorkspace';
 import { IntelligenceWorkspace } from './views/IntelligenceWorkspace';
@@ -23,14 +24,26 @@ import { CreateTaskModal } from './components/requirements/CreateTaskModal';
 import { LoginView } from './views/auth/LoginView';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
 import { useAuth } from './context/AuthContext';
+import { useMode } from './context/ModeContext';
+import { ModeSelectionView } from './views/ModeSelectionView';
+import { UserModeWorkspace } from './views/UserModeWorkspace';
+import { FloatingAssistant } from './components/assistant/FloatingAssistant';
 import { ProjectCreate, ProjectResponse } from './types/project';
 
-// Helper to parse pathname into project ID and workspace tab
+// Helper to parse pathname into project ID, workspace tab, and active view mode
 const parseCurrentUrl = () => {
-  if (typeof window === 'undefined') return { isProjectsList: false, urlProjectId: null, urlTab: null };
+  if (typeof window === 'undefined') {
+    return { isProjectsList: false, urlProjectId: null, urlTab: null, isSelectMode: false, isUserMode: false };
+  }
   const path = window.location.pathname;
+  if (path === '/select-mode' || path === '/select-mode/') {
+    return { isProjectsList: false, urlProjectId: null, urlTab: null, isSelectMode: true, isUserMode: false };
+  }
+  if (path === '/user' || path === '/user/') {
+    return { isProjectsList: false, urlProjectId: null, urlTab: null, isSelectMode: false, isUserMode: true };
+  }
   if (path === '/projects' || path === '/projects/') {
-    return { isProjectsList: true, urlProjectId: null, urlTab: null };
+    return { isProjectsList: true, urlProjectId: null, urlTab: null, isSelectMode: false, isUserMode: false };
   }
   const match = path.match(/^\/projects\/([^/]+)(?:\/workspace)?(?:\/([a-z-]+))?/i);
   if (match) {
@@ -38,9 +51,11 @@ const parseCurrentUrl = () => {
       isProjectsList: false,
       urlProjectId: match[1],
       urlTab: (match[2] as NavigationTab) || null,
+      isSelectMode: false,
+      isUserMode: false,
     };
   }
-  return { isProjectsList: false, urlProjectId: null, urlTab: null };
+  return { isProjectsList: false, urlProjectId: null, urlTab: null, isSelectMode: false, isUserMode: false };
 };
 
 export const App: React.FC = () => {
@@ -53,6 +68,7 @@ export const App: React.FC = () => {
     validateAndSyncProjects,
     registerOpenCreateProject,
   } = useProject();
+  const { mode, isModeSelected, isModeSelectionOpen, setMode, switchMode, closeModeSelection } = useMode();
 
   const initialUrl = parseCurrentUrl();
   const [activeTab, setActiveTab] = useState<NavigationTab>(() => {
@@ -65,16 +81,22 @@ export const App: React.FC = () => {
   const [isAssistantExplicitOpen, setIsAssistantExplicitOpen] = useState(false);
   const [assistantInitialPrompt, setAssistantInitialPrompt] = useState<string | null>(null);
 
-  // Auto-redirect authenticated user from /login, /register, or / to /projects
+  // Auto-redirect authenticated user from /login, /register, or / to mode destination
   React.useEffect(() => {
     if (isAuthenticated && typeof window !== 'undefined') {
       const path = window.location.pathname;
       if (path === '/' || path === '/login' || path === '/register') {
-        window.history.replaceState({}, '', '/projects');
-        setActiveTab('projects');
+        if (!isModeSelected) {
+          window.history.replaceState({}, '', '/select-mode');
+        } else if (mode === 'user') {
+          window.history.replaceState({}, '', '/user');
+        } else {
+          window.history.replaceState({}, '', '/projects');
+          setActiveTab('projects');
+        }
       }
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isModeSelected, mode]);
 
   // Register open create project handler with context
   React.useEffect(() => {
@@ -87,14 +109,15 @@ export const App: React.FC = () => {
   const { data: projects = [], isLoading: isLoadingProjects } = useQuery({
     queryKey: ['projects'],
     queryFn: () => projectsApi.list(),
+    enabled: isAuthenticated,
   });
 
   // Authoritatively sync projects and auto-heal stale projects
   React.useEffect(() => {
-    if (projects.length > 0 && validateAndSyncProjects) {
+    if (isAuthenticated && projects.length > 0 && validateAndSyncProjects) {
       validateAndSyncProjects(projects);
     }
-  }, [projects, validateAndSyncProjects]);
+  }, [projects, validateAndSyncProjects, isAuthenticated]);
 
   // Sync with URL when projects are loaded
   React.useEffect(() => {
@@ -119,10 +142,19 @@ export const App: React.FC = () => {
   // Listen to popstate (browser back/forward)
   React.useEffect(() => {
     const handlePopState = () => {
-      const { isProjectsList, urlProjectId, urlTab } = parseCurrentUrl();
+      const { isProjectsList, urlProjectId, urlTab, isSelectMode, isUserMode } = parseCurrentUrl();
+      if (isSelectMode) {
+        return;
+      }
+      if (isUserMode) {
+        if (mode !== 'user') switchMode('user');
+        return;
+      }
       if (isProjectsList) {
+        if (mode !== 'developer') switchMode('developer');
         setActiveTab('projects');
       } else if (urlProjectId && projects.length > 0) {
+        if (mode !== 'developer') switchMode('developer');
         const match = projects.find((p) => p.id === urlProjectId || p.slug === urlProjectId);
         if (match) {
           selectProject(match);
@@ -132,7 +164,7 @@ export const App: React.FC = () => {
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [projects, selectProject]);
+  }, [projects, selectProject, mode, switchMode]);
 
   // Tab navigation handler with URL pushState
   const handleSelectTab = (tab: NavigationTab) => {
@@ -163,13 +195,23 @@ export const App: React.FC = () => {
   // Helper to extract realistic starter requirements from natural language description
   const extractStarterRequirements = (desc: string) => {
     const text = desc.toLowerCase();
+    const isAnalyticsApp = text.includes('analytics') || text.includes('dashboard') || text.includes('kpi') || text.includes('metric') || text.includes('revenue');
     const isGameApp = text.includes('game') || text.includes('snake') || text.includes('arcade');
     const isEventApp = text.includes('event');
     const isTaskApp = text.includes('task');
     const isShopApp = text.includes('shop') || text.includes('store') || text.includes('commerce') || text.includes('product') || text.includes('cart');
     const isManageApp = text.includes('student') || text.includes('employee') || text.includes('manage') || text.includes('admin') || text.includes('record');
 
-    if (isGameApp) {
+    if (isAnalyticsApp) {
+      return [
+        { title: 'Executive KPI summary cards for revenue, retention, and conversion.', description: 'Real-time performance cards with formatted currency and trend indicators.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Interactive revenue trajectory chart and multi-stage funnel visualization.', description: 'Dynamic SVG trend line with hoverable data points and funnel drop-off metrics.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Searchable, filterable, and sortable team metrics data table.', description: 'Interactive table with category tabs, search input, and column sorting.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Custom metric creation modal and client-side CSV export.', description: 'Dialog to record new metrics and one-click CSV download capability.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Responsive grid adapting seamlessly from desktop to tablet and mobile.', description: 'Fluid layout adjusting from 4-column KPI cards to 2-column tablet and stacked mobile.', type: 'NON_FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Interactive Live Preview prototype.', description: 'Direct browser executive analytics prototype on SE IntelliPlatform preview runtime.', type: 'NON_FUNCTIONAL' as const, priority: 'HIGH' as const },
+      ];
+    } else if (isGameApp) {
       return [
         { title: 'HTML5 Canvas 2D game rendering engine.', description: 'Smooth 60fps rendering with coordinate grid calculation.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
         { title: 'Responsive directional controls (Keyboard Arrow/WASD & Touch D-Pad).', description: 'Real-time steering with prevent-reverse safeguards.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
@@ -290,14 +332,14 @@ export const App: React.FC = () => {
 
   // 2. Unauthenticated Gate -> Render Professional LoginView
   if (!isAuthenticated) {
-    const intendedPath = typeof window !== 'undefined' ? window.location.pathname : '/projects';
+    const intendedPath = typeof window !== 'undefined' ? window.location.pathname : '/select-mode';
     const isRegisterRoute = intendedPath === '/register';
     return (
       <LoginView
         initialMode={isRegisterRoute ? 'register' : 'login'}
         redirectPath={
           intendedPath === '/login' || intendedPath === '/register' || intendedPath === '/'
-            ? '/projects'
+            ? '/select-mode'
             : intendedPath
         }
         onSuccess={() => {
@@ -307,6 +349,87 @@ export const App: React.FC = () => {
     );
   }
 
+  // 3. First-time or Explicit Mode Selection Gate
+  const isSelectModePath = typeof window !== 'undefined' && window.location.pathname.startsWith('/select-mode');
+  if (!isModeSelected || isSelectModePath) {
+    return (
+      <ModeSelectionView
+        onSelectMode={(selectedMode, remember) => {
+          setMode(selectedMode, remember);
+          if (selectedMode === 'user') {
+            window.history.pushState({}, '', '/user');
+          } else {
+            const target = selectedProjectId ? `/projects/${selectedProjectId}/workspace` : '/projects';
+            window.history.pushState({}, '', target);
+            if (!selectedProjectId) {
+              setActiveTab('projects');
+            }
+          }
+        }}
+        canClose={isModeSelected}
+        onClose={closeModeSelection}
+        currentMode={mode}
+      />
+    );
+  }
+
+  // 4. User Mode Experience
+  if (mode === 'user') {
+    return (
+      <>
+        <UserModeWorkspace
+          projects={projects}
+          onOpenCreateProject={() => setIsCreateProjectOpen(true)}
+          onCreateProject={async (data) => {
+            return await createProjectMutation.mutateAsync(data);
+          }}
+          onNavigateToProjectInDev={(proj) => {
+            selectProject(proj);
+            setActiveTab('overview');
+            window.history.pushState({}, '', `/projects/${proj.id}/workspace`);
+            switchMode('developer');
+          }}
+        />
+
+        {/* Global Floating AI Assistant (ambient, general Q&A) */}
+        <FloatingAssistant
+          currentMode="user"
+          activeProjectName={selectedProject?.name}
+          onNavigateTab={handleSelectTab}
+        />
+
+        {isModeSelectionOpen && (
+          <ModeSelectionView
+            onSelectMode={(selectedMode, remember) => {
+              setMode(selectedMode, remember);
+              if (selectedMode === 'user') {
+                window.history.pushState({}, '', '/user');
+              } else {
+                const target = selectedProjectId ? `/projects/${selectedProjectId}/workspace` : '/projects';
+                window.history.pushState({}, '', target);
+                if (!selectedProjectId) {
+                  setActiveTab('projects');
+                }
+              }
+            }}
+            canClose={true}
+            onClose={closeModeSelection}
+            currentMode={mode}
+          />
+        )}
+
+        <CreateProjectModal
+          isOpen={isCreateProjectOpen}
+          onClose={() => setIsCreateProjectOpen(false)}
+          onSubmit={async (data) => {
+            await createProjectMutation.mutateAsync(data);
+          }}
+        />
+      </>
+    );
+  }
+
+  // 5. Developer Mode Experience (Existing AppShell)
   return (
     <>
       <AppShell
@@ -347,6 +470,9 @@ export const App: React.FC = () => {
         {(activeTab === 'specification' || activeTab === 'requirements') && (
           <SpecificationWorkspace />
         )}
+        {activeTab === 'code-studio' && (
+          <CodeStudioWorkspace onNavigate={handleSelectTab} />
+        )}
         {activeTab === 'development' && (
           <DevelopmentWorkspace onNavigate={handleSelectTab} />
         )}
@@ -366,6 +492,34 @@ export const App: React.FC = () => {
         {activeTab === 'workflows' && <WorkflowStudio />}
         {activeTab === 'history' && <RunHistory />}
       </AppShell>
+
+      {/* Global Floating AI Assistant (ambient across Developer Mode) */}
+      <FloatingAssistant
+        currentMode="developer"
+        activeProjectName={selectedProject?.name}
+        onNavigateTab={handleSelectTab}
+      />
+
+      {/* Mode selection modal overlay if re-opened from Header */}
+      {isModeSelectionOpen && (
+        <ModeSelectionView
+          onSelectMode={(selectedMode, remember) => {
+            setMode(selectedMode, remember);
+            if (selectedMode === 'user') {
+              window.history.pushState({}, '', '/user');
+            } else {
+              const target = selectedProjectId ? `/projects/${selectedProjectId}/workspace` : '/projects';
+              window.history.pushState({}, '', target);
+              if (!selectedProjectId) {
+                setActiveTab('projects');
+              }
+            }
+          }}
+          canClose={true}
+          onClose={closeModeSelection}
+          currentMode={mode}
+        />
+      )}
 
       <CreateProjectModal
         isOpen={isCreateProjectOpen}

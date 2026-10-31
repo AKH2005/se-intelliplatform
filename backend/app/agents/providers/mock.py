@@ -1,7 +1,7 @@
 """Deterministic Mock LLM Provider for Isolated Testing."""
 
 import json
-from typing import Any, TypeVar
+from typing import Any, AsyncGenerator, TypeVar
 from pydantic import BaseModel
 
 from app.agents.exceptions import ProviderError, TransientProviderError
@@ -95,6 +95,13 @@ class MockLLMProvider(AbstractLLMProvider):
             raw_metadata={"mock": True, "model": request.model, "tokens": 42},
         )
 
+    async def generate_stream(self, request: LLMRequest) -> AsyncGenerator[str, None]:
+        """Stream chunks by simulating progressive token generation for tests."""
+        response = await self.generate(request)
+        words = response.content.split(" ")
+        for i, word in enumerate(words):
+            yield word + (" " if i < len(words) - 1 else "")
+
     async def generate_structured(
         self,
         request: LLMRequest,
@@ -141,7 +148,13 @@ class MockLLMProvider(AbstractLLMProvider):
         try:
             return response_model()
         except Exception as exc:
+            if response_model.__name__ == "AssistantResponseSchema":
+                return response_model(  # type: ignore
+                    message="Mock assistant response based on verified project context.",
+                    suggested_action=None,
+                )
             raise ProviderError(
                 message=f"No mock response configured for structured model {response_model.__name__}.",
                 provider_name=self.provider_name,
             ) from exc
+

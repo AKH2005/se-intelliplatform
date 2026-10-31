@@ -1,7 +1,7 @@
 """Vendor-Neutral Abstract LLM Provider Interfaces and DTOs."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Literal, TypeVar
+from typing import Any, AsyncGenerator, Literal, TypeVar
 from pydantic import BaseModel, ConfigDict, Field
 
 T = TypeVar("T", bound=BaseModel)
@@ -78,3 +78,13 @@ class AbstractLLMProvider(ABC):
     ) -> T:
         """Generate and parse structured data adhering directly to a Pydantic schema."""
         pass
+
+    async def generate_stream(self, request: LLMRequest) -> AsyncGenerator[str, None]:
+        """Stream generated text chunks asynchronously.
+
+        Default fallback yields complete text as a single chunk if provider does
+        not implement token streaming natively.
+        """
+        response = await self.generate(request)
+        if response.content:
+            yield response.content

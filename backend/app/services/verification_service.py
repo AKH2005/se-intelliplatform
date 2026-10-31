@@ -31,17 +31,29 @@ logger = logging.getLogger(__name__)
 class DevelopmentVerificationService:
     """Deterministic verification orchestrator and aggregator."""
 
-    @staticmethod
-    def has_test_files(artifact: CodeGenerationOutput | None) -> bool:
-        """Determine if generated project contains test suite files."""
-        if not artifact or not artifact.generated_files:
+    @classmethod
+    def has_test_files(cls, target: Any) -> bool:
+        """Determine if generated project, artifact, or files map contains test suite files."""
+        if not target:
             return False
-        for f in artifact.generated_files:
-            p = f.path.lower()
-            if p.startswith("tests/") or p.startswith("test/") or "/tests/" in p:
-                return True
-            if p.endswith("_test.py") or p.endswith("test_.py") or p.startswith("test_"):
-                return True
+        if hasattr(target, "generated_files") and target.generated_files:
+            return cls.has_test_files([f.path for f in target.generated_files])
+        if isinstance(target, dict):
+            return cls.has_test_files(list(target.keys()))
+        if isinstance(target, (list, tuple, set)):
+            for item in target:
+                raw = item.path if hasattr(item, "path") else (item.get("path") if isinstance(item, dict) else str(item))
+                p = raw.lower().replace("\\", "/").strip().lstrip("/")
+                if p.startswith("tests/") or p.startswith("test/") or "/tests/" in p or "/test/" in p:
+                    return True
+                parts = p.split("/")
+                filename = parts[-1]
+                if filename.endswith("_test.py") or filename.endswith("test_.py") or filename.startswith("test_"):
+                    return True
+                if filename.endswith(".test.ts") or filename.endswith(".test.tsx") or filename.endswith(".spec.ts") or filename.endswith(".spec.tsx"):
+                    return True
+                if filename.endswith(".test.js") or filename.endswith(".test.jsx") or filename.endswith(".spec.js") or filename.endswith(".spec.jsx"):
+                    return True
         return False
 
     @classmethod
@@ -108,8 +120,8 @@ class DevelopmentVerificationService:
             sb_level = VerificationRequirementLevel.REQUIRED
             if sandbox_execution is None:
                 sb_status = VerificationStatus.FAILED
-                sb_details = "Sandbox tests were not executed for project containing test files."
-                sb_blocking = ["Mandatory sandbox tests were not executed"]
+                sb_details = "Mandatory sandbox execution was not provided for project containing automated tests."
+                sb_blocking = [sb_details]
                 sb_errors = 1
                 blocking_issues.extend(sb_blocking)
             else:
@@ -118,7 +130,13 @@ class DevelopmentVerificationService:
                     if hasattr(sandbox_execution.status, "value")
                     else str(sandbox_execution.status)
                 )
-                if (
+                if status_val in ("BLOCKED", "SANDBOX_UNAVAILABLE"):
+                    sb_status = VerificationStatus.BLOCKED
+                    sb_details = "Mandatory sandbox execution was BLOCKED: Docker unavailable on host."
+                    sb_blocking = [sb_details]
+                    sb_errors = 1
+                    blocking_issues.extend(sb_blocking)
+                elif (
                     status_val != "PASSED"
                     or sandbox_execution.exit_code != 0
                     or sandbox_execution.tests_failed > 0

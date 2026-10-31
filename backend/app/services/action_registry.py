@@ -15,6 +15,7 @@ from app.schemas.assistant import (
     AnalyzeCoverageGapsParams,
     AnalyzeFailureParams,
     AnalyzeRegressionImpactParams,
+    ApplyCodeChangeParams,
     CheckPromotionEligibilityParams,
     CompareVersionsParams,
     CreateRemediationProposalParams,
@@ -417,6 +418,16 @@ ACTION_REGISTRY: dict[str, ActionDefinition] = {
         requires_llm=True,
         supported_targets=["workflow"],
         parameter_schema=RunWorkflowParams,
+    ),
+    "APPLY_CODE_CHANGE": ActionDefinition(
+        action_id="APPLY_CODE_CHANGE",
+        description="Apply a validated multi-file code change set, synthesize a new immutable DevelopmentVersion, and update active version pointer.",
+        category=ActionCategory.MUTATING,
+        requires_confirmation=True,
+        requires_execution=False,
+        requires_llm=False,
+        supported_targets=["version"],
+        parameter_schema=ApplyCodeChangeParams,
     ),
     # -------------------------------------------------------------------------
     # Phase 13: Multi-Environment & Deployment Actions (7 Actions)

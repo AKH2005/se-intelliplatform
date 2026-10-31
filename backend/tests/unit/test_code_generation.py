@@ -629,3 +629,316 @@ class TestCodeGenerationWorkflow:
         planned_paths = {f.path for f in plan_artifact.files}
         generated_paths = {f.path for f in codegen_artifact.generated_files}
         assert planned_paths == generated_paths
+
+    @pytest.mark.asyncio
+    async def test_fullstack_planning_and_generation_workflow(self):
+        """Verify that a project requiring React + FastAPI plans, generates, and validates both frontend and backend."""
+        now = datetime.now(timezone.utc)
+        proj_id = uuid.uuid4()
+        req_ui_id = uuid.uuid4()
+        req_api_id = uuid.uuid4()
+
+        project = ProjectResponse(
+            id=proj_id,
+            name="MiniTask — React Task Manager",
+            slug="minitask-react",
+            description="A responsive task manager application with a React frontend and FastAPI backend.",
+            status=ProjectStatus.IN_PROGRESS,
+            created_at=now,
+            updated_at=now,
+        )
+
+        req1 = RequirementResponse(
+            id=req_ui_id,
+            project_id=proj_id,
+            title="Interactive React Task Manager UI",
+            description="Users can manage tasks through a responsive modern web interface with task filtering and status updates.",
+            type=RequirementType.FUNCTIONAL,
+            priority=RequirementPriority.HIGH,
+            status=RequirementStatus.APPROVED,
+            is_archived=False,
+            created_at=now,
+            updated_at=now,
+        )
+        req2 = RequirementResponse(
+            id=req_api_id,
+            project_id=proj_id,
+            title="FastAPI REST API endpoints",
+            description="The application provides RESTful CRUD endpoints for tasks.",
+            type=RequirementType.FUNCTIONAL,
+            priority=RequirementPriority.HIGH,
+            status=RequirementStatus.APPROVED,
+            is_archived=False,
+            created_at=now,
+            updated_at=now,
+        )
+
+        fullstack_context = ProjectContextResponse(
+            project=project,
+            requirements=[req1, req2],
+            statistics=RequirementStatistics(
+                total_requirements=2,
+                active_requirements=2,
+                functional_count=2,
+                non_functional_count=0,
+                constraint_count=0,
+                by_priority={"HIGH": 2},
+                by_status={"APPROVED": 2},
+                completion_percentage=100.0,
+            ),
+            context_version=1,
+            generated_at=now,
+        )
+
+        # 1. Planner Agent execution
+        planner = CodeGenerationPlanningAgent()
+        mock_provider = MockLLMProvider()
+        executor = AgentExecutor(provider=mock_provider)
+
+        plan_res = await executor.execute(agent=planner, context=fullstack_context)
+        assert plan_res.status == AgentExecutionStatus.COMPLETED
+        plan = plan_res.output
+        assert isinstance(plan, CodeGenerationPlan)
+        assert plan.project_type == "fullstack"
+        assert plan.framework == "react+fastapi"
+
+        plan_paths = {f.path for f in plan.files}
+        # Verify frontend files exist
+        assert "frontend/package.json" in plan_paths
+        assert "frontend/index.html" in plan_paths
+        assert "frontend/src/main.tsx" in plan_paths
+        assert "frontend/src/App.tsx" in plan_paths
+        assert "frontend/src/services/api.ts" in plan_paths
+        assert "frontend/src/styles/App.css" in plan_paths
+        # Verify backend files exist
+        assert "backend/requirements.txt" in plan_paths
+        assert "backend/app/main.py" in plan_paths
+        assert "backend/app/api.py" in plan_paths
+        assert "backend/app/models.py" in plan_paths
+        assert "backend/app/persistence.py" in plan_paths
+        assert "backend/app/config.py" in plan_paths
+        assert "README.md" in plan_paths
+
+        # 2. Plan Validation ensures missing frontend is rejected
+        broken_backend_only_plan = CodeGenerationPlan(
+            project_type="backend-service",
+            language="python",
+            framework="fastapi",
+            package_manager="pip",
+            files=[
+                PlannedFile(path="backend/app/main.py", purpose="Backend entry", file_type=FileType.SOURCE),
+                PlannedFile(path="backend/requirements.txt", purpose="Backend deps", file_type=FileType.DEPENDENCY),
+            ],
+            rationale="Backend only plan for fullstack project.",
+        )
+        val_broken = validate_code_generation_plan(broken_backend_only_plan, fullstack_context)
+        assert val_broken.is_valid is False
+        assert any("lack required frontend components" in err for err in val_broken.errors)
+
+        # 3. Generator Agent execution
+        generator = CodeGenerationAgent()
+        gen_res = await executor.execute(agent=generator, context=fullstack_context, plan=plan)
+        assert gen_res.status == AgentExecutionStatus.COMPLETED
+        gen_out = gen_res.output
+        assert isinstance(gen_out, CodeGenerationOutput)
+        assert gen_out.total_files == len(plan.files)
+
+        files_by_path = {f.path: f for f in gen_out.generated_files}
+        # Check frontend/package.json
+        import json
+        pkg_json = json.loads(files_by_path["frontend/package.json"].content)
+        assert "react" in pkg_json["dependencies"]
+        assert "vite" in pkg_json["devDependencies"]
+
+        # Check frontend/src/App.tsx has interactive task manager code
+        app_tsx = files_by_path["frontend/src/App.tsx"].content
+        assert "taskApi" in app_tsx
+        assert "setTasks" in app_tsx
+        assert "handleCreateTask" in app_tsx
+        assert "handleDeleteTask" in app_tsx
+
+        # Check frontend/src/services/api.ts has VITE_API_BASE_URL env fallback
+        api_ts = files_by_path["frontend/src/services/api.ts"].content
+        assert "VITE_API_BASE_URL" in api_ts
+        assert "listTasks" in api_ts
+        assert "createTask" in api_ts
+        assert "deleteTask" in api_ts
+
+        # Check backend/app/main.py has CORSMiddleware
+        main_py = files_by_path["backend/app/main.py"].content
+        assert "CORSMiddleware" in main_py
+        ast.parse(main_py)
+
+        # Check backend/app/api.py has CRUD endpoints
+        api_py = files_by_path["backend/app/api.py"].content
+        assert "@router.get" in api_py
+        assert "@router.post" in api_py
+        assert "@router.delete" in api_py
+        ast.parse(api_py)
+
+        # 4. Output validation rejects malformed JSON in package.json
+        malformed_files = [
+            GeneratedFile(path="frontend/package.json", content="{ invalid json", size_bytes=14),
+            GeneratedFile(path="frontend/src/App.tsx", content="export default function App() {}", size_bytes=31),
+            GeneratedFile(path="backend/app/main.py", content="from fastapi import FastAPI\napp = FastAPI()", size_bytes=42),
+            GeneratedFile(path="backend/requirements.txt", content="fastapi\n", size_bytes=8),
+        ]
+        malformed_plan = CodeGenerationPlan(
+            files=[PlannedFile(path=f.path, purpose="Test file purpose", file_type=FileType.SOURCE) for f in malformed_files],
+            rationale="Test plan rationale",
+        )
+        malformed_out = CodeGenerationOutput(
+            plan=malformed_plan,
+            generated_files=malformed_files,
+            total_files=len(malformed_files),
+            total_size_bytes=sum(f.size_bytes for f in malformed_files),
+            summary="Malformed JSON",
+        )
+        val_malformed = validate_code_generation_output(malformed_out, malformed_plan, fullstack_context)
+        assert val_malformed.is_valid is False
+        assert any("Invalid JSON syntax in 'frontend/package.json'" in err for err in val_malformed.errors)
+
+    def test_plan_validation_allows_manifest_doc_aliases_when_coreservice_declared(self, test_context: ProjectContextResponse):
+        """Priority 1 Regression: Validate that requirements.txt with 'Documentation' component passes when only 'CoreService' is declared."""
+        arch_rec = {
+            "components": [
+                {"name": "CoreService", "type": "backend", "description": "Core backend service"},
+                {"name": "ReactFrontend", "type": "frontend", "description": "Web user interface"},
+            ]
+        }
+        plan = CodeGenerationPlan(
+            files=[
+                PlannedFile(path="frontend/package.json", purpose="Frontend manifest", file_type=FileType.DEPENDENCY, architecture_component="ReactFrontend"),
+                PlannedFile(path="frontend/index.html", purpose="HTML entrypoint", file_type=FileType.SOURCE, architecture_component="ReactFrontend"),
+                PlannedFile(path="frontend/src/main.tsx", purpose="React entry", file_type=FileType.SOURCE, architecture_component="ReactFrontend"),
+                PlannedFile(path="frontend/src/App.tsx", purpose="Main App component", file_type=FileType.SOURCE, architecture_component="ReactFrontend"),
+                PlannedFile(path="frontend/src/styles/App.css", purpose="App styling", file_type=FileType.SOURCE, architecture_component="ReactFrontend"),
+                PlannedFile(path="backend/requirements.txt", purpose="Python dependencies", file_type=FileType.DEPENDENCY, architecture_component="Documentation"),
+                PlannedFile(path="backend/app/main.py", purpose="FastAPI entry", file_type=FileType.SOURCE, architecture_component="CoreService"),
+                PlannedFile(path="README.md", purpose="Root documentation", file_type=FileType.DOCUMENTATION, architecture_component="Documentation"),
+            ],
+            rationale="Scaffold plan with requirements.txt referencing Documentation alias.",
+        )
+
+        res = validate_code_generation_plan(plan, test_context, architecture_recommendation=arch_rec)
+        assert res.is_valid is True, f"Validation failed unexpectedly: {res.errors}"
+
+    @pytest.mark.asyncio
+    async def test_snake_game_template_planning_and_generation(self):
+        """Priority 2 Regression: Snake Game archetype generates valid full-stack code without markdown placeholders in CSS."""
+        from app.schemas.context import ProjectContextResponse
+        from app.schemas.project import ProjectResponse
+        from app.schemas.requirement import RequirementResponse
+        from app.models.project import ProjectStatus
+        from app.models.requirement import RequirementPriority, RequirementStatus, RequirementType
+        from app.agents.providers.mock import MockLLMProvider
+        from app.agents.code_generation.planning_agent import CodeGenerationPlanningAgent
+        from app.agents.code_generation.generation_agent import CodeGenerationAgent
+
+        now = datetime.now(timezone.utc)
+        proj_id = uuid.uuid4()
+        snake_project = ProjectResponse(
+            id=proj_id,
+            name="Classic Snake Game",
+            slug="canvas-2d-arcade-game",
+            description="A classic 2D Snake game with directional controls, score tracking, and restart states.",
+            status=ProjectStatus.IN_PROGRESS,
+            created_at=now,
+            updated_at=now,
+        )
+        snake_context = ProjectContextResponse(
+            project=snake_project,
+            requirements=[
+                RequirementResponse(
+                    id=uuid.uuid4(),
+                    project_id=proj_id,
+                    title="HTML5 Canvas 2D Rendering Engine",
+                    description="Smooth 60 FPS game loop using requestAnimationFrame.",
+                    type=RequirementType.FUNCTIONAL,
+                    priority=RequirementPriority.HIGH,
+                    status=RequirementStatus.APPROVED,
+                    is_archived=False,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                RequirementResponse(
+                    id=uuid.uuid4(),
+                    project_id=proj_id,
+                    title="Directional Keyboard & Touchpad Controls",
+                    description="Seamless controls for desktop keys and mobile touch gestures.",
+                    type=RequirementType.FUNCTIONAL,
+                    priority=RequirementPriority.HIGH,
+                    status=RequirementStatus.APPROVED,
+                    is_archived=False,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ],
+            statistics=RequirementStatistics(
+                total_requirements=2,
+                active_requirements=2,
+                functional_count=2,
+                non_functional_count=0,
+                constraint_count=0,
+                by_priority={"HIGH": 2},
+                by_status={"APPROVED": 2},
+                completion_percentage=100.0,
+            ),
+            context_version=1,
+            generated_at=now,
+            architecture_decisions=[],
+            data_models=[],
+            project_context={},
+            traceability_matrix={},
+        )
+
+        provider = MockLLMProvider()
+        planning_agent = CodeGenerationPlanningAgent()
+        plan = await planning_agent.generate({"context": snake_context}, provider)
+
+        # 1. Verify Snake Game planned files
+        paths = [f.path for f in plan.files]
+        assert "frontend/src/App.tsx" in paths
+        assert "frontend/src/components/ScoreBoard.tsx" in paths
+        assert "frontend/src/components/GameControls.tsx" in paths
+        assert "frontend/src/styles/App.css" in paths
+        assert "backend/requirements.txt" in paths
+        assert "backend/app/main.py" in paths
+        assert "backend/app/api.py" in paths
+        assert "backend/app/models.py" in paths
+        assert "backend/app/persistence.py" in paths
+
+        # 2. Generate code files
+        gen_agent = CodeGenerationAgent()
+        output = await gen_agent.generate({"plan": plan, "context": snake_context}, provider)
+        assert output.total_files == len(plan.files)
+
+        files_map = {f.path: f.content for f in output.generated_files}
+
+        # 3. Verify CSS does NOT contain markdown-style comments (# ...)
+        css_content = files_map["frontend/src/styles/App.css"]
+        assert "/*" in css_content
+        for line in css_content.splitlines():
+            stripped = line.strip()
+            # Must not start with Markdown # comment (unless inside a valid color hex e.g. #0b0f19)
+            if stripped.startswith("#"):
+                assert any(c in stripped for c in [":", "{", ";", ","]), f"Invalid markdown comment in CSS: {stripped}"
+
+        # 4. Verify React App.tsx has canvas loop, D-pad, score logic
+        app_tsx = files_map["frontend/src/App.tsx"]
+        assert "canvasRef" in app_tsx
+        assert "handleStartGame" in app_tsx
+        assert "handleDirectionChange" in app_tsx
+        assert "ScoreBoard" in app_tsx
+        assert "GameControls" in app_tsx
+        assert "scoreApi" in app_tsx
+
+        # 5. Verify backend Python syntax
+        ast.parse(files_map["backend/app/main.py"])
+        ast.parse(files_map["backend/app/api.py"])
+        ast.parse(files_map["backend/app/models.py"])
+        ast.parse(files_map["backend/app/persistence.py"])
+
+        # 6. Verify deterministic business validation passes
+        val_res = validate_code_generation_output(output, plan, snake_context)
+        assert val_res.is_valid is True, f"Generated output failed validation: {val_res.errors}"

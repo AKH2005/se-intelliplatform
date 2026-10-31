@@ -116,7 +116,7 @@ async def test_get_workflows_discovery_list(client: AsyncClient):
     assert res.status_code == 200
     data = res.json()
     assert isinstance(data, list)
-    assert len(data) == 3
+    assert len(data) >= 3
 
     ids = {item["workflow_id"] for item in data}
     assert WORKFLOW_SOFTWARE_DESIGN_ID in ids

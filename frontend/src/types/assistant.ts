@@ -48,6 +48,7 @@ export interface AssistantMessage {
 export interface AssistantConversation {
   conversation_id: string;
   project_id: string;
+  user_id?: string | null;
   title: string;
   messages: AssistantMessage[];
   created_at: string;
@@ -57,6 +58,12 @@ export interface AssistantConversation {
 export interface SendMessagePayload {
   content: string;
   conversation_id?: string | null;
+  explicit_file_paths?: string[];
+  error_message?: string;
+}
+
+export interface CreateConversationPayload {
+  title?: string;
 }
 
 export interface ConfirmActionPayload {
@@ -69,3 +76,4 @@ export interface DirectExecuteActionPayload {
   parameters?: Record<string, any>;
   conversation_id?: string | null;
 }
+

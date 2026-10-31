@@ -93,7 +93,15 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Validate active project against authoritative project list
   const validateAndSyncProjects = useCallback(
     (availableProjects: ProjectResponse[]) => {
-      setProjectsState(availableProjects);
+      setProjectsState((prev) => {
+        if (
+          prev.length === availableProjects.length &&
+          prev.every((p, i) => p.id === availableProjects[i]?.id)
+        ) {
+          return prev;
+        }
+        return availableProjects;
+      });
 
       const currentId = selectedProjectIdRef.current;
 
@@ -116,7 +124,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (currentId && justSelectedProjectIdRef.current === currentId) {
         const matching = availableProjects.find((p) => p.id === currentId);
         if (matching) {
-          setSelectedProjectState(matching);
+          setSelectedProjectState((prev) => (prev?.id === matching.id && prev?.updated_at === matching.updated_at ? prev : matching));
           justSelectedProjectIdRef.current = null;
         }
         return;
@@ -126,7 +134,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (currentId) {
         const matching = availableProjects.find((p) => p.id === currentId);
         if (matching) {
-          setSelectedProjectState(matching);
+          setSelectedProjectState((prev) => (prev?.id === matching.id && prev?.updated_at === matching.updated_at ? prev : matching));
           setIsProjectStale(false);
         } else {
           // STALE PROJECT DETECTED!
@@ -134,7 +142,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           localStorage.setItem(LOCAL_STORAGE_KEY, fallback.id);
           selectedProjectIdRef.current = fallback.id;
           setSelectedProjectIdState(fallback.id);
-          setSelectedProjectState(fallback);
+          setSelectedProjectState((prev) => (prev?.id === fallback.id ? prev : fallback));
           setIsProjectStale(true);
           setStaleProjectNotice(
             `That project is no longer available. Switched to ${fallback.name}.`
@@ -146,7 +154,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         localStorage.setItem(LOCAL_STORAGE_KEY, defaultProj.id);
         selectedProjectIdRef.current = defaultProj.id;
         setSelectedProjectIdState(defaultProj.id);
-        setSelectedProjectState(defaultProj);
+        setSelectedProjectState((prev) => (prev?.id === defaultProj.id ? prev : defaultProj));
         setIsProjectStale(false);
       }
     },

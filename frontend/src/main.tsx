@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './context/AuthContext';
 import { ProjectProvider } from './context/ProjectContext';
+import { ModeProvider } from './context/ModeContext';
 import { isProjectNotFoundError } from './utils/projectRecovery';
 import { App } from './App';
 import './styles/tokens.css';
@@ -41,7 +42,9 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ProjectProvider>
-          <App />
+          <ModeProvider>
+            <App />
+          </ModeProvider>
         </ProjectProvider>
       </AuthProvider>
     </QueryClientProvider>

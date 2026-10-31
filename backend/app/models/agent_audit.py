@@ -1,5 +1,6 @@
 """Agent Execution Audit Entity Model."""
 
+import enum
 import uuid
 from datetime import datetime
 from typing import Any
@@ -8,8 +9,16 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
-from app.agents.contracts import AgentExecutionStatus
 from app.models.base import Base, UUIDPrimaryKeyMixin
+
+
+class AgentExecutionStatus(str, enum.Enum):
+    """Deterministic states of an agent execution lifecycle."""
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    VALIDATING = "VALIDATING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class AgentExecutionAudit(Base, UUIDPrimaryKeyMixin):

@@ -72,14 +72,15 @@ export const ErrorAlert: React.FC<ErrorAlertProps> = ({
         className="project-not-found-alert"
         role="alert"
         style={{
-          background: 'rgba(239, 68, 68, 0.08)',
-          border: '1px solid rgba(239, 68, 68, 0.3)',
+          background: 'linear-gradient(180deg, rgba(239, 68, 68, 0.10) 0%, rgba(239, 68, 68, 0.05) 100%)',
+          border: '1px solid rgba(239, 68, 68, 0.35)',
           borderRadius: 'var(--radius-md)',
           padding: '1.25rem',
           display: 'flex',
           flexDirection: 'column',
           gap: '0.85rem',
           color: '#fca5a5',
+          boxShadow: 'var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
@@ -179,29 +180,30 @@ export const ErrorAlert: React.FC<ErrorAlertProps> = ({
     <div
       role="alert"
       style={{
-        background: 'rgba(239, 68, 68, 0.12)',
+        background: 'linear-gradient(180deg, rgba(239, 68, 68, 0.12) 0%, rgba(239, 68, 68, 0.06) 100%)',
         border: '1px solid rgba(239, 68, 68, 0.35)',
         borderRadius: 'var(--radius-md)',
-        padding: '1rem',
+        padding: '1rem 1.25rem',
         display: 'flex',
         alignItems: 'flex-start',
-        gap: '0.75rem',
+        gap: '0.85rem',
         color: '#fca5a5',
+        boxShadow: 'var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
       }}
     >
       <AlertCircle size={20} style={{ color: '#ef4444', flexShrink: 0, marginTop: 2 }} />
       <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 600, color: '#f87171', marginBottom: 2 }}>
+        <div style={{ fontWeight: 650, color: '#f87171', marginBottom: 2, fontSize: '0.95rem' }}>
           {status ? `Request Failed (HTTP ${status})` : 'Operation Error'}
         </div>
-        <div style={{ fontSize: '0.875rem' }}>{message}</div>
+        <div style={{ fontSize: '0.875rem', lineHeight: 1.5, color: '#cbd5e1' }}>{message}</div>
         {correlationId && (
           <div
             style={{
               fontSize: '0.75rem',
               color: '#94a3b8',
-              marginTop: '0.4rem',
-              fontFamily: 'monospace',
+              marginTop: '0.45rem',
+              fontFamily: 'var(--font-mono)',
             }}
           >
             Correlation ID: {correlationId}
@@ -209,13 +211,18 @@ export const ErrorAlert: React.FC<ErrorAlertProps> = ({
         )}
       </div>
       {onRetry && (
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={onRetry}
-          className="btn btn-sm btn-secondary"
-          style={{ borderColor: 'rgba(239, 68, 68, 0.4)', color: '#fca5a5' }}
+          style={{
+            borderColor: 'rgba(239, 68, 68, 0.4)',
+            color: '#fca5a5',
+            background: 'rgba(239, 68, 68, 0.12)',
+          }}
         >
           Retry
-        </button>
+        </Button>
       )}
     </div>
   );

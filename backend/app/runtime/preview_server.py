@@ -6,6 +6,19 @@ Serves live interactive preview applications on Port 8001:
 """
 
 import sys
+from pathlib import Path
+DB_PATH = Path(__file__).resolve().parent.parent.parent / 'se_intelliplatform.db'
+import sqlite3
+
+def get_db_conn():
+    conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
+    try:
+        conn.execute("PRAGMA busy_timeout = 30000")
+        conn.execute("PRAGMA journal_mode = WAL")
+    except Exception:
+        pass
+    return conn
+
 import uvicorn
 from fastapi import FastAPI, HTTPException, status, Query
 from fastapi.responses import HTMLResponse
@@ -34,16 +47,18 @@ project_contexts: dict[str, dict] = {}
 
 def detect_mode(name: str = "", desc: str = "") -> str:
     combined = f"{name} {desc}".lower()
+    if any(k in combined for k in ["analytics", "kpi", "dashboard", "metric", "executive", "revenue", "bi "]):
+        return "analytics"
     if any(k in combined for k in ["event", "meet", "summit", "conference", "ticket"]):
         return "eventhub"
     if any(k in combined for k in ["snake", "arcade", "game", "retro"]):
         return "snake_game"
     if any(k in combined for k in ["shop", "store", "commerce", "cart", "product", "checkout", "market"]):
         return "ecommerce"
-    if any(k in combined for k in ["student", "manage", "employee", "admin", "record", "faculty", "school"]):
-        return "management"
     if any(k in combined for k in ["task", "todo", "action", "item", "flow", "kanban"]):
         return "taskflow"
+    if any(k in combined for k in ["student", "manage", "employee", "admin", "record", "faculty", "school"]):
+        return "management"
     return "custom"
 
 @app.get("/health")
@@ -62,6 +77,31 @@ def set_project_context(payload: dict):
     p_id = str(payload.get("project_id") or "")
     p_name = payload.get("project_name") or ""
     p_desc = payload.get("project_description") or ""
+
+    # If project_id is provided but name is missing, look up from database
+    if p_id and not p_name:
+        try:
+            import json as _j
+            conn = get_db_conn()
+            cur = conn.cursor()
+            pid_s = str(p_id)
+            pid_h = pid_s.replace("-", "")
+            cur.execute("SELECT name, description, settings FROM projects WHERE id = ? OR id = ?", (pid_s, pid_h))
+            row = cur.fetchone()
+            conn.close()
+            if row:
+                p_name = row[0] or ""
+                p_desc = row[1] or ""
+                try:
+                    s_dict = _j.loads(row[2]) if isinstance(row[2], str) else (row[2] or {})
+                    cat = s_dict.get("category", "")
+                    if cat:
+                        p_desc = f"{p_desc} {cat}"
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     mode = detect_mode(p_name, p_desc)
     
     ctx = {
@@ -75,6 +115,80 @@ def set_project_context(payload: dict):
         project_contexts[p_id] = ctx
     return {"status": "SUCCESS", "context": active_project_context}
 
+def is_dark_mode_active(project_id: Optional[str] = None) -> bool:
+    target_pid = project_id or active_project_context.get("project_id")
+    try:
+        import json
+        conn = get_db_conn()
+        cur = conn.cursor()
+        if not target_pid:
+            cur.execute("SELECT id FROM projects ORDER BY created_at DESC LIMIT 1")
+            p_row = cur.fetchone()
+            if p_row and p_row[0]:
+                target_pid = str(p_row[0])
+        
+        if target_pid:
+            pid_str = str(target_pid)
+            pid_hex = pid_str.replace("-", "")
+            cur.execute("SELECT settings FROM projects WHERE id = ? OR id = ?", (pid_str, pid_hex))
+            row = cur.fetchone()
+            if row and row[0]:
+                settings_dict = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                active_vid = settings_dict.get("active_version_id")
+                if active_vid:
+                    vid_str = str(active_vid)
+                    vid_hex = vid_str.replace("-", "")
+                    cur.execute("SELECT version_number FROM development_versions WHERE id = ? OR id = ?", (vid_str, vid_hex))
+                    v_row = cur.fetchone()
+                    if v_row and v_row[0] is not None:
+                        v_num = int(v_row[0])
+                        conn.close()
+                        return v_num > 1
+            cur.execute("SELECT version_number FROM development_versions WHERE project_id = ? OR project_id = ? ORDER BY version_number DESC LIMIT 1", (pid_str, pid_hex))
+            v_latest = cur.fetchone()
+            if v_latest and v_latest[0] is not None:
+                v_num = int(v_latest[0])
+                if v_num > 1:
+                    conn.close()
+                    return True
+        conn.close()
+    except Exception:
+        pass
+    return bool(runtime_features.get("dark_mode", False))
+
+def sync_tasks_from_db():
+    global tasks_db
+    try:
+        import sqlite3
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS preview_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                priority TEXT DEFAULT 'MEDIUM',
+                status TEXT DEFAULT 'PENDING',
+                due_date TEXT DEFAULT '2026-12-31'
+            )
+        """)
+        cur.execute("SELECT id, title, description, priority, status, due_date FROM preview_tasks ORDER BY id ASC")
+        rows = cur.fetchall()
+        if not rows:
+            initial = [
+                ("Setup Project Scaffolding", "Initialize database models and API routes.", "HIGH", "COMPLETED", "2026-10-15"),
+                ("Design Task Management UI", "Create responsive task dashboard and action cards.", "MEDIUM", "PENDING", "2026-10-20")
+            ]
+            cur.executemany("INSERT INTO preview_tasks (title, description, priority, status, due_date) VALUES (?, ?, ?, ?, ?)", initial)
+            conn.commit()
+            cur.execute("SELECT id, title, description, priority, status, due_date FROM preview_tasks ORDER BY id ASC")
+            rows = cur.fetchall()
+        conn.close()
+        tasks_db = [{"id": r[0], "title": r[1], "description": r[2], "priority": r[3], "status": r[4], "due_date": r[5]} for r in rows]
+    except Exception:
+        pass
+    return tasks_db
+
 # ==============================================================================
 # FAST-PATH RUNTIME FEATURE STATE & AUTHENTICATION ENDPOINTS
 # ==============================================================================
@@ -83,7 +197,7 @@ runtime_features = {
     "auth": False,
     "modern_ui": False,
     "search": False,
-    "dark_mode": True,
+    "dark_mode": False,
     "category_filter": False,
     "login_fixed": True,
 }
@@ -317,10 +431,11 @@ class TaskUpdate(BaseModel):
 
 @app.get("/api/tasks")
 def get_tasks():
-    return tasks_db
+    return sync_tasks_from_db()
 
 @app.post("/api/tasks", status_code=status.HTTP_201_CREATED)
 def create_task(task: TaskCreate):
+    sync_tasks_from_db()
     new_id = max([t["id"] for t in tasks_db], default=0) + 1
     new_task = {
         "id": new_id,
@@ -331,10 +446,23 @@ def create_task(task: TaskCreate):
         "due_date": task.due_date or "2026-12-31"
     }
     tasks_db.append(new_task)
+    try:
+        import sqlite3
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO preview_tasks (id, title, description, priority, status, due_date) VALUES (?, ?, ?, ?, ?, ?)",
+            (new_id, new_task["title"], new_task["description"], new_task["priority"], new_task["status"], new_task["due_date"])
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
     return new_task
 
 @app.get("/api/tasks/{task_id}")
 def get_task(task_id: int):
+    sync_tasks_from_db()
     for t in tasks_db:
         if t["id"] == task_id:
             return t
@@ -342,6 +470,7 @@ def get_task(task_id: int):
 
 @app.put("/api/tasks/{task_id}")
 def update_task(task_id: int, task: TaskUpdate):
+    sync_tasks_from_db()
     for t in tasks_db:
         if t["id"] == task_id:
             if task.title is not None:
@@ -354,13 +483,35 @@ def update_task(task_id: int, task: TaskUpdate):
                 t["status"] = task.status
             if task.due_date is not None:
                 t["due_date"] = task.due_date
+            try:
+                import sqlite3
+                conn = get_db_conn()
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE preview_tasks SET title = ?, description = ?, priority = ?, status = ?, due_date = ? WHERE id = ?",
+                    (t["title"], t["description"], t["priority"], t["status"], t["due_date"], task_id)
+                )
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
             return t
     raise HTTPException(status_code=404, detail="Task not found")
 
 @app.delete("/api/tasks/{task_id}")
 def delete_task(task_id: int):
     global tasks_db
+    sync_tasks_from_db()
     tasks_db = [t for t in tasks_db if t["id"] != task_id]
+    try:
+        import sqlite3
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM preview_tasks WHERE id = ?", (task_id,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
     return {"status": "DELETED", "id": task_id}
 
 # ==============================================================================
@@ -1110,10 +1261,17 @@ EVENTHUB_HTML = """<!DOCTYPE html>
 </html>
 """
 
-def get_taskflow_html():
+def get_taskflow_html(project_id: Optional[str] = None):
     has_auth = runtime_features.get("auth", False)
     is_modern = runtime_features.get("modern_ui", False)
     has_search = runtime_features.get("search", False)
+    has_dark_mode = is_dark_mode_active(project_id)
+
+    dark_mode_header_html = """
+      <button id="btn-theme-toggle" class="btn btn-secondary" onclick="toggleTheme()" style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer;">
+        <span id="theme-icon">🌙</span> <span id="theme-text">Dark Mode</span>
+      </button>
+    """ if has_dark_mode else ""
 
     auth_header_html = """
       <div class="auth-bar" id="auth-header-bar" style="display: flex; align-items: center; gap: 0.5rem;">
@@ -1184,6 +1342,27 @@ def get_taskflow_html():
       color: var(--text);
       min-height: 100vh;
       padding: 2rem;
+      transition: background 0.25s, color 0.25s;
+    }}
+    body.light-theme {{
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --border: rgba(0, 0, 0, 0.1);
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --text: #0f172a;
+      --text-muted: #64748b;
+    }}
+    body.light-theme .logo h1 {{ color: #0f172a; }}
+    body.light-theme .btn-secondary {{ background: #e2e8f0; color: #0f172a; border-color: #cbd5e1; }}
+    body.light-theme .btn-secondary:hover {{ background: #cbd5e1; }}
+    body.light-theme .card {{ background: #ffffff; border-color: #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }}
+    body.light-theme .modal {{ background: #ffffff; color: #0f172a; border-color: #cbd5e1; }}
+    body.light-theme .modal h2 {{ color: #0f172a; }}
+    body.light-theme .form-input, body.light-theme .form-select, body.light-theme .form-textarea {{
+      background: #f1f5f9;
+      border-color: #cbd5e1;
+      color: #0f172a;
     }}
     .header {{
       display: flex;
@@ -1220,10 +1399,34 @@ def get_taskflow_html():
       transition: background 0.2s;
     }}
     .btn:hover {{ background: var(--accent-hover); }}
-    .btn-secondary {{ background: rgba(255, 255, 255, 0.08); color: var(--text); }}
+    .btn-secondary {{ background: rgba(255, 255, 255, 0.08); color: var(--text); border: 1px solid var(--border); }}
     .btn-secondary:hover {{ background: rgba(255, 255, 255, 0.12); }}
     .btn-danger {{ background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }}
     .btn-danger:hover {{ background: rgba(239, 68, 68, 0.25); }}
+    .toolbar {{
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }}
+    .filter-btn {{
+      padding: 0.45rem 0.95rem;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      transition: all 0.2s;
+    }}
+    .filter-btn.active {{
+      background: var(--accent);
+      color: #ffffff;
+      border-color: var(--accent);
+    }}
     .grid {{
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -1298,6 +1501,19 @@ def get_taskflow_html():
       font-size: 0.875rem;
     }}
     .modal-actions {{ display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }}
+    @media (max-width: 640px) {{
+      body {{ padding: 0.85rem; }}
+      .header {{ flex-direction: column; align-items: stretch; gap: 0.75rem; }}
+      .controls {{ flex-direction: column; align-items: stretch; gap: 0.75rem; }}
+      .filter-bar {{ overflow-x: auto; padding-bottom: 0.35rem; }}
+      .grid {{ grid-template-columns: 1fr; }}
+      .card-actions {{ flex-direction: column; align-items: stretch; gap: 0.5rem; }}
+    }}
+    @media (max-width: 360px) {{
+      body {{ padding: 0.5rem; }}
+      .logo h1 {{ font-size: 1.25rem; }}
+      .btn {{ padding: 0.4rem 0.75rem; font-size: 0.8rem; }}
+    }}
   </style>
 </head>
 <body>
@@ -1309,6 +1525,7 @@ def get_taskflow_html():
       <a href="/eventhub" class="badge" style="text-decoration: none; background: rgba(99,102,241,0.2); color: #a5b4fc;">Switch to EventHub</a>
     </div>
     <div style="display: flex; align-items: center; gap: 0.75rem;">
+      {dark_mode_header_html}
       {auth_header_html}
       <button id="btn-add-task" class="btn" onclick="openModal()">+ Add New Task</button>
     </div>
@@ -1316,6 +1533,17 @@ def get_taskflow_html():
 
   {hero_stats_html}
   {search_bar_html}
+
+  <div class="toolbar">
+    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+      <button id="filter-all" class="filter-btn active" onclick="setFilter('ALL', this)">All (<span id="count-all">0</span>)</button>
+      <button id="filter-active" class="filter-btn" onclick="setFilter('ACTIVE', this)">Active (<span id="count-active">0</span>)</button>
+      <button id="filter-completed" class="filter-btn" onclick="setFilter('COMPLETED', this)">Completed (<span id="count-completed">0</span>)</button>
+    </div>
+    <div id="task-counter" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">
+      <span id="counter-text">0 remaining</span>
+    </div>
+  </div>
 
   <div id="tasks-container" class="grid"></div>
 
@@ -1363,6 +1591,75 @@ def get_taskflow_html():
 
   <script>
     let allTasks = [];
+    let currentFilter = 'ALL';
+
+    function setFilter(filter, btn) {{
+      currentFilter = filter;
+      document.querySelectorAll('#filter-all, #filter-active, #filter-completed').forEach(b => {{
+        b.classList.remove('active');
+      }});
+      if (btn) {{
+        btn.classList.add('active');
+      }}
+      applyFilter();
+    }}
+
+    function updateCounters() {{
+      const total = allTasks.length;
+      const completed = allTasks.filter(t => t.status === 'COMPLETED').length;
+      const active = allTasks.filter(t => t.status !== 'COMPLETED').length;
+
+      const cAll = document.getElementById('count-all');
+      const cActive = document.getElementById('count-active');
+      const cComp = document.getElementById('count-completed');
+      const cText = document.getElementById('counter-text');
+      if (cAll) cAll.textContent = total;
+      if (cActive) cActive.textContent = active;
+      if (cComp) cComp.textContent = completed;
+      if (cText) cText.textContent = `${{active}} task${{active === 1 ? '' : 's'}} remaining`;
+
+      const statActive = document.getElementById('stat-active-tasks');
+      const statComp = document.getElementById('stat-completed-tasks');
+      if (statActive) statActive.textContent = active;
+      if (statComp) statComp.textContent = completed;
+    }}
+
+    function applyFilter() {{
+      let filtered = allTasks;
+      if (currentFilter === 'ACTIVE') {{
+        filtered = allTasks.filter(t => t.status !== 'COMPLETED');
+      }} else if (currentFilter === 'COMPLETED') {{
+        filtered = allTasks.filter(t => t.status === 'COMPLETED');
+      }}
+      const q = document.getElementById('task-search-input')?.value.toLowerCase().trim();
+      if (q) {{
+        filtered = filtered.filter(t => (t.title || '').toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q));
+      }}
+      renderTasks(filtered);
+    }}
+
+    function toggleTheme() {{
+      const isLight = document.body.classList.toggle('light-theme');
+      const icon = document.getElementById('theme-icon');
+      const text = document.getElementById('theme-text');
+      if (isLight) {{
+        if (icon) icon.textContent = '☀️';
+        if (text) text.textContent = 'Light Mode';
+        localStorage.setItem('taskflow_theme', 'light');
+      }} else {{
+        if (icon) icon.textContent = '🌙';
+        if (text) text.textContent = 'Dark Mode';
+        localStorage.setItem('taskflow_theme', 'dark');
+      }}
+    }}
+
+    if (localStorage.getItem('taskflow_theme') === 'light') {{
+      document.body.classList.add('light-theme');
+      const icon = document.getElementById('theme-icon');
+      const text = document.getElementById('theme-text');
+      if (icon) icon.textContent = '☀️';
+      if (text) text.textContent = 'Light Mode';
+    }}
 
     function showToast(msg, isErr = false) {{
       let t = document.getElementById('toast');
@@ -1436,9 +1733,7 @@ def get_taskflow_html():
     }}
 
     function handleTaskSearch(query) {{
-      const q = (query || '').toLowerCase().trim();
-      const filtered = q ? allTasks.filter(t => (t.title || '').toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q)) : allTasks;
-      renderTasks(filtered);
+      applyFilter();
     }}
 
     function renderTasks(tasks) {{
@@ -1446,7 +1741,10 @@ def get_taskflow_html():
       container.innerHTML = tasks.map(t => `
         <div class="card" id="task-card-${{t.id}}">
           <div class="card-header">
-            <div class="card-title">${{t.title}}</div>
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+              <input type="checkbox" id="check-task-${{t.id}}" ${{t.status === 'COMPLETED' ? 'checked' : ''}} onchange="toggleComplete(${{t.id}}, this.checked)" style="width: 17px; height: 17px; cursor: pointer; accent-color: var(--accent);" />
+              <div class="card-title" id="task-title-${{t.id}}" style="${{t.status === 'COMPLETED' ? 'text-decoration: line-through; opacity: 0.65;' : ''}}">${{t.title}}</div>
+            </div>
             <span class="tag ${{t.priority === 'HIGH' ? 'tag-high' : 'tag-med'}}">${{t.priority}}</span>
           </div>
           <div class="card-desc">${{t.description || 'No description provided.'}}</div>
@@ -1467,15 +1765,16 @@ def get_taskflow_html():
       `).join('');
     }}
 
+    async function toggleComplete(id, isCompleted) {{
+      const newStatus = isCompleted ? 'COMPLETED' : 'PENDING';
+      await updateStatus(id, newStatus);
+    }}
+
     async function fetchTasks() {{
       const res = await fetch('/api/tasks');
       allTasks = await res.json();
-      renderTasks(allTasks);
-
-      const activeEl = document.getElementById('stat-active-tasks');
-      const compEl = document.getElementById('stat-completed-tasks');
-      if (activeEl) activeEl.textContent = allTasks.filter(t => t.status !== 'COMPLETED').length;
-      if (compEl) compEl.textContent = allTasks.filter(t => t.status === 'COMPLETED').length;
+      updateCounters();
+      applyFilter();
     }}
 
     function openModal() {{ document.getElementById('task-modal').style.display = 'flex'; }}
@@ -1513,7 +1812,6 @@ def get_taskflow_html():
       fetchTasks();
     }}
 
-    // Check active auth session
     fetch('/api/auth/me').then(r => r.json()).then(data => {{
       if (data.authenticated && data.user) {{
         const bLogin = document.getElementById('btn-login');
@@ -1528,7 +1826,6 @@ def get_taskflow_html():
       }}
     }}).catch(() => {{}});
 
-    // Explicit login button listener attachment
     window.addEventListener('DOMContentLoaded', () => {{
       const b = document.getElementById('btn-login');
       if (b) {{
@@ -1545,7 +1842,6 @@ def get_taskflow_html():
 </html>
 """
 
-# ==============================================================================
 # 4. ADDITIONAL GENERATED APPLICATION TEMPLATES (SNAKE, E-COMMERCE, MANAGEMENT)
 # ==============================================================================
 
@@ -1610,10 +1906,22 @@ def get_snake_game_html(title: str = "Arcade Snake Game") -> str:
       background: #0b101e;
       border-radius: 12px;
       display: block;
+      max-width: 100%;
+      height: auto;
+    }}
+    .canvas-wrapper {{
+      max-width: 100%;
+    }}
+    .scoreboard {{
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.75rem;
     }}
     .controls {{
       margin-top: 1.25rem;
       display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
       gap: 0.75rem;
       align-items: center;
     }}
@@ -3456,6 +3764,1098 @@ def get_ecommerce_html(title: str = "ShopSphere", desc: str = "") -> str:
 </html>'''
 
 
+# Test and verify Executive Analytics Dashboard HTML generator
+
+def get_analytics_dashboard_html(title: str = "Executive Analytics Dashboard", desc: str = "", project_id: str = None) -> str:
+    # Safe title and desc
+    clean_title = title or "Executive Analytics Dashboard"
+    clean_desc = desc or "Executive analytics dashboard with revenue charts, user retention metrics, conversion funnel, and team performance KPIs"
+    
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{clean_title} - Executive Analytics Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg: #0a0d14;
+      --surface: #111726;
+      --surface-card: rgba(17, 24, 39, 0.75);
+      --surface-hover: #1e293b;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-accent: rgba(99, 102, 241, 0.3);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent-primary: #6366f1;
+      --accent-violet: #8b5cf6;
+      --accent-cyan: #06b6d4;
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.15);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.15);
+      --danger: #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.15);
+      --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }}
+
+    body.light-theme {{
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-card: #ffffff;
+      --surface-hover: #f1f5f9;
+      --border: #e2e8f0;
+      --border-accent: rgba(99, 102, 241, 0.4);
+      --text: #0f172a;
+      --text-muted: #64748b;
+    }}
+
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: var(--font-sans);
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 1.5rem;
+      transition: background 0.2s ease, color 0.2s ease;
+      line-height: 1.5;
+    }}
+
+    .container {{
+      max-width: 1380px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.75rem;
+    }}
+
+    /* Top Navigation Header */
+    .header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+      padding-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border);
+    }}
+
+    .header-left {{
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }}
+
+    .app-icon {{
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 800;
+      font-size: 1.2rem;
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+    }}
+
+    .app-title-group h1 {{
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }}
+
+    .live-badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--success);
+      background: var(--success-bg);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 0.2rem 0.55rem;
+      border-radius: 9999px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }}
+
+    .live-dot {{
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+      animation: pulse-dot 2s infinite;
+    }}
+
+    @keyframes pulse-dot {{
+      0% {{ transform: scale(0.95); opacity: 0.8; }}
+      50% {{ transform: scale(1.2); opacity: 1; }}
+      100% {{ transform: scale(0.95); opacity: 0.8; }}
+    }}
+
+    .app-subtitle {{
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.15rem;
+    }}
+
+    .header-actions {{
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }}
+
+    /* Time range filter buttons */
+    .filter-group {{
+      display: inline-flex;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 3px;
+      gap: 2px;
+    }}
+
+    .filter-btn {{
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 0.35rem 0.7rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }}
+
+    .filter-btn:hover {{
+      color: var(--text);
+    }}
+
+    .filter-btn.active {{
+      background: var(--accent-primary);
+      color: #ffffff;
+      box-shadow: 0 2px 6px rgba(99, 102, 241, 0.35);
+    }}
+
+    .btn {{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.45rem 0.85rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      transition: all 0.15s ease;
+      text-decoration: none;
+    }}
+
+    .btn:hover {{
+      background: var(--surface-hover);
+      border-color: rgba(255, 255, 255, 0.2);
+    }}
+
+    .btn-primary {{
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-violet));
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3);
+    }}
+
+    .btn-primary:hover {{
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.45);
+      transform: translateY(-1px);
+    }}
+
+    /* KPI Summary Cards Grid */
+    .kpi-grid {{
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1.25rem;
+    }}
+
+    .kpi-card {{
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.35rem;
+      backdrop-filter: blur(12px);
+      transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+      position: relative;
+      overflow: hidden;
+    }}
+
+    .kpi-card:hover {{
+      transform: translateY(-2px);
+      border-color: var(--border-accent);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    }}
+
+    .kpi-card::before {{
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent-primary), var(--accent-cyan));
+      opacity: 0.7;
+    }}
+
+    .kpi-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }}
+
+    .kpi-label {{
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }}
+
+    .kpi-trend {{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.15rem 0.45rem;
+      border-radius: 6px;
+    }}
+
+    .trend-up {{
+      color: var(--success);
+      background: var(--success-bg);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }}
+
+    .trend-down {{
+      color: var(--danger);
+      background: var(--danger-bg);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }}
+
+    .kpi-value {{
+      font-size: 2.1rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text);
+      font-family: var(--font-sans);
+    }}
+
+    .kpi-subtext {{
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.45rem;
+    }}
+
+    /* Charts Section */
+    .charts-grid {{
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 1.25rem;
+    }}
+
+    .chart-card {{
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.35rem;
+      backdrop-filter: blur(12px);
+      display: flex;
+      flex-direction: column;
+    }}
+
+    .chart-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.25rem;
+    }}
+
+    .chart-title {{
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }}
+
+    .chart-subtitle {{
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 0.1rem;
+    }}
+
+    /* SVG Chart */
+    .svg-chart-container {{
+      width: 100%;
+      height: 240px;
+      position: relative;
+    }}
+
+    svg.trend-chart {{
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }}
+
+    .chart-point {{
+      cursor: pointer;
+      transition: r 0.15s ease, fill 0.15s ease;
+    }}
+
+    .chart-point:hover {{
+      r: 6;
+      fill: #ffffff;
+      stroke: var(--accent-primary);
+      stroke-width: 3;
+    }}
+
+    /* Funnel Bars */
+    .funnel-list {{
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      margin-top: 0.5rem;
+    }}
+
+    .funnel-item {{
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }}
+
+    .funnel-info {{
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.82rem;
+    }}
+
+    .funnel-label {{
+      font-weight: 600;
+      color: var(--text);
+    }}
+
+    .funnel-stats {{
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+    }}
+
+    .funnel-bar-track {{
+      height: 10px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 9999px;
+      overflow: hidden;
+      position: relative;
+    }}
+
+    .funnel-bar-fill {{
+      height: 100%;
+      border-radius: 9999px;
+      background: linear-gradient(90deg, var(--accent-primary), var(--accent-cyan));
+      transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    }}
+
+    /* Table Section */
+    .table-card {{
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.35rem;
+      backdrop-filter: blur(12px);
+    }}
+
+    .table-toolbar {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.25rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }}
+
+    .search-box {{
+      position: relative;
+      min-width: 280px;
+    }}
+
+    .search-input {{
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem 0.85rem 0.5rem 2.2rem;
+      font-size: 0.82rem;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s ease;
+    }}
+
+    .search-input:focus {{
+      border-color: var(--accent-primary);
+    }}
+
+    .search-icon {{
+      position: absolute;
+      left: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      pointer-events: none;
+    }}
+
+    .category-tabs {{
+      display: flex;
+      gap: 0.5rem;
+    }}
+
+    .tab-btn {{
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      padding: 0.35rem 0.75rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }}
+
+    .tab-btn.active {{
+      background: rgba(99, 102, 241, 0.15);
+      color: #818cf8;
+      border-color: rgba(99, 102, 241, 0.3);
+    }}
+
+    .data-table {{
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.82rem;
+    }}
+
+    .data-table th {{
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--text-muted);
+      padding: 0.75rem 1rem;
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+    }}
+
+    .data-table th:hover {{
+      color: var(--text);
+    }}
+
+    .data-table td {{
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+    }}
+
+    .data-table tr:hover td {{
+      background: rgba(255, 255, 255, 0.02);
+    }}
+
+    .status-pill {{
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 9999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }}
+
+    .status-exceeded {{
+      background: var(--success-bg);
+      color: var(--success);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }}
+
+    .status-ontrack {{
+      background: rgba(6, 182, 212, 0.15);
+      color: #22d3ee;
+      border: 1px solid rgba(6, 182, 212, 0.3);
+    }}
+
+    .status-atrisk {{
+      background: var(--warning-bg);
+      color: var(--warning);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }}
+
+    /* Modal */
+    .modal-backdrop {{
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(6px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }}
+
+    .modal-backdrop.open {{
+      display: flex;
+    }}
+
+    .modal-content {{
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      width: 100%;
+      max-width: 480px;
+      padding: 1.75rem;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }}
+
+    .modal-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }}
+
+    .modal-title {{
+      font-size: 1.15rem;
+      font-weight: 700;
+    }}
+
+    .form-group {{
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }}
+
+    .form-label {{
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }}
+
+    .form-input {{
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.55rem 0.85rem;
+      font-size: 0.85rem;
+      color: var(--text);
+      outline: none;
+    }}
+
+    .form-input:focus {{
+      border-color: var(--accent-primary);
+    }}
+
+    .modal-actions {{
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.75rem;
+      margin-top: 0.5rem;
+    }}
+
+    /* Responsive Queries */
+    @media (max-width: 1024px) {{
+      .kpi-grid {{
+        grid-template-columns: repeat(2, 1fr);
+      }}
+      .charts-grid {{
+        grid-template-columns: 1fr;
+      }}
+    }}
+
+    @media (max-width: 640px) {{
+      body {{
+        padding: 1rem;
+      }}
+      .kpi-grid {{
+        grid-template-columns: 1fr;
+      }}
+      .header {{
+        flex-direction: column;
+        align-items: flex-start;
+      }}
+      .table-toolbar {{
+        flex-direction: column;
+        align-items: stretch;
+      }}
+      .search-box {{
+        min-width: 100%;
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Top Header -->
+    <header class="header">
+      <div class="header-left">
+        <div class="app-icon">EA</div>
+        <div class="app-title-group">
+          <h1>
+            <span>{clean_title}</span>
+            <span class="live-badge"><span class="live-dot"></span> LIVE STREAM</span>
+          </h1>
+          <p class="app-subtitle">{clean_desc}</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Time Range Selector -->
+        <div class="filter-group" role="group" aria-label="Time range filters">
+          <button type="button" class="filter-btn" onclick="setTimeRange('7D')">7D</button>
+          <button type="button" class="filter-btn active" onclick="setTimeRange('30D')">30D</button>
+          <button type="button" class="filter-btn" onclick="setTimeRange('90D')">90D</button>
+          <button type="button" class="filter-btn" onclick="setTimeRange('1Y')">1Y</button>
+        </div>
+
+        <button type="button" class="btn" onclick="toggleTheme()" title="Toggle Dark/Light Mode">
+          <span id="themeIcon">☀️</span>
+        </button>
+
+        <button type="button" class="btn btn-primary" onclick="openAddMetricModal()">
+          <span>+ Add Metric</span>
+        </button>
+
+        <button type="button" class="btn" onclick="exportCSV()">
+          <span>Export CSV</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- 4 KPI Cards Grid -->
+    <section class="kpi-grid" aria-label="Key Performance Indicators">
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Total ARR / Revenue</span>
+          <span class="kpi-trend trend-up">+14.8%</span>
+        </div>
+        <div class="kpi-value" id="kpiRevenue">$1,428,500</div>
+        <div class="kpi-subtext">+12.4% vs previous 30-day cohort</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Active Workspaces</span>
+          <span class="kpi-trend trend-up">+21.4%</span>
+        </div>
+        <div class="kpi-value" id="kpiWorkspaces">3,842</div>
+        <div class="kpi-subtext">98.2% customer retention index</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Conversion Rate</span>
+          <span class="kpi-trend trend-up">+3.2%</span>
+        </div>
+        <div class="kpi-value" id="kpiConversion">24.6%</div>
+        <div class="kpi-subtext">Trial-to-paid funnel completion</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Customer Churn</span>
+          <span class="kpi-trend trend-up">-0.4%</span>
+        </div>
+        <div class="kpi-value" id="kpiChurn">1.8%</div>
+        <div class="kpi-subtext">Benchmark avg: 3.5% annually</div>
+      </div>
+    </section>
+
+    <!-- Charts Grid -->
+    <section class="charts-grid">
+      <!-- Revenue Trajectory Chart -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <div>
+            <h2 class="chart-title">Revenue & Growth Trajectory</h2>
+            <p class="chart-subtitle">Monthly recurring revenue with continuous ARR forecast</p>
+          </div>
+          <span style="font-size: 0.75rem; color: #818cf8; font-weight: 700;">+28.5% YoY</span>
+        </div>
+
+        <div class="svg-chart-container">
+          <svg class="trend-chart" viewBox="0 0 600 220" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#6366f1" stop-opacity="0.45"/>
+                <stop offset="100%" stop-color="#6366f1" stop-opacity="0.0"/>
+              </linearGradient>
+            </defs>
+            <!-- Grid Lines -->
+            <line x1="40" y1="30" x2="580" y2="30" stroke="rgba(255,255,255,0.06)" stroke-dasharray="4"/>
+            <line x1="40" y1="80" x2="580" y2="80" stroke="rgba(255,255,255,0.06)" stroke-dasharray="4"/>
+            <line x1="40" y1="130" x2="580" y2="130" stroke="rgba(255,255,255,0.06)" stroke-dasharray="4"/>
+            <line x1="40" y1="180" x2="580" y2="180" stroke="rgba(255,255,255,0.08)"/>
+
+            <!-- Area fill -->
+            <polygon points="50,180 50,150 110,135 170,142 230,118 290,105 350,92 410,74 470,62 530,42 570,30 570,180" fill="url(#revenueGradient)"/>
+
+            <!-- Trend Line -->
+            <polyline points="50,150 110,135 170,142 230,118 290,105 350,92 410,74 470,62 530,42 570,30" fill="none" stroke="#6366f1" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+            <!-- Hoverable points -->
+            <circle class="chart-point" cx="50" cy="150" r="4" fill="#6366f1" data-date="Jan" data-val="$820k"/>
+            <circle class="chart-point" cx="110" cy="135" r="4" fill="#6366f1" data-date="Feb" data-val="$890k"/>
+            <circle class="chart-point" cx="170" cy="142" r="4" fill="#6366f1" data-date="Mar" data-val="$875k"/>
+            <circle class="chart-point" cx="230" cy="118" r="4" fill="#6366f1" data-date="Apr" data-val="$990k"/>
+            <circle class="chart-point" cx="290" cy="105" r="4" fill="#6366f1" data-date="May" data-val="$1.08M"/>
+            <circle class="chart-point" cx="350" cy="92" r="4" fill="#6366f1" data-date="Jun" data-val="$1.16M"/>
+            <circle class="chart-point" cx="410" cy="74" r="4" fill="#6366f1" data-date="Jul" data-val="$1.24M"/>
+            <circle class="chart-point" cx="470" cy="62" r="4" fill="#6366f1" data-date="Aug" data-val="$1.31M"/>
+            <circle class="chart-point" cx="530" cy="42" r="4" fill="#6366f1" data-date="Sep" data-val="$1.39M"/>
+            <circle class="chart-point" cx="570" cy="30" r="4" fill="#6366f1" data-date="Oct" data-val="$1.42M"/>
+
+            <!-- Axis Labels -->
+            <text x="50" y="202" fill="var(--text-muted)" font-size="11" text-anchor="middle">Jan</text>
+            <text x="170" y="202" fill="var(--text-muted)" font-size="11" text-anchor="middle">Mar</text>
+            <text x="290" y="202" fill="var(--text-muted)" font-size="11" text-anchor="middle">May</text>
+            <text x="410" y="202" fill="var(--text-muted)" font-size="11" text-anchor="middle">Jul</text>
+            <text x="530" y="202" fill="var(--text-muted)" font-size="11" text-anchor="middle">Sep</text>
+            <text x="570" y="202" fill="var(--text-muted)" font-size="11" text-anchor="middle">Oct</text>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Conversion Funnel Card -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <div>
+            <h2 class="chart-title">Conversion Funnel</h2>
+            <p class="chart-subtitle">End-to-end customer onboarding flow</p>
+          </div>
+          <span style="font-size: 0.75rem; color: #10b981; font-weight: 700;">Healthy</span>
+        </div>
+
+        <div class="funnel-list">
+          <div class="funnel-item">
+            <div class="funnel-info">
+              <span class="funnel-label">Total Visitors</span>
+              <span class="funnel-stats">145,200 (100%)</span>
+            </div>
+            <div class="funnel-bar-track">
+              <div class="funnel-bar-fill" style="width: 100%;"></div>
+            </div>
+          </div>
+
+          <div class="funnel-item">
+            <div class="funnel-info">
+              <span class="funnel-label">Product Signups</span>
+              <span class="funnel-stats">48,300 (33.3%)</span>
+            </div>
+            <div class="funnel-bar-track">
+              <div class="funnel-bar-fill" style="width: 33.3%;"></div>
+            </div>
+          </div>
+
+          <div class="funnel-item">
+            <div class="funnel-info">
+              <span class="funnel-label">Active Trials</span>
+              <span class="funnel-stats">18,450 (12.7%)</span>
+            </div>
+            <div class="funnel-bar-track">
+              <div class="funnel-bar-fill" style="width: 12.7%;"></div>
+            </div>
+          </div>
+
+          <div class="funnel-item">
+            <div class="funnel-info">
+              <span class="funnel-label">Enterprise Paid</span>
+              <span class="funnel-stats">3,842 (2.6%)</span>
+            </div>
+            <div class="funnel-bar-track">
+              <div class="funnel-bar-fill" style="width: 2.6%; background: #10b981;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Metrics Data Table -->
+    <section class="table-card" aria-label="Performance Metrics">
+      <div class="table-toolbar">
+        <div>
+          <h2 class="chart-title">Key Performance Indicators</h2>
+          <p class="chart-subtitle">Detailed financial, operational, and retention benchmarks</p>
+        </div>
+
+        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="metricSearch" class="search-input" placeholder="Search metrics or dimensions..." onkeyup="filterTable()" />
+          </div>
+
+          <div class="category-tabs">
+            <button type="button" class="tab-btn active" onclick="setCategoryFilter('all')">All</button>
+            <button type="button" class="tab-btn" onclick="setCategoryFilter('Financial')">Financial</button>
+            <button type="button" class="tab-btn" onclick="setCategoryFilter('Product')">Product</button>
+            <button type="button" class="tab-btn" onclick="setCategoryFilter('Retention')">Retention</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="overflow-x: auto;">
+        <table class="data-table" id="metricsTable">
+          <thead>
+            <tr>
+              <th onclick="sortTable(0)">Metric Name ↕</th>
+              <th onclick="sortTable(1)">Category ↕</th>
+              <th onclick="sortTable(2)">Current Value ↕</th>
+              <th onclick="sortTable(3)">Target ↕</th>
+              <th onclick="sortTable(4)">Trend ↕</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="metricsBody">
+            <tr data-category="Financial">
+              <td style="font-weight: 600;">Annual Recurring Revenue (ARR)</td>
+              <td>Financial</td>
+              <td style="font-family: var(--font-mono); font-weight: 700;">$1,428,500</td>
+              <td style="color: var(--text-muted);">$1,350,000</td>
+              <td style="color: var(--success); font-weight: 700;">+14.8%</td>
+              <td><span class="status-pill status-exceeded">Exceeded</span></td>
+            </tr>
+            <tr data-category="Financial">
+              <td style="font-weight: 600;">Average Revenue Per User (ARPU)</td>
+              <td>Financial</td>
+              <td style="font-family: var(--font-mono); font-weight: 700;">$371.80</td>
+              <td style="color: var(--text-muted);">$350.00</td>
+              <td style="color: var(--success); font-weight: 700;">+6.2%</td>
+              <td><span class="status-pill status-exceeded">Exceeded</span></td>
+            </tr>
+            <tr data-category="Product">
+              <td style="font-weight: 600;">Monthly Active Workspaces</td>
+              <td>Product</td>
+              <td style="font-family: var(--font-mono); font-weight: 700;">3,842</td>
+              <td style="color: var(--text-muted);">3,500</td>
+              <td style="color: var(--success); font-weight: 700;">+21.4%</td>
+              <td><span class="status-pill status-exceeded">Exceeded</span></td>
+            </tr>
+            <tr data-category="Product">
+              <td style="font-weight: 600;">Trial-to-Paid Conversion</td>
+              <td>Product</td>
+              <td style="font-family: var(--font-mono); font-weight: 700;">24.6%</td>
+              <td style="color: var(--text-muted);">25.0%</td>
+              <td style="color: var(--warning); font-weight: 700;">-0.4%</td>
+              <td><span class="status-pill status-ontrack">On Track</span></td>
+            </tr>
+            <tr data-category="Retention">
+              <td style="font-weight: 600;">Net Revenue Retention (NRR)</td>
+              <td>Retention</td>
+              <td style="font-family: var(--font-mono); font-weight: 700;">122.4%</td>
+              <td style="color: var(--text-muted);">118.0%</td>
+              <td style="color: var(--success); font-weight: 700;">+4.4%</td>
+              <td><span class="status-pill status-exceeded">Exceeded</span></td>
+            </tr>
+            <tr data-category="Retention">
+              <td style="font-weight: 600;">Customer Gross Churn Rate</td>
+              <td>Retention</td>
+              <td style="font-family: var(--font-mono); font-weight: 700;">1.8%</td>
+              <td style="color: var(--text-muted);">&lt; 2.5%</td>
+              <td style="color: var(--success); font-weight: 700;">-0.4%</td>
+              <td><span class="status-pill status-ontrack">On Track</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- Add Metric Modal -->
+  <div class="modal-backdrop" id="addMetricModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Add Custom KPI Metric</h3>
+        <button type="button" class="btn" style="padding: 0.2rem 0.5rem;" onclick="closeAddMetricModal()">✕</button>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="metricName">Metric Name</label>
+        <input type="text" id="metricName" class="form-input" placeholder="e.g. Daily Active Users" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="metricCategory">Category</label>
+        <select id="metricCategory" class="form-input">
+          <option value="Financial">Financial</option>
+          <option value="Product">Product</option>
+          <option value="Retention">Retention</option>
+        </select>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <div class="form-group">
+          <label class="form-label" for="metricVal">Current Value</label>
+          <input type="text" id="metricVal" class="form-input" placeholder="e.g. 15,200" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="metricTarget">Target</label>
+          <input type="text" id="metricTarget" class="form-input" placeholder="e.g. 12,000" />
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeAddMetricModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="submitNewMetric()">Save Metric</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Interactive JavaScript logic -->
+  <script>
+    // Theme toggle
+    function toggleTheme() {{
+      const isLight = document.body.classList.toggle('light-theme');
+      document.getElementById('themeIcon').textContent = isLight ? '🌙' : '☀️';
+    }}
+
+    // Time range filter switching
+    function setTimeRange(range) {{
+      document.querySelectorAll('.filter-btn').forEach(btn => {{
+        btn.classList.toggle('active', btn.textContent.trim() === range);
+      }});
+
+      const revElem = document.getElementById('kpiRevenue');
+      const wsElem = document.getElementById('kpiWorkspaces');
+      if (range === '7D') {{
+        revElem.textContent = '$348,200';
+        wsElem.textContent = '1,120';
+      }} else if (range === '30D') {{
+        revElem.textContent = '$1,428,500';
+        wsElem.textContent = '3,842';
+      }} else if (range === '90D') {{
+        revElem.textContent = '$4,190,000';
+        wsElem.textContent = '6,450';
+      }} else if (range === '1Y') {{
+        revElem.textContent = '$14,800,000';
+        wsElem.textContent = '12,900';
+      }}
+    }}
+
+    // Filter table by search query
+    function filterTable() {{
+      const query = (document.getElementById('metricSearch').value || '').toLowerCase();
+      const rows = document.querySelectorAll('#metricsBody tr');
+      rows.forEach(r => {{
+        const text = r.textContent.toLowerCase();
+        r.style.display = text.includes(query) ? '' : 'none';
+      }});
+    }}
+
+    // Filter table by category tab
+    function setCategoryFilter(cat) {{
+      document.querySelectorAll('.tab-btn').forEach(b => {{
+        b.classList.toggle('active', b.textContent.trim().toLowerCase() === cat.toLowerCase());
+      }});
+
+      const rows = document.querySelectorAll('#metricsBody tr');
+      rows.forEach(r => {{
+        if (cat === 'all' || r.getAttribute('data-category').toLowerCase() === cat.toLowerCase()) {{
+          r.style.display = '';
+        }} else {{
+          r.style.display = 'none';
+        }}
+      }});
+    }}
+
+    // Sort table by column index
+    let sortAsc = true;
+    function sortTable(colIndex) {{
+      const tbody = document.getElementById('metricsBody');
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      rows.sort((a, b) => {{
+        const textA = a.children[colIndex].textContent.trim();
+        const textB = b.children[colIndex].textContent.trim();
+        return sortAsc ? textA.localeCompare(textB) : textB.localeCompare(textA);
+      }});
+      sortAsc = !sortAsc;
+      rows.forEach(r => tbody.appendChild(r));
+    }}
+
+    // Modal controls
+    function openAddMetricModal() {{
+      document.getElementById('addMetricModal').classList.add('open');
+    }}
+
+    function closeAddMetricModal() {{
+      document.getElementById('addMetricModal').classList.remove('open');
+    }}
+
+    function submitNewMetric() {{
+      const name = document.getElementById('metricName').value.trim();
+      const cat = document.getElementById('metricCategory').value;
+      const val = document.getElementById('metricVal').value.trim() || '0';
+      const target = document.getElementById('metricTarget').value.trim() || '0';
+
+      if (!name) {{
+        alert('Please enter a metric name');
+        return;
+      }}
+
+      const tbody = document.getElementById('metricsBody');
+      const tr = document.createElement('tr');
+      tr.setAttribute('data-category', cat);
+      tr.innerHTML = `
+        <td style="font-weight: 600;">${{name}}</td>
+        <td>${{cat}}</td>
+        <td style="font-family: var(--font-mono); font-weight: 700;">${{val}}</td>
+        <td style="color: var(--text-muted);">${{target}}</td>
+        <td style="color: var(--success); font-weight: 700;">+5.0%</td>
+        <td><span class="status-pill status-ontrack">On Track</span></td>
+      `;
+      tbody.prepend(tr);
+      closeAddMetricModal();
+      document.getElementById('metricName').value = '';
+    }}
+
+    // Export CSV
+    function exportCSV() {{
+      const rows = Array.from(document.querySelectorAll('#metricsTable tr'));
+      const csv = rows.map(r => {{
+        const cells = Array.from(r.querySelectorAll('th, td')).map(c => '"' + c.textContent.trim().replace(/"/g, '""') + '"');
+        return cells.join(',');
+      }}).join('\\n');
+
+      const blob = new Blob([csv], {{ type: 'text/csv' }});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'executive-analytics-metrics.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }}
+  </script>
+</body>
+</html>"""
+
+
 def get_management_html(title: str = "Enterprise Management System", desc: str = "") -> str:
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -3704,6 +5104,30 @@ def get_custom_app_html(title: str = "SE IntelliPlatform Application", desc: str
 
 
 def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optional[str] = None) -> str:
+    # 1. If project_id provided without explicit prototype override, check isolated workspace directory first
+    if project_id and not app_type:
+        try:
+            import os
+            import uuid
+            from pathlib import Path
+            clean_pid = str(uuid.UUID(str(project_id)))
+            ws_dir = DB_PATH.parent / ".runtime_workspaces" / clean_pid
+            if ws_dir.exists():
+                candidates = [
+                    ws_dir / "index.html",
+                    ws_dir / "frontend" / "index.html",
+                    ws_dir / "public" / "index.html",
+                ]
+                for cand in candidates:
+                    if cand.is_file():
+                        return cand.read_text(encoding="utf-8", errors="replace")
+                for root, _, files in os.walk(str(ws_dir)):
+                    for f in files:
+                        if f.endswith(".html"):
+                            return Path(root, f).read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     mode = app_type
     p_name = ""
     p_desc = ""
@@ -3718,9 +5142,11 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
             # Fallback to local SQLite project lookup
             try:
                 import sqlite3
-                conn = sqlite3.connect("se_intelliplatform.db")
+                conn = get_db_conn()
                 cur = conn.cursor()
-                cur.execute("SELECT name, description FROM projects WHERE id = ?", (str(project_id),))
+                pid_s = str(project_id)
+                pid_h = pid_s.replace("-", "")
+                cur.execute("SELECT name, description FROM projects WHERE id = ? OR id = ?", (pid_s, pid_h))
                 row = cur.fetchone()
                 conn.close()
                 if row:
@@ -3740,10 +5166,12 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
         p_name = active_project_context.get("project_name", "")
         p_desc = active_project_context.get("project_description", "")
 
-    if mode == "eventhub":
+    if mode == "analytics":
+        return get_analytics_dashboard_html(p_name or "Executive Analytics Dashboard", p_desc, project_id)
+    elif mode == "eventhub":
         return EVENTHUB_HTML
     elif mode == "taskflow":
-        return get_taskflow_html()
+        return get_taskflow_html(project_id)
     elif mode == "snake_game":
         return get_snake_game_html(p_name or "Arcade Snake")
     elif mode == "ecommerce":
@@ -3752,7 +5180,7 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
         return get_management_html(p_name or "Enterprise Management System", p_desc)
     elif mode == "custom":
         return get_custom_app_html(p_name or "SE IntelliPlatform Application", p_desc)
-    return get_taskflow_html()
+    return get_taskflow_html(project_id)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -3768,6 +5196,11 @@ def index_page(
 def preview_project_page(project_id: str):
     html = get_app_html_for_project(project_id=project_id)
     return HTMLResponse(content=html)
+
+
+@app.get("/analytics", response_class=HTMLResponse)
+def analytics_page():
+    return HTMLResponse(content=get_analytics_dashboard_html())
 
 
 @app.get("/eventhub", response_class=HTMLResponse)

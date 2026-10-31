@@ -131,7 +131,7 @@ class BrowserConsoleError(BaseModel):
     )
     line_number: int | None = Field(
         default=None,
-        ge=1,
+        ge=0,
         description="Line number in source script if provided by runtime",
     )
     timestamp: datetime | None = Field(

@@ -111,25 +111,26 @@ class ProjectDownloadService:
             except Exception as exc:
                 logger.warning(f"Could not load version files for {target_version.id}: {exc}")
 
-        # 4. If still empty, check latest WorkflowExecution artifacts directly
+        # 4. If still empty, check WorkflowExecution artifacts across recent executions
         if not files_map:
             wf_stmt = (
                 select(WorkflowExecution)
                 .where(WorkflowExecution.project_id == project_id)
                 .order_by(WorkflowExecution.started_at.desc())
-                .limit(1)
             )
             wf_res = await self.session.execute(wf_stmt)
-            wf = wf_res.scalar_one_or_none()
-            if wf and wf.artifacts:
-                for key in ("code-generation", "code_generation"):
-                    if key in wf.artifacts:
-                        try:
-                            artifact = CodeGenerationOutput.model_validate(wf.artifacts[key])
-                            files_map = {f.path: f.content for f in artifact.generated_files}
-                            break
-                        except Exception:
-                            pass
+            for wf in wf_res.scalars().all():
+                if wf and wf.artifacts:
+                    for key in ("code-generation", "code_generation"):
+                        if key in wf.artifacts:
+                            try:
+                                artifact = CodeGenerationOutput.model_validate(wf.artifacts[key])
+                                files_map = {f.path: f.content for f in artifact.generated_files}
+                                break
+                            except Exception:
+                                pass
+                    if files_map:
+                        break
 
         return files_map
 
@@ -199,6 +200,11 @@ class ProjectDownloadService:
                     masked_env_lines.append(line)
             sanitized[".env.example"] = "\n".join(masked_env_lines) + "\n"
 
+        # Ensure app package has an __init__.py if app/ directory contains python files
+        has_app_py = any(p.startswith("app/") and p.endswith(".py") for p in sanitized.keys())
+        if has_app_py and "app/__init__.py" not in sanitized:
+            sanitized["app/__init__.py"] = '"""Application package initialization."""\n'
+
         # If project has no source files at all, generate an informative README
         if not sanitized:
             readme_text = f"""# {project.name}
@@ -210,9 +216,14 @@ class ProjectDownloadService:
 - **Project Status:** `{project.status.value}`
 - **Created:** `{project.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if project.created_at else 'N/A'}`
 
-## Getting Started
-This archive was created from your project repository on SE IntelliPlatform.
-Add source code through the platform workspace or command line tools.
+## Notice
+This project archive currently contains only documentation because code generation has not been run yet.
+
+To generate full multi-file executable source code:
+1. Open the project in **SE IntelliPlatform**.
+2. Navigate to the **Development Workspace**.
+3. Run the **Code Generation Workflow** (or use IntelliAssist: `Run Code Generation`).
+4. Re-download this source package to receive the complete project scaffold.
 """
             sanitized["README.md"] = readme_text
 
@@ -251,20 +262,34 @@ Add source code through the platform workspace or command line tools.
         if len(clean_files) > MAX_TOTAL_FILES:
             raise ValueError(f"Project contains {len(clean_files)} files, exceeding limit of {MAX_TOTAL_FILES}.")
 
-        # 4. Synthesize ZIP archive in memory
+        # 4. Synthesize ZIP archive in memory with POSIX permissions and directory entries
         zip_buffer = io.BytesIO()
         total_size = 0
 
         with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            created_dirs: set[str] = set()
             for file_path, content in sorted(clean_files.items()):
+                # Ensure parent directory entries exist in archive
+                parts = file_path.split("/")
+                if len(parts) > 1:
+                    for i in range(1, len(parts)):
+                        dir_path = "/".join(parts[:i]) + "/"
+                        if dir_path not in created_dirs:
+                            dir_info = zipfile.ZipInfo(filename=dir_path)
+                            dir_info.create_system = 3  # UNIX
+                            dir_info.external_attr = (0o755 << 16) | 0x10  # directory attribute
+                            zf.writestr(dir_info, b"")
+                            created_dirs.add(dir_path)
+
                 encoded = content.encode("utf-8")
                 total_size += len(encoded)
                 if total_size > MAX_ARCHIVE_BYTES:
                     raise ValueError(f"Project uncompressed size exceeds limit of {MAX_ARCHIVE_BYTES // (1024 * 1024)}MB.")
 
-                # Create zip entry
+                # Create zip entry with POSIX permission attributes
                 info = zipfile.ZipInfo(filename=file_path)
                 info.compress_type = zipfile.ZIP_DEFLATED
+                info.create_system = 3  # UNIX
                 # Use standard 0o644 file permission
                 info.external_attr = 0o644 << 16
                 zf.writestr(info, encoded)

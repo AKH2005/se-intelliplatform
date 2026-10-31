@@ -194,7 +194,7 @@ class DockerRuntimeExecutor:
             "-u",
             "2000:2000",
             "-e",
-            "PYTHONPATH=/workspace",
+            "PYTHONPATH=/workspace:/workspace/backend",
             "-e",
             "PYTHONDONTWRITEBYTECODE=1",
             "-e",

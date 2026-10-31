@@ -10,24 +10,30 @@ import {
   GitBranch,
   FileCode,
   Loader2,
-  RefreshCw,
   Globe,
   Compass,
   Check,
+  Square,
   RotateCcw,
   Eye,
   Trash2,
+  Plus,
+  MessageSquare,
+  ChevronDown,
+  Copy,
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
 import { assistantApi } from '../../services/assistantApi';
-import { AssistantMessage, ActionResult } from '../../types/assistant';
+import { developmentVersionApi } from '../../services/developmentVersionApi';
+import { AssistantConversation, AssistantMessage, ActionResult } from '../../types/assistant';
 
 interface AssistantDockProps {
   isOpen: boolean;
   onClose: () => void;
   activeProjectName?: string | null;
   projectId?: string | null;
+  activeVersionNumber?: number | null;
   onSelectPromptChip?: (promptText: string) => void;
   onNavigate?: (tab: any) => void;
   initialPrompt?: string | null;
@@ -39,6 +45,7 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
   onClose,
   activeProjectName,
   projectId,
+  activeVersionNumber,
   onSelectPromptChip,
   onNavigate,
   initialPrompt,
@@ -48,10 +55,175 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
   const [userInteractedNotice, setUserInteractedNotice] = useState<string | null>(null);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<AssistantConversation[]>([]);
+  const [isConversationsOpen, setIsConversationsOpen] = useState(false);
+  const [activeVersion, setActiveVersion] = useState<number | null>(activeVersionNumber ?? null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isConfirming, setIsConfirming] = useState<boolean>(false);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [lastUserPrompt, setLastUserPrompt] = useState<string>('');
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  // Preserve unsent draft messages scoped to project and conversation
+  const draftKey = `se_draft_${projectId || 'global'}_${conversationId || 'new'}`;
+
+  useEffect(() => {
+    try {
+      const savedDraft = localStorage.getItem(draftKey);
+      if (savedDraft) {
+        setInputValue(savedDraft);
+      }
+    } catch {
+      // ignore
+    }
+  }, [projectId, conversationId, draftKey]);
+
+  const handleInputChange = (val: string) => {
+    setInputValue(val);
+    try {
+      if (val.trim()) {
+        localStorage.setItem(draftKey, val);
+      } else {
+        localStorage.removeItem(draftKey);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const renderInlineMarkdown = (text: string) => {
+    const codeParts = text.split(/(`[^`]+`)/g);
+    return codeParts.map((part, i) => {
+      if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+        return (
+          <code
+            key={i}
+            style={{
+              background: 'rgba(255, 255, 255, 0.08)',
+              padding: '0.1rem 0.35rem',
+              borderRadius: '3px',
+              fontFamily: 'monospace',
+              fontSize: '0.85em',
+              color: 'var(--accent-cyan)',
+            }}
+          >
+            {part.slice(1, -1)}
+          </code>
+        );
+      }
+      const boldParts = part.split(/(\*\*[^*]+\*\*)/g);
+      return boldParts.map((bPart, j) => {
+        if (bPart.startsWith('**') && bPart.endsWith('**') && bPart.length > 4) {
+          return (
+            <strong key={`${i}-${j}`} style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+              {bPart.slice(2, -2)}
+            </strong>
+          );
+        }
+        return bPart;
+      });
+    });
+  };
+
+  const renderFormattedContent = (content: string) => {
+    if (!content) return null;
+
+    const codeBlockRegex = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g;
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    let blockIdx = 0;
+
+    while ((match = codeBlockRegex.exec(content)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(
+          <span key={`text-${lastIndex}`}>
+            {renderInlineMarkdown(content.slice(lastIndex, match.index))}
+          </span>
+        );
+      }
+      const lang = match[1] || 'code';
+      const code = match[2];
+      const curIdx = blockIdx++;
+
+      parts.push(
+        <div
+          key={`code-block-${curIdx}`}
+          style={{
+            margin: '0.55rem 0',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--border-subtle)',
+            overflow: 'hidden',
+            background: '#0a0e17',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0.25rem 0.65rem',
+              background: 'rgba(255, 255, 255, 0.04)',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              fontSize: '0.68rem',
+              color: 'var(--text-muted)',
+              fontFamily: 'monospace',
+            }}
+          >
+            <span>{lang}</span>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  navigator.clipboard?.writeText(code);
+                  setCopiedIndex(curIdx);
+                  setTimeout(() => setCopiedIndex(null), 2000);
+                } catch {}
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: copiedIndex === curIdx ? '#34d399' : 'var(--text-dim)',
+                cursor: 'pointer',
+                fontSize: '0.68rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+              }}
+              title="Copy code"
+            >
+              {copiedIndex === curIdx ? <Check size={11} /> : <Copy size={11} />}
+              <span>{copiedIndex === curIdx ? 'Copied' : 'Copy'}</span>
+            </button>
+          </div>
+          <pre
+            style={{
+              margin: 0,
+              padding: '0.6rem 0.75rem',
+              fontSize: '0.74rem',
+              fontFamily: 'monospace',
+              color: '#c7d2fe',
+              overflowX: 'auto',
+              lineHeight: 1.45,
+            }}
+          >
+            {code}
+          </pre>
+        </div>
+      );
+      lastIndex = match.index + match[0].length;
+    }
+
+    if (lastIndex < content.length) {
+      parts.push(
+        <span key={`text-${lastIndex}`}>
+          {renderInlineMarkdown(content.slice(lastIndex))}
+        </span>
+      );
+    }
+
+    return parts;
+  };
 
   // Review Changes Modal state
   const [reviewModalData, setReviewModalData] = useState<{
@@ -63,6 +235,24 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
+  const handleCancelRequest = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsLoading(false);
+      setErrorNotice('Response generation cancelled by user.');
+    }
+  };
 
   useEffect(() => {
     if (messagesEndRef.current?.scrollIntoView) {
@@ -70,28 +260,58 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
     }
   }, [messages, isLoading]);
 
-  // Load existing conversation if available
+  useEffect(() => {
+    if (activeVersionNumber !== undefined) {
+      setActiveVersion(activeVersionNumber);
+    }
+  }, [activeVersionNumber]);
+
+  // Load existing conversations and active version whenever project changes
   useEffect(() => {
     let isMounted = true;
+    setConversationId(null);
+    setMessages([]);
+    setErrorNotice(null);
+    setUserInteractedNotice(null);
+    setConversations([]);
+
     if (isOpen && projectId) {
-      assistantApi
-        .listConversations(projectId)
-        .then((res) => {
-          if (!isMounted) return;
-          if (res.items && res.items.length > 0) {
-            const latest = res.items[0];
-            setConversationId(latest.conversation_id);
-            setMessages(latest.messages || []);
-          }
-        })
-        .catch(() => {
-          // Gracefully continue with fresh conversation state
-        });
+      if (assistantApi?.listConversations) {
+        Promise.resolve(assistantApi.listConversations(projectId))
+          .then((res) => {
+            if (!isMounted || !res) return;
+            const items = res.items || [];
+            setConversations(items);
+            if (items.length > 0) {
+              const latest = items[0];
+              setConversationId(latest.conversation_id);
+              setMessages(latest.messages || []);
+            }
+          })
+          .catch(() => {
+            // Gracefully continue with fresh conversation state
+          });
+      }
+
+      if (activeVersionNumber === undefined && developmentVersionApi?.getActiveVersion) {
+        Promise.resolve(developmentVersionApi.getActiveVersion(projectId))
+          .then((ver) => {
+            if (!isMounted) return;
+            if (ver && ver.version_number !== undefined) {
+              setActiveVersion(ver.version_number);
+            } else {
+              setActiveVersion(null);
+            }
+          })
+          .catch(() => {
+            if (isMounted) setActiveVersion(null);
+          });
+      }
     }
     return () => {
       isMounted = false;
     };
-  }, [isOpen, projectId]);
+  }, [isOpen, projectId, activeVersionNumber]);
 
   // Handle external initial prompt if provided
   useEffect(() => {
@@ -101,7 +321,64 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
     }
   }, [isOpen, initialPrompt]);
 
+  const handleNewConversation = async () => {
+    if (!projectId) return;
+    setIsLoading(true);
+    setErrorNotice(null);
+    try {
+      const newConv = await assistantApi.createConversation(projectId);
+      setConversationId(newConv.conversation_id);
+      setMessages([]);
+      setConversations((prev) => [newConv, ...prev.filter((c) => c.conversation_id !== newConv.conversation_id)]);
+      setIsConversationsOpen(false);
+    } catch {
+      setConversationId(null);
+      setMessages([]);
+      setIsConversationsOpen(false);
+    } finally {
+      setIsLoading(false);
+      textareaRef.current?.focus();
+    }
+  };
+
+  const handleSelectConversation = async (conv: AssistantConversation) => {
+    if (!projectId) return;
+    setConversationId(conv.conversation_id);
+    setIsConversationsOpen(false);
+    setErrorNotice(null);
+
+    if (conv.messages && conv.messages.length > 0) {
+      setMessages(conv.messages);
+    } else {
+      setIsLoading(true);
+      try {
+        const detail = await assistantApi.getConversation(projectId, conv.conversation_id);
+        setMessages(detail.messages || []);
+      } catch {
+        setErrorNotice('Failed to load conversation history.');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  const handleDeleteConversation = async (e: React.MouseEvent, convId: string) => {
+    e.stopPropagation();
+    if (!projectId) return;
+    try {
+      await assistantApi.deleteConversation(projectId, convId);
+      setConversations((prev) => prev.filter((c) => c.conversation_id !== convId));
+      if (conversationId === convId) {
+        setConversationId(null);
+        setMessages([]);
+      }
+    } catch {
+      setErrorNotice('Failed to delete conversation.');
+    }
+  };
+
   if (!isOpen) return null;
+
 
   // Contextual suggestion actions
   const contextualActions = [
@@ -137,9 +414,15 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
 
   const handleSendPrompt = async (promptText: string) => {
     const trimmed = promptText.trim();
-    if (!trimmed) return;
+    if (!trimmed || isLoading) return;
 
     setLastUserPrompt(trimmed);
+    setInputValue('');
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {
+      // ignore
+    }
     if (onSelectPromptChip) {
       onSelectPromptChip(trimmed);
     }
@@ -164,24 +447,133 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
     };
     setMessages((prev) => [...prev, optimisticUserMsg]);
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    let tempStreamingId: string | null = null;
+    let accumulatedContent = '';
+
     try {
-      const response = await assistantApi.sendMessage(projectId, {
-        content: trimmed,
-        conversation_id: conversationId,
+      let response: AssistantMessage;
+
+      if (typeof assistantApi.sendMessageStream === 'function') {
+        tempStreamingId = `streaming-${Date.now()}`;
+        setMessages((prev) => [
+          ...prev,
+          {
+            message_id: tempStreamingId!,
+            conversation_id: conversationId || 'new',
+            role: 'assistant',
+            content: '',
+            created_at: new Date().toISOString(),
+          },
+        ]);
+
+        response = await assistantApi.sendMessageStream(
+          projectId,
+          {
+            content: trimmed,
+            conversation_id: conversationId,
+          },
+          {
+            onStart: (data) => {
+              if (data.conversation_id && data.conversation_id !== 'None') {
+                setConversationId(data.conversation_id);
+              }
+            },
+            onChunk: (chunk) => {
+              accumulatedContent += chunk;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.message_id === tempStreamingId ? { ...m, content: accumulatedContent } : m
+                )
+              );
+            },
+            onStatus: (status) => {
+              setUserInteractedNotice(status);
+            },
+            onDone: (finalMsg) => {
+              setConversationId(finalMsg.conversation_id);
+              setMessages((prev) =>
+                prev.map((m) => (m.message_id === tempStreamingId ? finalMsg : m))
+              );
+            },
+            onError: (errStr) => {
+              setErrorNotice(errStr);
+            },
+          },
+          { signal: controller.signal }
+        );
+      } else {
+        response = await assistantApi.sendMessage(
+          projectId,
+          {
+            content: trimmed,
+            conversation_id: conversationId,
+          },
+          { signal: controller.signal }
+        );
+        setConversationId(response.conversation_id);
+        setMessages((prev) => [...prev, response]);
+      }
+
+      setConversations((prev) => {
+        const existing = prev.find((c) => c.conversation_id === response.conversation_id);
+        if (existing) {
+          return prev.map((c) =>
+            c.conversation_id === response.conversation_id
+              ? { ...c, messages: [...(c.messages || []), optimisticUserMsg, response] }
+              : c
+          );
+        } else {
+          return [
+            {
+              conversation_id: response.conversation_id,
+              project_id: projectId,
+              title: trimmed.length > 50 ? `${trimmed.slice(0, 50)}...` : trimmed,
+              messages: [optimisticUserMsg, response],
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            ...prev,
+          ];
+        }
       });
-      setConversationId(response.conversation_id);
-      setMessages((prev) => [...prev, response]);
 
       if (response.action_result?.data?.runtime_updated) {
         window.dispatchEvent(new CustomEvent('se-preview-refresh'));
       }
     } catch (err: any) {
+      if (err?.name === 'CanceledError' || err?.name === 'AbortError' || err?.code === 'ERR_CANCELED') {
+        setErrorNotice('Response generation was cancelled.');
+        if (tempStreamingId) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.message_id === tempStreamingId
+                ? {
+                    ...m,
+                    content:
+                      accumulatedContent.trim().length > 0
+                        ? `${accumulatedContent}\n\n*(Generation stopped by user)*`
+                        : '*(Generation cancelled by user)*',
+                  }
+                : m
+            )
+          );
+        }
+        return;
+      }
+      if (tempStreamingId) {
+        setMessages((prev) => prev.filter((m) => m.message_id !== tempStreamingId));
+      }
       const errMsg = err?.response?.data?.detail || err?.message || 'Failed to communicate with AI Development Assistant';
       setErrorNotice(errMsg);
     } finally {
+      abortControllerRef.current = null;
       setIsLoading(false);
     }
   };
+
 
   const handleConfirmAction = async (token: string) => {
     if (!projectId) return;
@@ -205,6 +597,21 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
       };
       setMessages((prev) => [...prev, confirmedMsg]);
       setReviewModalData(null);
+      const newVerNum = result.data?.version_number ?? result.data?.new_version?.version_number;
+      const newVerId = result.data?.version_id ?? result.data?.new_version?.id;
+      if (newVerNum !== undefined && newVerNum !== null) {
+        setActiveVersion(newVerNum);
+      }
+      if (newVerId) {
+        window.dispatchEvent(
+          new CustomEvent('se-version-refresh', {
+            detail: { ...result.data, version_id: newVerId, version_number: newVerNum },
+          })
+        );
+      }
+      if (result.data?.runtime_updated || result.action_id === 'APPLY_CODE_CHANGE') {
+        window.dispatchEvent(new CustomEvent('se-preview-refresh'));
+      }
     } catch (err: any) {
       const errMsg = err?.response?.data?.detail || err?.message || 'Failed to confirm action';
       setErrorNotice(errMsg);
@@ -213,22 +620,16 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
     }
   };
 
-  const openChangeReview = (title: string, desc: string, applyFn?: () => void) => {
+  const openChangeReview = (
+    title: string,
+    desc: string,
+    applyFn?: () => void,
+    files?: { path: string; status: 'added' | 'modified'; diff: string }[]
+  ) => {
     setReviewModalData({
       title,
       description: desc,
-      files: [
-        {
-          path: 'app/main.py',
-          status: 'modified',
-          diff: `@@ -45,6 +45,18 @@\n+ # Authenticated router mounted\n+ app.include_router(auth_router, prefix="/api/auth", tags=["auth"])`,
-        },
-        {
-          path: 'static/index.html',
-          status: 'modified',
-          diff: `@@ -120,4 +120,12 @@\n+ <div class="user-auth-bar">\n+   <button id="btn-login" class="nav-btn">Sign In</button>\n+ </div>`,
-        },
-      ],
+      files: files && files.length > 0 ? files : [],
       onApply: applyFn,
     });
   };
@@ -267,6 +668,32 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
             {result.confirmation_prompt || result.summary}
           </div>
 
+          {result.data?.files && result.data.files.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.2rem' }}>
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                Proposed File Modifications ({result.data.files.length}):
+              </span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                {result.data.files.map((f: any, idx: number) => (
+                  <span
+                    key={idx}
+                    style={{
+                      fontSize: '0.68rem',
+                      fontFamily: 'monospace',
+                      padding: '0.15rem 0.45rem',
+                      borderRadius: '4px',
+                      background: 'rgba(255, 255, 255, 0.06)',
+                      border: '1px solid var(--border-subtle)',
+                      color: f.status === 'added' ? '#34d399' : '#818cf8',
+                    }}
+                  >
+                    {f.status === 'added' ? '+ ' : '~ '} {f.path}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {token && (
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
               <button
@@ -275,7 +702,8 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
                   openChangeReview(
                     `Review Changes: ${result.action_id}`,
                     result.confirmation_prompt || result.summary || 'Inspect proposed source modifications.',
-                    () => handleConfirmAction(token)
+                    () => handleConfirmAction(token),
+                    result.data?.files || []
                   )
                 }
                 style={{
@@ -777,6 +1205,154 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
           </div>
         </div>
 
+        {/* Project & Active Version Context Strip + Conversation Switcher */}
+        <div
+          data-testid="assistant-project-context-strip"
+          style={{
+            padding: '0.45rem var(--space-md)',
+            background: 'rgba(15, 23, 42, 0.75)',
+            borderBottom: '1px solid var(--border-subtle)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.5rem',
+            fontSize: '0.74rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <GitBranch size={13} color="var(--accent-cyan)" />
+            <span
+              data-testid="assistant-project-badge"
+              style={{ fontWeight: 600, color: 'var(--text-primary)' }}
+            >
+              {activeProjectName || 'No project selected'}
+            </span>
+            {activeVersion !== null && (
+              <span
+                data-testid="assistant-version-badge"
+                style={{
+                  background: 'rgba(99, 102, 241, 0.2)',
+                  color: 'var(--accent-primary)',
+                  padding: '0.05rem 0.35rem',
+                  borderRadius: '3px',
+                  fontWeight: 700,
+                  fontSize: '0.68rem',
+                }}
+              >
+                v{activeVersion}
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <button
+              type="button"
+              data-testid="new-conversation-btn"
+              onClick={handleNewConversation}
+              disabled={isLoading || !projectId}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+                background: 'rgba(99, 102, 241, 0.15)',
+                border: '1px solid rgba(99, 102, 241, 0.35)',
+                color: 'var(--text-primary)',
+                padding: '0.2rem 0.5rem',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.7rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+              title="Start a new conversation"
+            >
+              <Plus size={12} />
+              <span>New Chat</span>
+            </button>
+
+            {conversations.length > 0 && (
+              <button
+                type="button"
+                data-testid="conversation-selector-btn"
+                onClick={() => setIsConversationsOpen((prev) => !prev)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  background: isConversationsOpen ? 'var(--bg-surface-active)' : 'transparent',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-secondary)',
+                  padding: '0.2rem 0.45rem',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.7rem',
+                  cursor: 'pointer',
+                }}
+                title="View past conversations"
+              >
+                <MessageSquare size={12} />
+                <span>{conversations.length}</span>
+                <ChevronDown size={11} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Conversations Dropdown Drawer */}
+        {isConversationsOpen && (
+          <div
+            data-testid="conversations-dropdown"
+            style={{
+              maxHeight: '180px',
+              overflowY: 'auto',
+              background: 'var(--bg-surface-elevated)',
+              borderBottom: '1px solid var(--border-focus)',
+              padding: '0.35rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.25rem',
+              zIndex: 10,
+            }}
+          >
+            {conversations.map((c) => {
+              const isSelected = c.conversation_id === conversationId;
+              return (
+                <div
+                  key={c.conversation_id}
+                  onClick={() => handleSelectConversation(c)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0.35rem 0.55rem',
+                    borderRadius: 'var(--radius-sm)',
+                    background: isSelected ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    color: isSelected ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                  }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '240px' }}>
+                    {c.title || 'Conversation'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteConversation(e, c.conversation_id)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-dim)',
+                      cursor: 'pointer',
+                      padding: '0.15rem',
+                    }}
+                    title="Delete conversation"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* Hidden test-compatibility tokens */}
         <span style={{ display: 'none' }}>Intelli Assistant</span>
         <span style={{ display: 'none' }}>Intelli Assistant connects conversational reasoning</span>
@@ -821,13 +1397,16 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
                 <Sparkles size={22} />
               </div>
               <h4 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)', fontWeight: 700 }}>
-                {activeProjectName ? `Assistant Ready for ${activeProjectName}` : 'AI Development Assistant Ready'}
+                {activeProjectName
+                  ? `Assistant Ready for ${activeProjectName}${activeVersion !== null ? ` (v${activeVersion})` : ''}`
+                  : 'AI Development Assistant Ready'}
               </h4>
               <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.45, maxWidth: '300px' }}>
-                Talk naturally to build, refine, or debug your application. Describe changes and review results in Live Preview.
+                Ask questions about your project's source code, architecture, and dependencies, or request debugging help.
               </p>
             </div>
           )}
+
 
           {userInteractedNotice && (
             <div
@@ -847,6 +1426,7 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
           {/* Error Notice with Retry */}
           {errorNotice && (
             <div
+              data-testid="assistant-error-banner"
               style={{
                 padding: '0.65rem 0.85rem',
                 borderRadius: 'var(--radius-sm)',
@@ -867,6 +1447,7 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem' }}>
                   <button
                     type="button"
+                    data-testid="retry-message-btn"
                     onClick={() => handleSendPrompt(lastUserPrompt)}
                     style={{
                       background: 'var(--status-failed)',
@@ -903,6 +1484,7 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
             </div>
           )}
 
+
           {/* Conversation Message Feed */}
           {messages.map((msg, idx) => (
             <div
@@ -938,7 +1520,7 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
                   boxShadow: msg.role === 'user' ? '0 2px 8px rgba(99, 102, 241, 0.3)' : 'none',
                 }}
               >
-                {msg.content}
+                {msg.role === 'assistant' ? renderFormattedContent(msg.content) : msg.content}
 
                 {/* Legacy suggested prompt button support if present */}
                 {(() => {
@@ -1000,20 +1582,17 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
                 fontSize: '0.78rem',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', color: '#34d399', fontWeight: 600 }}>
-                <Check size={13} color="#34d399" />
-                <span>Understanding request</span>
+              <div data-testid="assistant-thinking-indicator" style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', color: 'var(--accent-cyan)', fontWeight: 600 }}>
+                <Loader2 size={13} className="spin" />
+                <span>Reading project files & reasoning...</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', color: '#34d399', fontWeight: 600 }}>
                 <Check size={13} color="#34d399" />
-                <span>Updating application</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', color: 'var(--accent-cyan)', fontWeight: 600 }}>
-                <RefreshCw size={13} className="animate-spin" />
-                <span>Applying changes...</span>
+                <span>Active version context evaluated</span>
               </div>
             </div>
           )}
+
 
           {/* Contextual Action Starters (Shown when conversation is fresh) */}
           {messages.length === 0 && (
@@ -1116,13 +1695,13 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
                 className="form-textarea"
                 rows={2}
                 value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+                onChange={(e) => handleInputChange(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     if (inputValue.trim() && !isLoading) {
                       handleSendPrompt(inputValue.trim());
-                      setInputValue('');
+                      handleInputChange('');
                     }
                   }
                 }}
@@ -1144,7 +1723,7 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
               {inputValue && (
                 <button
                   type="button"
-                  onClick={() => setInputValue('')}
+                  onClick={() => handleInputChange('')}
                   title="Clear input"
                   style={{
                     position: 'absolute',
@@ -1169,25 +1748,52 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
                 Press <strong>Enter</strong> to send, <strong>Shift + Enter</strong> for newline
               </span>
 
-              <button
-                type="submit"
-                className="btn btn-primary"
-                style={{
-                  padding: '0.35rem 0.75rem',
-                  fontSize: '0.78rem',
-                  fontWeight: 600,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.35rem',
-                  background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cyan))',
-                }}
-                disabled={!inputValue.trim() || isLoading}
-                title="Send inquiry"
-                aria-label="Send inquiry"
-              >
-                <span>Send</span>
-                <Send size={12} />
-              </button>
+              {isLoading ? (
+                <button
+                  type="button"
+                  data-testid="cancel-message-btn"
+                  onClick={handleCancelRequest}
+                  className="btn"
+                  style={{
+                    padding: '0.35rem 0.75rem',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid rgba(239, 68, 68, 0.35)',
+                    color: '#f87171',
+                    cursor: 'pointer',
+                  }}
+                  title="Cancel response generation"
+                  aria-label="Cancel response generation"
+                >
+                  <Square size={12} fill="#f87171" />
+                  <span>Stop</span>
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  data-testid="send-message-btn"
+                  className="btn btn-primary"
+                  style={{
+                    padding: '0.35rem 0.75rem',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cyan))',
+                  }}
+                  disabled={!inputValue.trim() || isLoading}
+                  title="Send inquiry"
+                  aria-label="Send inquiry"
+                >
+                  <span>Send</span>
+                  <Send size={12} />
+                </button>
+              )}
             </div>
           </form>
         </div>
@@ -1228,55 +1834,71 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {reviewModalData.files.map((f, i) => (
+              {reviewModalData.files.length === 0 ? (
                 <div
-                  key={i}
                   style={{
+                    padding: '1.25rem',
+                    textAlign: 'center',
+                    background: 'rgba(255, 255, 255, 0.02)',
                     borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border-subtle)',
-                    overflow: 'hidden',
+                    border: '1px dashed var(--border-subtle)',
+                    color: 'var(--text-dim)',
+                    fontSize: '0.82rem',
                   }}
                 >
+                  No file diffs available for this change.
+                </div>
+              ) : (
+                reviewModalData.files.map((f, i) => (
                   <div
+                    key={i}
                     style={{
-                      padding: '0.4rem 0.75rem',
-                      background: 'rgba(255, 255, 255, 0.04)',
-                      borderBottom: '1px solid var(--border-subtle)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      fontSize: '0.78rem',
-                      fontFamily: 'monospace',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-subtle)',
+                      overflow: 'hidden',
                     }}
                   >
-                    <span>{f.path}</span>
-                    <span
+                    <div
                       style={{
-                        fontSize: '0.68rem',
-                        fontWeight: 700,
-                        color: f.status === 'added' ? '#34d399' : '#818cf8',
-                        textTransform: 'uppercase',
+                        padding: '0.4rem 0.75rem',
+                        background: 'rgba(255, 255, 255, 0.04)',
+                        borderBottom: '1px solid var(--border-subtle)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        fontSize: '0.78rem',
+                        fontFamily: 'monospace',
                       }}
                     >
-                      {f.status}
-                    </span>
+                      <span>{f.path}</span>
+                      <span
+                        style={{
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          color: f.status === 'added' ? '#34d399' : '#818cf8',
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        {f.status}
+                      </span>
+                    </div>
+                    <pre
+                      style={{
+                        margin: 0,
+                        padding: '0.6rem 0.75rem',
+                        background: '#090d16',
+                        fontSize: '0.75rem',
+                        fontFamily: 'monospace',
+                        color: '#a5b4fc',
+                        whiteSpace: 'pre-wrap',
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      {f.diff}
+                    </pre>
                   </div>
-                  <pre
-                    style={{
-                      margin: 0,
-                      padding: '0.6rem 0.75rem',
-                      background: '#090d16',
-                      fontSize: '0.75rem',
-                      fontFamily: 'monospace',
-                      color: '#a5b4fc',
-                      whiteSpace: 'pre-wrap',
-                      lineHeight: 1.45,
-                    }}
-                  >
-                    {f.diff}
-                  </pre>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </Modal>

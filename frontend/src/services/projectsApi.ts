@@ -50,13 +50,19 @@ export const projectsApi = {
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
-    const response = await fetch(`/api/v1/projects/${projectId}/download`, {
+    const baseUrl = apiClient.getBaseUrl();
+    const downloadEndpoint = `${baseUrl}/projects/${projectId}/download`;
+    const response = await fetch(downloadEndpoint, {
       method: 'GET',
       headers,
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({ detail: 'Failed to download project ZIP' }));
       throw new Error(err.detail || `Download failed with HTTP ${response.status}`);
+    }
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('text/html')) {
+      throw new Error('Received HTML response instead of project ZIP archive from backend.');
     }
     const blob = await response.blob();
     const downloadUrl = window.URL.createObjectURL(blob);

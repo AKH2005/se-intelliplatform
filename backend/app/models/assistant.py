@@ -24,6 +24,14 @@ class AssistantConversation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         doc="Project UUID owning this conversation",
     )
 
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        doc="User UUID owning this conversation",
+    )
+
     title: Mapped[str] = mapped_column(
         String(256),
         nullable=False,
@@ -45,6 +53,7 @@ class AssistantConversation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     __table_args__ = (
         Index("ix_assistant_conversations_project_created", "project_id", "created_at"),
+        Index("ix_assistant_conversations_user_project", "user_id", "project_id"),
     )
 
 

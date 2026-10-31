@@ -7,6 +7,7 @@ Zero secret leakage.
 from datetime import datetime, timedelta, timezone
 import re
 from typing import Any
+import uuid
 import bcrypt
 import jwt
 
@@ -96,11 +97,12 @@ PREVIEW_TOKEN_EXPIRE_MINUTES = 15
 def create_preview_token(
     user_id: Any,
     project_id: Any,
+    operation: str = "preview",
     expires_minutes: int = PREVIEW_TOKEN_EXPIRE_MINUTES,
 ) -> str:
     """Create a short-lived, project-scoped JWT token for embedding preview iframes.
 
-    Restricted strictly to the preview scope ('scope': 'preview') and bound to
+    Restricted strictly to the preview scope ('scope': 'preview', 'op': 'preview') and bound to
     a specific project and user. Cannot be used for general API access.
     """
     now = datetime.now(timezone.utc)
@@ -109,6 +111,8 @@ def create_preview_token(
         "sub": str(user_id),
         "project_id": str(project_id),
         "scope": "preview",
+        "op": operation,
+        "jti": uuid.uuid4().hex,
         "iat": now,
         "exp": expire,
     }
@@ -122,10 +126,11 @@ def create_preview_token(
 def decode_preview_token(
     token: str,
     expected_project_id: Any | None = None,
+    expected_operation: str = "preview",
 ) -> dict[str, Any] | None:
     """Decode and verify a short-lived project-scoped preview token.
 
-    Validates signature, expiration, 'preview' scope, and project binding.
+    Validates signature, expiration, 'preview' scope, permitted operation, and project binding.
     Returns payload dict if valid, or None if expired/tampered/wrong project.
     """
     try:
@@ -135,6 +140,8 @@ def decode_preview_token(
             algorithms=[JWT_ALGORITHM],
         )
         if payload.get("scope") != "preview":
+            return None
+        if expected_operation and payload.get("op", "preview") != expected_operation:
             return None
         if expected_project_id is not None:
             if str(payload.get("project_id")) != str(expected_project_id):

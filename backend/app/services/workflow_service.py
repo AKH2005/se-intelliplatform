@@ -5,6 +5,8 @@ canonical ProjectContextEngine state resolution, and the deterministic
 WorkflowCoordinator engine.
 """
 
+import asyncio
+import inspect
 import logging
 import uuid
 from collections.abc import Callable
@@ -13,7 +15,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError, ValidationError
+from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models.context_snapshot import ContextSnapshot
 from app.models.workflow_execution import WorkflowExecution
 from app.schemas.context import ProjectContextResponse
@@ -71,6 +73,9 @@ class WorkflowService:
         WORKFLOW_CODE_GENERATION_ID: build_code_generation_workflow,
         WORKFLOW_BROWSER_JOURNEY_ID: build_browser_journey_workflow,
     }
+
+    _active_project_builds: set[uuid.UUID] = set()
+    _build_locks_mutex: asyncio.Lock = asyncio.Lock()
 
     def __init__(
         self,
@@ -202,155 +207,193 @@ class WorkflowService:
         """
         workflow = self.get_workflow(workflow_id)
 
-        context, snapshot, snapshot_id, snapshot_version = await self._resolve_context(
-            project_id=request.project_id,
-            snapshot_id=request.snapshot_id,
-            snapshot_version=request.snapshot_version,
-        )
+        # Concurrency & Duplicate Build Protection
+        async with self._build_locks_mutex:
+            if request.project_id in self._active_project_builds:
+                target_project = await self.context_engine._get_project(request.project_id)
+                raise ConflictError(
+                    f"A build is already in progress for project '{target_project.name}'. Please wait for it to complete."
+                )
 
-        # Populate upstream artifacts from prior successful workflows (e.g. software-design-workflow)
-        initial_artifacts: dict[str, Any] = {}
-        stmt_prev = (
-            select(WorkflowExecution)
-            .where(
+            stmt_active_run = select(WorkflowExecution).where(
                 WorkflowExecution.project_id == request.project_id,
-                WorkflowExecution.status == WorkflowStatus.COMPLETED,
+                WorkflowExecution.status == WorkflowStatus.RUNNING,
             )
-            .order_by(WorkflowExecution.completed_at.desc())
-        )
-        prev_res = await self.session.execute(stmt_prev)
-        for prev_exec in prev_res.scalars().all():
-            if prev_exec.artifacts:
-                for k, v in prev_exec.artifacts.items():
-                    if k not in initial_artifacts:
-                        initial_artifacts[k] = v
+            res_active_run = await self.session.execute(stmt_active_run)
+            active_run = None
+            if hasattr(res_active_run, "scalars"):
+                sc = res_active_run.scalars()
+                if hasattr(sc, "first"):
+                    first_val = sc.first()
+                    active_run = await first_val if inspect.isawaitable(first_val) else first_val
+            if active_run:
+                target_project = await self.context_engine._get_project(request.project_id)
+                raise ConflictError(
+                    f"A build is already in progress for project '{target_project.name}'. Please wait for it to complete."
+                )
 
-        workflow_input = WorkflowInput(
-            context=context,
-            code_review_input=request.code_review_input,
-            explainability_target_scope=request.explainability_target_scope,
-            explainability_user_query=request.explainability_user_query,
-            options=request.options,
-            initial_artifacts=initial_artifacts,
-        )
+            self._active_project_builds.add(request.project_id)
 
-        workflow_execution_id = uuid.uuid4()
-        started_at = datetime.now(timezone.utc)
-
-        # 3. Create persistent WorkflowExecution record in RUNNING state
-        execution_record = WorkflowExecution(
-            workflow_execution_id=workflow_execution_id,
-            project_id=request.project_id,
-            workflow_id=workflow.workflow_id,
-            workflow_version=workflow.version,
-            status=WorkflowStatus.RUNNING,
-            context_snapshot_id=snapshot_id,
-            context_version=snapshot_version,
-            started_at=started_at,
-            step_count=len(workflow.steps),
-            completed_steps=0,
-            failed_steps=0,
-            skipped_steps=0,
-            artifacts={},
-            errors=[],
-            warnings=[],
-            metadata_payload={
-                "project_id": str(request.project_id),
-                "context_provenance": "snapshot" if snapshot_id or snapshot_version else "live",
-                "options": request.options,
-            },
-        )
-        self.session.add(execution_record)
-        await self.session.commit()
-        await self.session.refresh(execution_record)
-
-        logger.info(
-            f"Invoking WorkflowCoordinator for [{workflow_id}] on project [{request.project_id}] "
-            f"(snapshot_id={snapshot_id}, version={snapshot_version}) [exec_id={workflow_execution_id}]"
-        )
-
-        # 4. Delegate to WorkflowCoordinator with failure safety
         try:
-            result = await self.coordinator.execute(
-                workflow=workflow,
-                workflow_input=workflow_input,
-                session=self.session,
-                snapshot=snapshot,
+            context, snapshot, snapshot_id, snapshot_version = await self._resolve_context(
+                project_id=request.project_id,
+                snapshot_id=request.snapshot_id,
+                snapshot_version=request.snapshot_version,
+            )
+
+            # Populate upstream artifacts from prior successful workflows (e.g. software-design-workflow)
+            initial_artifacts: dict[str, Any] = {}
+            stmt_prev = (
+                select(WorkflowExecution)
+                .where(
+                    WorkflowExecution.project_id == request.project_id,
+                    WorkflowExecution.status == WorkflowStatus.COMPLETED,
+                )
+                .order_by(WorkflowExecution.completed_at.desc())
+            )
+            prev_res = await self.session.execute(stmt_prev)
+            prev_sc = prev_res.scalars() if hasattr(prev_res, "scalars") else None
+            raw_prev_list = prev_sc.all() if hasattr(prev_sc, "all") else []
+            prev_list = await raw_prev_list if inspect.isawaitable(raw_prev_list) else raw_prev_list
+            for prev_exec in (prev_list or []):
+                if prev_exec.workflow_id == workflow.workflow_id:
+                    # Do not reuse deliverables from a previous run of the same workflow;
+                    # a re-run of this workflow must execute its own steps freshly.
+                    continue
+                if prev_exec.artifacts:
+                    for k, v in prev_exec.artifacts.items():
+                        if k not in initial_artifacts:
+                            initial_artifacts[k] = v
+
+            workflow_input = WorkflowInput(
+                context=context,
+                code_review_input=request.code_review_input,
+                explainability_target_scope=request.explainability_target_scope,
+                explainability_user_query=request.explainability_user_query,
+                options=request.options,
+                initial_artifacts=initial_artifacts,
+            )
+
+            workflow_execution_id = uuid.uuid4()
+            started_at = datetime.now(timezone.utc)
+
+            # 3. Create persistent WorkflowExecution record in RUNNING state
+            execution_record = WorkflowExecution(
+                workflow_execution_id=workflow_execution_id,
+                project_id=request.project_id,
+                workflow_id=workflow.workflow_id,
+                workflow_version=workflow.version,
+                status=WorkflowStatus.RUNNING,
                 context_snapshot_id=snapshot_id,
                 context_version=snapshot_version,
-                workflow_execution_id=workflow_execution_id,
+                started_at=started_at,
+                step_count=len(workflow.steps),
+                completed_steps=0,
+                failed_steps=0,
+                skipped_steps=0,
+                artifacts={},
+                errors=[],
+                warnings=[],
+                metadata_payload={
+                    "project_id": str(request.project_id),
+                    "context_provenance": "snapshot" if snapshot_id or snapshot_version else "live",
+                    "options": request.options,
+                },
             )
-        except Exception as exc:
-            logger.exception(
-                f"Workflow execution [{workflow_id}] crashed unexpectedly "
-                f"[workflow_exec_id={workflow_execution_id}]: {exc}"
+            self.session.add(execution_record)
+            await self.session.commit()
+            await self.session.refresh(execution_record)
+
+            logger.info(
+                f"Invoking WorkflowCoordinator for [{workflow_id}] on project [{request.project_id}] "
+                f"(snapshot_id={snapshot_id}, version={snapshot_version}) [exec_id={workflow_execution_id}]"
             )
-            execution_record.status = WorkflowStatus.FAILED
-            execution_record.completed_at = datetime.now(timezone.utc)
-            execution_record.errors = [f"Unexpected execution failure: {str(exc)}"]
+
+            # 4. Delegate to WorkflowCoordinator with failure safety
             try:
-                await self.session.commit()
-            except Exception as commit_exc:
-                logger.error(f"Failed to record FAILED workflow status in DB: {commit_exc}")
-            raise
-
-        # 5. Serialize validated domain artifacts
-        serialized_artifacts: dict[str, Any] = {}
-        for k, v in result.artifacts.items():
-            if hasattr(v, "model_dump"):
-                serialized_artifacts[k] = v.model_dump(mode="json")
-            else:
-                serialized_artifacts[k] = v
-
-        completed_count = sum(1 for s in result.step_results if s.status == WorkflowStepStatus.COMPLETED)
-        failed_count = sum(1 for s in result.step_results if s.status == WorkflowStepStatus.FAILED)
-        skipped_count = sum(1 for s in result.step_results if s.status == WorkflowStepStatus.SKIPPED)
-
-        # 6. Update terminal execution state
-        execution_record.status = result.status
-        execution_record.completed_at = result.completed_at
-        execution_record.completed_steps = completed_count
-        execution_record.failed_steps = failed_count
-        execution_record.skipped_steps = skipped_count
-        execution_record.artifacts = serialized_artifacts
-        execution_record.errors = result.errors
-        execution_record.warnings = result.warnings
-        execution_record.metadata_payload = {
-            "project_id": str(request.project_id),
-            "context_provenance": "snapshot" if snapshot_id or snapshot_version else "live",
-            "total_steps": len(workflow.steps),
-            "completed_steps": completed_count,
-            "failed_steps": failed_count,
-            "skipped_steps": skipped_count,
-            "options": request.options,
-        }
-
-        await self.session.commit()
-        await self.session.refresh(execution_record)
-
-        # 7. Automatically register DevelopmentVersion for successful code generation
-        if workflow.workflow_id == "code-generation-workflow" and result.status in (
-            WorkflowStatus.COMPLETED,
-            WorkflowStatus.PARTIAL_SUCCESS,
-        ):
-            has_code = "code-generation" in result.artifacts or "code_generation" in result.artifacts
-            if has_code:
+                result = await self.coordinator.execute(
+                    workflow=workflow,
+                    workflow_input=workflow_input,
+                    session=self.session,
+                    snapshot=snapshot,
+                    context_snapshot_id=snapshot_id,
+                    context_version=snapshot_version,
+                    workflow_execution_id=workflow_execution_id,
+                )
+            except Exception as exc:
+                logger.exception(
+                    f"Workflow execution [{workflow_id}] crashed unexpectedly "
+                    f"[workflow_exec_id={workflow_execution_id}]: {exc}"
+                )
+                execution_record.status = WorkflowStatus.FAILED
+                execution_record.completed_at = datetime.now(timezone.utc)
+                execution_record.errors = [f"Unexpected execution failure: {str(exc)}"]
                 try:
-                    from app.services.development_version_service import DevelopmentVersionService
-                    dev_service = DevelopmentVersionService(self.session)
-                    key = "code-generation" if "code-generation" in result.artifacts else "code_generation"
-                    await dev_service.register_version_from_workflow(
-                        project_id=request.project_id,
-                        workflow_execution_id=workflow_execution_id,
-                        artifact_key=key,
-                        source_reason="INITIAL_GENERATION",
-                    )
-                except Exception as reg_exc:
-                    logger.warning(
-                        f"Could not automatically register DevelopmentVersion for execution {workflow_execution_id}: {reg_exc}"
-                    )
+                    await self.session.commit()
+                except Exception as commit_exc:
+                    logger.error(f"Failed to record FAILED workflow status in DB: {commit_exc}")
+                raise
 
-        return result
+            # 5. Serialize validated domain artifacts
+            serialized_artifacts: dict[str, Any] = {}
+            for k, v in result.artifacts.items():
+                if hasattr(v, "model_dump"):
+                    serialized_artifacts[k] = v.model_dump(mode="json")
+                else:
+                    serialized_artifacts[k] = v
+
+            completed_count = sum(1 for s in result.step_results if s.status == WorkflowStepStatus.COMPLETED)
+            failed_count = sum(1 for s in result.step_results if s.status == WorkflowStepStatus.FAILED)
+            skipped_count = sum(1 for s in result.step_results if s.status == WorkflowStepStatus.SKIPPED)
+
+            # 6. Update terminal execution state
+            execution_record.status = result.status
+            execution_record.completed_at = result.completed_at
+            execution_record.completed_steps = completed_count
+            execution_record.failed_steps = failed_count
+            execution_record.skipped_steps = skipped_count
+            execution_record.artifacts = serialized_artifacts
+            execution_record.errors = result.errors
+            execution_record.warnings = result.warnings
+            execution_record.metadata_payload = {
+                "project_id": str(request.project_id),
+                "context_provenance": "snapshot" if snapshot_id or snapshot_version else "live",
+                "total_steps": len(workflow.steps),
+                "completed_steps": completed_count,
+                "failed_steps": failed_count,
+                "skipped_steps": skipped_count,
+                "options": request.options,
+            }
+
+            await self.session.commit()
+            await self.session.refresh(execution_record)
+
+            # 7. Automatically register DevelopmentVersion for successful code generation
+            if workflow.workflow_id == "code-generation-workflow" and result.status in (
+                WorkflowStatus.COMPLETED,
+                WorkflowStatus.PARTIAL_SUCCESS,
+            ):
+                has_code = "code-generation" in result.artifacts or "code_generation" in result.artifacts
+                if has_code:
+                    try:
+                        from app.services.development_version_service import DevelopmentVersionService
+                        dev_service = DevelopmentVersionService(self.session)
+                        key = "code-generation" if "code-generation" in result.artifacts else "code_generation"
+                        await dev_service.register_version_from_workflow(
+                            project_id=request.project_id,
+                            workflow_execution_id=workflow_execution_id,
+                            artifact_key=key,
+                            source_reason="INITIAL_GENERATION",
+                        )
+                    except Exception as reg_exc:
+                        logger.warning(
+                            f"Could not automatically register DevelopmentVersion for execution {workflow_execution_id}: {reg_exc}"
+                        )
+
+            return result
+        finally:
+            async with self._build_locks_mutex:
+                self._active_project_builds.discard(request.project_id)
 
 
     async def list_project_workflow_history(

@@ -16,6 +16,10 @@ export const developmentVersionApi = {
     return apiClient.get<DevelopmentVersionListResponse>(`/projects/${projectId}/versions`);
   },
 
+  list: (projectId: string): Promise<DevelopmentVersionListResponse> => {
+    return apiClient.get<DevelopmentVersionListResponse>(`/projects/${projectId}/versions`);
+  },
+
   getActiveVersion: (projectId: string): Promise<DevelopmentVersionResponse | null> => {
     return apiClient.get<DevelopmentVersionResponse | null>(`/projects/${projectId}/versions/active`);
   },

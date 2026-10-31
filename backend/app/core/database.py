@@ -25,6 +25,10 @@ if "sqlite" not in (settings.DATABASE_URL or ""):
         "pool_size": 10,
         "max_overflow": 20,
     })
+else:
+    engine_kwargs.update({
+        "connect_args": {"timeout": 30.0},
+    })
 
 engine: AsyncEngine = create_async_engine(
     settings.DATABASE_URL,

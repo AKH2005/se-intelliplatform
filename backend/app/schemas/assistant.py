@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 from typing import Any
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ActionCategory(str, enum.Enum):
@@ -253,6 +253,45 @@ class RollbackEnvironmentParams(BaseModel):
     reason: str = Field(..., min_length=1, max_length=512, description="Audit reason for rollback")
 
 
+class FileChangeItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    file_path: str = Field(..., min_length=1, max_length=512, description="Project-relative file path")
+    content: str = Field(default="", max_length=1_048_576, description="Full replacement content for the file")
+    code_change: str | None = Field(default=None, description="Alternative key for replacement content")
+    reason: str | None = Field(default=None, max_length=500, description="Reason for modifying this file")
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_content(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if not data.get("content") and data.get("code_change"):
+                data["content"] = data["code_change"]
+            elif not data.get("content") and data.get("updated_code"):
+                data["content"] = data["updated_code"]
+        return data
+
+    @field_validator("file_path")
+    @classmethod
+    def validate_file_path(cls, v: str) -> str:
+        clean = v.replace("\\", "/").strip()
+        if ":" in clean or clean.startswith("/"):
+            raise ValueError("Absolute paths and drive letters are strictly prohibited.")
+        clean = clean.lstrip("/")
+        while clean.startswith("./"):
+            clean = clean[2:]
+        parts = [p for p in clean.split("/") if p and p != "."]
+        if ".." in parts:
+            raise ValueError("Path traversal ('..') is strictly prohibited.")
+        return "/".join(parts)
+
+
+class ApplyCodeChangeParams(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    version_id: uuid.UUID | int | str = Field(default="1", description="Parent development version UUID or version identifier (e.g. 4 or 'v4') being modified")
+    changes: list[FileChangeItem] = Field(..., min_length=1, description="List of file changes to apply atomically")
+    reason: str = Field(default="Code modification requested by user", min_length=1, max_length=500, description="Human-readable reason for the change set")
+
+
 # -----------------------------------------------------------------------------
 # Action Definition & Result DTOs
 # -----------------------------------------------------------------------------
@@ -297,7 +336,7 @@ class ActionResult(BaseModel):
 class AssistantActionCandidate(BaseModel):
     """Candidate engineering action suggested by the conversational model."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     action_id: str = Field(..., description="Registered action ID")
     target_id: str | None = Field(default=None, description="Optional entity UUID or slug")
@@ -307,12 +346,12 @@ class AssistantActionCandidate(BaseModel):
 class AssistantResponseSchema(BaseModel):
     """Strict structured generation contract returned by AbstractLLMProvider for assistant turns."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     message: str = Field(..., min_length=1, description="Conversational explanation or answer for the user")
     suggested_action: AssistantActionCandidate | None = Field(
         default=None,
-        description="Optional action candidate chosen strictly from the 28-action registry",
+        description="Optional action candidate chosen strictly from the registered action catalog",
     )
     referenced_entity_type: str | None = Field(
         default=None,
@@ -321,6 +360,14 @@ class AssistantResponseSchema(BaseModel):
     referenced_entity_id: str | None = Field(
         default=None,
         description="UUID or ID of the referenced entity",
+    )
+    persona: str | None = Field(
+        default=None,
+        description="Active assistant persona: 'IntelliGuide' or 'IntelliDev'",
+    )
+    intent: str | None = Field(
+        default=None,
+        description="Classified user intent: CODE_EXPLANATION, DEBUGGING, etc.",
     )
 
 
@@ -357,6 +404,7 @@ class AssistantContext(BaseModel):
     project_name: str
     project_slug: str
     project_status: str
+    active_version_id: uuid.UUID | str | None = None
     active_version_number: int | None = None
     active_version_status: str | None = None
     active_version_hash: str | None = None
@@ -372,11 +420,33 @@ class AssistantContext(BaseModel):
     active_executions_summary: str | None = None
     environments_summary: str | None = None
     polyglot_languages_summary: str | None = None
+    project_description: str | None = None
+    technology_stack: dict[str, Any] | None = None
+    key_requirements: list[dict[str, str]] | None = None
+    files_manifest_summary: list[dict[str, Any]] | None = None
+    retrieved_files: list[dict[str, Any]] | None = None
+    missing_files_requested: list[str] | None = None
+    supplied_error_text: str | None = None
+    detected_intent: str | None = None
+    active_persona: str | None = None
+    preview_runtime_status: str | None = None
+    preview_runtime_mode: str | None = None
+    preview_runtime_port: int | None = None
+    preview_active_project_id: str | None = None
+    preview_diagnostics_summary: str | None = None
 
 
 # -----------------------------------------------------------------------------
 # REST API Request & Response DTOs
 # -----------------------------------------------------------------------------
+
+class CreateConversationRequest(BaseModel):
+    """Payload to initialize a new Assistant conversation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, max_length=256, description="Optional conversation title")
+
 
 class SendMessageRequest(BaseModel):
     """User input sent to the Assistant."""
@@ -385,6 +455,16 @@ class SendMessageRequest(BaseModel):
 
     content: str = Field(..., min_length=1, max_length=4000, description="User question or instruction")
     conversation_id: uuid.UUID | None = Field(default=None, description="Optional existing conversation UUID")
+    explicit_file_paths: list[str] | None = Field(default=None, description="Optional specific file paths to inspect")
+    error_message: str | None = Field(default=None, max_length=4000, description="Optional explicit error message or stack trace")
+
+    @field_validator("content")
+    @classmethod
+    def validate_content_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Message content cannot be empty or whitespace only.")
+        return v
+
 
 
 class ConfirmActionRequest(BaseModel):
@@ -430,6 +510,7 @@ class AssistantConversationResponse(BaseModel):
 
     conversation_id: uuid.UUID
     project_id: uuid.UUID
+    user_id: uuid.UUID | None = None
     title: str
     messages: list[AssistantMessageResponse] = Field(default_factory=list)
     created_at: datetime

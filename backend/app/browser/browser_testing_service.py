@@ -470,10 +470,24 @@ class BrowserTestingService:
                     assertion_summary=raw_c.get("assertion_summary"),
                     screenshots=case_screenshots,
                     console_errors=[
-                        BrowserConsoleError(**ce) for ce in raw_c.get("console_errors", [])[:10]
+                        BrowserConsoleError(
+                            level=str(ce.get("level", "error"))[:20],
+                            message=str(ce.get("message", "Console message"))[:1000],
+                            source=str(ce.get("source"))[:200] if ce.get("source") else None,
+                            line_number=ce.get("line_number") if (isinstance(ce.get("line_number"), int) and ce.get("line_number") >= 0) else None,
+                        )
+                        for ce in raw_c.get("console_errors", [])[:10]
+                        if isinstance(ce, dict) and ce.get("message")
                     ],
                     network_errors=[
-                        BrowserNetworkRecord(**ne) for ne in raw_c.get("network_errors", [])[:10]
+                        BrowserNetworkRecord(
+                            method=str(ne.get("method", "GET"))[:10],
+                            url=str(ne.get("url", "unknown"))[:500],
+                            status_code=ne.get("status_code"),
+                            error_message=str(ne.get("error_message"))[:500] if ne.get("error_message") else None,
+                        )
+                        for ne in raw_c.get("network_errors", [])[:10]
+                        if isinstance(ne, dict) and ne.get("url")
                     ],
                     metadata=raw_c.get("metadata", {}),
                 )

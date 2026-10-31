@@ -10,12 +10,17 @@ from pydantic import BaseModel
 
 from app.agents.architecture_recommendation.contracts import ArchitectureRecommendationOutput
 from app.agents.base import AbstractBaseAgent
+from app.agents.code_generation.archetypes import (
+    detect_project_archetype,
+    get_archetype_planned_files,
+)
 from app.agents.code_generation.contracts import (
     CodeGenerationPlan,
     CodeGenerationPlanCandidate,
     FileType,
     PlannedFile,
     PlannedFileCandidate,
+    is_fullstack_project,
 )
 from app.agents.code_generation.prompts import (
     PLANNING_SYSTEM_PROMPT,
@@ -143,10 +148,42 @@ class CodeGenerationPlanningAgent(AbstractBaseAgent[CodeGenerationPlan]):
         else:
             data = {}
 
-        # Fallback plan for mock execution if empty
+        fullstack = is_fullstack_project(context, arch_rec)
+
+        # Fallback plan for mock execution if empty or if fullstack required but missing frontend
         raw_files = data.get("files")
         if not raw_files:
             raw_files = self._build_mock_files(context, arch_rec)
+        elif fullstack:
+            has_frontend = any(
+                ("frontend/" in (f.path if isinstance(f, (PlannedFile, PlannedFileCandidate)) else (f.get("path") or f.get("file_path", ""))))
+                or ("package.json" in (f.path if isinstance(f, (PlannedFile, PlannedFileCandidate)) else (f.get("path") or f.get("file_path", ""))))
+                for f in raw_files
+            )
+            has_backend = any(
+                any((f.path if isinstance(f, (PlannedFile, PlannedFileCandidate)) else (f.get("path") or f.get("file_path", ""))).lower().endswith(ext) for ext in ["main.py", "requirements.txt", "api.py"])
+                for f in raw_files
+            )
+            if not has_frontend or not has_backend:
+                logger.info("Candidate plan lacked required frontend or backend files for fullstack project; using complete fullstack scaffold.")
+                raw_files = self._build_mock_files(context, arch_rec)
+
+        # Extract declared architecture components from upstream recommendation
+        declared_components: set[str] = set()
+        if arch_rec is not None:
+            if isinstance(arch_rec, dict):
+                components_list = arch_rec.get("components", [])
+                declared_components = {
+                    c.get("name") if isinstance(c, dict) else getattr(c, "name", "")
+                    for c in components_list
+                }
+            elif hasattr(arch_rec, "components") and arch_rec.components:
+                declared_components = {c.name for c in arch_rec.components if hasattr(c, "name")}
+        declared_components = {c.strip() for c in declared_components if c and c.strip()}
+        declared_lower_map = {c.lower(): c for c in declared_components}
+
+        be_comp = next((declared_lower_map[k] for k in declared_lower_map if any(sub in k for sub in ["core", "api", "backend", "service", "server", "data", "app"])), next(iter(declared_components), None))
+        fe_comp = next((declared_lower_map[k] for k in declared_lower_map if any(sub in k for sub in ["front", "ui", "web", "client", "react"])), be_comp)
 
         planned_files: list[PlannedFile] = []
         for f in raw_files:
@@ -173,6 +210,30 @@ class CodeGenerationPlanningAgent(AbstractBaseAgent[CodeGenerationPlan]):
                         reqs.append(req_map[r_str])
                 deps = f.dependencies if isinstance(f, PlannedFileCandidate) else f.get("dependencies", [])
 
+                # Normalize architecture component traceability against declared components
+                if arch_comp:
+                    arch_comp_clean = str(arch_comp).strip()
+                    arch_comp_lower = arch_comp_clean.lower()
+                    if arch_comp_lower in declared_lower_map:
+                        arch_comp = declared_lower_map[arch_comp_lower]
+                    elif arch_comp_lower in ("documentation", "docs", "doc", "root", "readme", "config", "dependencies"):
+                        if path.lower().startswith("readme") or ft_enum == FileType.DOCUMENTATION:
+                            arch_comp = declared_lower_map.get("documentation", None)
+                        elif path.lower().startswith("frontend/") or path in ("package.json", "tsconfig.json", "vite.config.ts"):
+                            arch_comp = fe_comp
+                        else:
+                            arch_comp = be_comp
+                    elif arch_comp_clean not in declared_components:
+                        if path.lower().startswith("frontend/") and fe_comp:
+                            arch_comp = fe_comp
+                        elif (path.lower().startswith("backend/") or "requirements.txt" in path.lower()) and be_comp:
+                            arch_comp = be_comp
+                else:
+                    if path.lower().startswith("frontend/") and fe_comp:
+                        arch_comp = fe_comp
+                    elif (path.lower().startswith("backend/") or "requirements.txt" in path.lower()) and be_comp:
+                        arch_comp = be_comp
+
                 if path:
                     planned_files.append(
                         PlannedFile(
@@ -185,14 +246,29 @@ class CodeGenerationPlanningAgent(AbstractBaseAgent[CodeGenerationPlan]):
                         )
                     )
 
+        default_ptype = "fullstack" if fullstack else "backend-service"
+        default_lang = "polyglot" if fullstack else "python"
+        default_fw = "react+fastapi" if fullstack else "fastapi"
+        default_pkg = "npm+pip" if fullstack else "pip"
+        default_rat = (
+            "Proposed Full-Stack (React + FastAPI) scaffold matching requirements and architecture."
+            if fullstack
+            else "Proposed FastAPI scaffold matching upstream architecture."
+        )
+
+        final_ptype = default_ptype if fullstack else (data.get("project_type") or default_ptype)
+        final_lang = default_lang if fullstack else (data.get("language") or default_lang)
+        final_fw = default_fw if fullstack else (data.get("framework") or default_fw)
+        final_pkg = default_pkg if fullstack else (data.get("package_manager") or default_pkg)
+
         return CodeGenerationPlan(
-            project_type=data.get("project_type", "backend-service"),
-            language=data.get("language", "python"),
-            framework=data.get("framework", "fastapi"),
+            project_type=final_ptype,
+            language=final_lang,
+            framework=final_fw,
             database=data.get("database", "postgresql"),
-            package_manager=data.get("package_manager", "pip"),
+            package_manager=final_pkg,
             files=planned_files,
-            rationale=data.get("rationale", "Proposed FastAPI scaffold matching upstream architecture."),
+            rationale=data.get("rationale") or default_rat,
         )
 
     def validate_output(
@@ -212,19 +288,51 @@ class CodeGenerationPlanningAgent(AbstractBaseAgent[CodeGenerationPlan]):
         context: ProjectContextResponse,
         arch_rec: ArchitectureRecommendationOutput | None = None,
     ) -> list[dict[str, Any]]:
-        req_ids = [str(r.id) for r in context.requirements[:2]]
+        fullstack = is_fullstack_project(context, arch_rec)
+        req_ids = [str(r.id) for r in context.requirements[:4]] if context.requirements else []
+        ui_req_ids = [str(r.id) for r in context.requirements if any(k in f"{r.title} {r.description}".lower() for k in ["web", "interface", "dashboard", "react", "view", "task"])]
+        if not ui_req_ids:
+            ui_req_ids = req_ids
+
         comp_name = None
+        fe_comp_name = None
         if arch_rec:
             if isinstance(arch_rec, dict):
                 comps = arch_rec.get("components") or []
-                if comps and isinstance(comps[0], dict):
-                    comp_name = comps[0].get("name")
-                elif comps and hasattr(comps[0], "name"):
-                    comp_name = comps[0].name
+                for c in comps:
+                    name = c.get("name") if isinstance(c, dict) else getattr(c, "name", "")
+                    if any(k in name.lower() for k in ["react", "frontend", "ui", "client"]):
+                        fe_comp_name = name
+                    elif not comp_name:
+                        comp_name = name
             elif hasattr(arch_rec, "components") and arch_rec.components:
-                first = arch_rec.components[0]
-                comp_name = first.name if hasattr(first, "name") else (first.get("name") if isinstance(first, dict) else None)
+                for c in arch_rec.components:
+                    name = c.name if hasattr(c, "name") else (c.get("name") if isinstance(c, dict) else "")
+                    if any(k in name.lower() for k in ["react", "frontend", "ui", "client"]):
+                        fe_comp_name = name
+                    elif not comp_name:
+                        comp_name = name
 
+        if not comp_name:
+            comp_name = "Task API Service"
+        if not fe_comp_name:
+            fe_comp_name = "React Frontend"
+
+        if fullstack:
+            archetype = detect_project_archetype(
+                name=context.project.name,
+                desc=context.project.description or "",
+                slug=context.project.slug or "",
+            )
+            return get_archetype_planned_files(
+                archetype=archetype,
+                fe_comp_name=fe_comp_name,
+                be_comp_name=comp_name,
+                req_ids=req_ids,
+                ui_req_ids=ui_req_ids,
+            )
+
+        # Backend-only fallback
         return [
             {
                 "path": "app/main.py",

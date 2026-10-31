@@ -65,11 +65,14 @@ def build_database_design_prompt(
         req_lines.append("No active requirements recorded for this project.")
     else:
         for idx, req in enumerate(requirements, start=1):
+            desc = req.description.strip()
+            if len(desc) > 250:
+                desc = desc[:247] + "..."
             req_lines.append(
                 f"[{idx}] UUID: {req.id}\n"
                 f"    Title: {req.title}\n"
                 f"    Type: {req.type.value} | Priority: {req.priority.value}\n"
-                f"    Description: {req.description.strip()}\n"
+                f"    Description: {desc}\n"
             )
     requirements_block = "\n".join(req_lines)
 
@@ -79,15 +82,15 @@ def build_database_design_prompt(
         analysis_parts: list[str] = [f"Summary: {requirement_analysis.summary}"]
         if requirement_analysis.conflicts:
             analysis_parts.append(f"Identified Conflicts ({len(requirement_analysis.conflicts)}):")
-            for c in requirement_analysis.conflicts:
+            for c in requirement_analysis.conflicts[:3]:
                 analysis_parts.append(f"  - Between {c.requirement_id} and {c.related_requirement_id}: {c.issue}")
         if requirement_analysis.ambiguities:
             analysis_parts.append(f"Identified Ambiguities ({len(requirement_analysis.ambiguities)}):")
-            for a in requirement_analysis.ambiguities:
+            for a in requirement_analysis.ambiguities[:3]:
                 analysis_parts.append(f"  - Req {a.requirement_id}: {a.issue}")
         if requirement_analysis.missing_information:
             analysis_parts.append(f"Missing Specifications ({len(requirement_analysis.missing_information)}):")
-            for m in requirement_analysis.missing_information:
+            for m in requirement_analysis.missing_information[:3]:
                 analysis_parts.append(f"  - Area '{m.area}': {m.description}")
         req_analysis_block = "\n".join(analysis_parts)
 
@@ -97,12 +100,13 @@ def build_database_design_prompt(
         arch_parts: list[str] = [f"Summary: {architecture_recommendation.summary}"]
         if architecture_recommendation.architecture_styles:
             arch_parts.append("Proposed Architecture Styles:")
-            for s in architecture_recommendation.architecture_styles:
-                arch_parts.append(f"  - Style: {s.style.value} (confidence: {s.confidence}) - {s.rationale}")
+            for s in architecture_recommendation.architecture_styles[:2]:
+                arch_parts.append(f"  - Style: {s.style.value} (confidence: {s.confidence}) - {s.rationale[:120]}")
         if architecture_recommendation.components:
             arch_parts.append("Logical Architecture Components:")
             for c in architecture_recommendation.components:
-                arch_parts.append(f"  - Component: {c.name}: {c.responsibility}")
+                c_resp = c.responsibility[:150] if len(c.responsibility) > 150 else c.responsibility
+                arch_parts.append(f"  - Component: {c.name}: {c_resp}")
             arch_parts.append(
                 "\n  * IMPORTANT RULE for architecture_traceability: Only include components that directly manage or persist database entities. "
                 "Every entry in `architecture_traceability` MUST have `entity_names` containing at least one declared entity name. "

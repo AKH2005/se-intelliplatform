@@ -13,9 +13,11 @@ import {
   Edit3,
   Code2,
   Check,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useProject } from '../../context/ProjectContext';
+import { useMode } from '../../context/ModeContext';
 import { projectsApi } from '../../services/projectsApi';
 import { ProjectResponse } from '../../types/project';
 import { Button } from '../common/Button';
@@ -32,6 +34,124 @@ interface HeaderProps {
   onOpenCreateTask?: () => void;
   activeTab?: string;
 }
+
+export const HeaderModeSwitcher: React.FC = () => {
+  const { mode, switchMode, openModeSelection } = useMode();
+
+  return (
+    <div
+      className="header-mode-switcher-container"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.4rem',
+      }}
+    >
+      <div
+        role="radiogroup"
+        aria-label="Experience Mode Switcher"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          background: 'rgba(8, 11, 20, 0.75)',
+          border: '1px solid var(--border-medium, rgba(255, 255, 255, 0.12))',
+          borderRadius: '9999px',
+          padding: '3px',
+          gap: '3px',
+          boxShadow: 'inset 0 1px 3px rgba(0, 0, 0, 0.45)',
+        }}
+      >
+        <button
+          type="button"
+          role="radio"
+          aria-checked={mode === 'user'}
+          aria-label="Switch to User Mode"
+          onClick={() => switchMode('user')}
+          title="User Mode: Welcoming conversational environment for ideas and learning"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+            padding: '0.28rem 0.75rem',
+            fontSize: '0.75rem',
+            fontWeight: mode === 'user' ? 650 : 500,
+            color: mode === 'user' ? '#ffffff' : 'var(--text-secondary, #94a3b8)',
+            background:
+              mode === 'user'
+                ? 'linear-gradient(135deg, rgba(139, 92, 246, 0.95), rgba(99, 102, 241, 0.95))'
+                : 'transparent',
+            border: 'none',
+            borderRadius: '9999px',
+            cursor: 'pointer',
+            transition: 'all var(--transition-fast, 150ms ease)',
+            boxShadow:
+              mode === 'user'
+                ? '0 1px 6px rgba(139, 92, 246, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+                : 'none',
+          }}
+        >
+          <Sparkles size={13} color={mode === 'user' ? '#ffffff' : '#a78bfa'} />
+          <span>Beginner Mode</span>
+          <span style={{ display: 'none' }}>User Mode</span>
+        </button>
+
+        <button
+          type="button"
+          role="radio"
+          aria-checked={mode === 'developer'}
+          aria-label="Switch to Developer Mode"
+          onClick={() => switchMode('developer')}
+          title="Developer Mode: Professional workspace with Code Studio, IntelliAssist & Docker Previews"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+            padding: '0.28rem 0.75rem',
+            fontSize: '0.75rem',
+            fontWeight: mode === 'developer' ? 650 : 500,
+            color: mode === 'developer' ? '#ffffff' : 'var(--text-secondary, #94a3b8)',
+            background:
+              mode === 'developer'
+                ? 'linear-gradient(135deg, rgba(79, 70, 229, 0.95), rgba(6, 182, 212, 0.95))'
+                : 'transparent',
+            border: 'none',
+            borderRadius: '9999px',
+            cursor: 'pointer',
+            transition: 'all var(--transition-fast, 150ms ease)',
+            boxShadow:
+              mode === 'developer'
+                ? '0 1px 6px rgba(79, 70, 229, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+                : 'none',
+          }}
+        >
+          <Code2 size={13} color={mode === 'developer' ? '#ffffff' : '#818cf8'} />
+          <span>Developer Mode</span>
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={openModeSelection}
+        title="View Mode Selection Overview"
+        aria-label="Open mode selection screen"
+        style={{
+          background: 'rgba(255, 255, 255, 0.04)',
+          border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
+          color: 'var(--text-muted, #94a3b8)',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '0.35rem',
+          borderRadius: 'var(--radius-sm, 6px)',
+          transition: 'all var(--transition-fast, 150ms ease)',
+        }}
+      >
+        <Sparkles size={13} />
+      </button>
+    </div>
+  );
+};
 
 export const Header: React.FC<HeaderProps> = ({
   projects,
@@ -100,7 +220,9 @@ export const Header: React.FC<HeaderProps> = ({
   const handleArchiveProject = async () => {
     if (!selectedProject) return;
     setIsMoreMenuOpen(false);
-    const confirmed = window.confirm(`Archive project "${selectedProject.name}"? It will be moved to the Archived tab.`);
+    const confirmed = window.confirm(
+      `Archive project "${selectedProject.name}"? It will be moved to the Archived tab.`
+    );
     if (!confirmed) return;
     try {
       await projectsApi.archive(selectedProject.id);
@@ -139,19 +261,20 @@ export const Header: React.FC<HeaderProps> = ({
         role="banner"
         style={{
           height: 'var(--header-height, 60px)',
-          borderBottom: '1px solid var(--border-subtle)',
-          background: 'var(--bg-glass)',
-          backdropFilter: 'blur(10px)',
-          WebkitBackdropFilter: 'blur(10px)',
+          borderBottom: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
+          background: 'rgba(13, 17, 28, 0.88)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '0 var(--space-xl)',
+          padding: '0 var(--space-xl, 1.5rem)',
           position: 'sticky',
           top: 0,
           zIndex: 100,
           flexShrink: 0,
           gap: '1rem',
+          boxShadow: '0 4px 20px -2px rgba(0, 0, 0, 0.45), inset 0 -1px 0 rgba(255, 255, 255, 0.05)',
         }}
       >
         {/* ========================================================= */}
@@ -160,12 +283,12 @@ export const Header: React.FC<HeaderProps> = ({
         {isProjectsView ? (
           <>
             {/* Left: Brand Identity */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 }}>
               <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.5rem',
+                  gap: '0.6rem',
                   cursor: 'pointer',
                 }}
                 onClick={() => onNavigateTab?.('projects')}
@@ -174,28 +297,39 @@ export const Header: React.FC<HeaderProps> = ({
                   style={{
                     width: 32,
                     height: 32,
-                    borderRadius: '8px',
-                    background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cyan))',
+                    borderRadius: 'var(--radius-sm, 6px)',
+                    background: 'linear-gradient(135deg, var(--accent-violet, #8b5cf6), var(--accent-primary, #6366f1))',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    boxShadow: '0 2px 8px rgba(99, 102, 241, 0.35)',
+                    boxShadow: '0 2px 10px rgba(124, 58, 237, 0.4)',
+                    flexShrink: 0,
                   }}
                 >
                   <Code2 size={18} color="#ffffff" />
                 </div>
-                <span style={{ fontWeight: 800, fontSize: '1rem', color: '#ffffff', letterSpacing: '-0.02em' }}>
+                <span
+                  style={{
+                    fontWeight: 750,
+                    fontSize: '1rem',
+                    color: '#ffffff',
+                    letterSpacing: '-0.02em',
+                    lineHeight: 1.2,
+                  }}
+                >
                   SE IntelliPlatform
                 </span>
                 <span
                   style={{
-                    fontSize: '0.7rem',
-                    fontWeight: 600,
-                    color: 'var(--text-muted)',
+                    fontSize: '0.68rem',
+                    fontWeight: 650,
+                    color: 'var(--text-muted, #94a3b8)',
                     background: 'rgba(255, 255, 255, 0.05)',
-                    padding: '0.15rem 0.45rem',
+                    padding: '0.15rem 0.5rem',
                     borderRadius: '4px',
-                    border: '1px solid var(--border-subtle)',
+                    border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
                   }}
                 >
                   Repositories
@@ -230,15 +364,18 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             {/* Right: Actions & User */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
+              <HeaderModeSwitcher />
+
               <Button
                 variant="primary"
                 size="sm"
                 icon={<Plus size={14} />}
                 onClick={onOpenCreateProject}
                 style={{
-                  background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cyan))',
-                  fontWeight: 600,
+                  background: 'var(--accent-gradient, linear-gradient(135deg, #7c3aed, #6366f1))',
+                  fontWeight: 650,
+                  boxShadow: 'var(--shadow-xs), 0 0 14px rgba(124, 58, 237, 0.35)',
                 }}
               >
                 New Project
@@ -246,23 +383,32 @@ export const Header: React.FC<HeaderProps> = ({
 
               {/* Compact User Identity / Sign Out */}
               {isAuthenticated && user ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
                   <div
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       gap: '0.4rem',
-                      padding: '0.25rem 0.55rem',
-                      borderRadius: 'var(--radius-sm)',
-                      background: 'var(--bg-surface-subtle)',
-                      border: '1px solid var(--border-subtle)',
+                      padding: '0.3rem 0.65rem',
+                      borderRadius: 'var(--radius-sm, 6px)',
+                      background: 'var(--bg-surface-subtle, #0d121f)',
+                      border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
                       fontSize: '0.78rem',
                     }}
                     title={user.email}
                   >
-                    <UserIcon size={13} color="var(--accent-primary)" />
-                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{user.name}</span>
-                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                    <UserIcon size={13} color="var(--accent-violet-light, #a78bfa)" />
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary, #ffffff)' }}>
+                      {user.name}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '0.68rem',
+                        color: 'var(--text-dim, #64748b)',
+                        textTransform: 'uppercase',
+                        fontWeight: 600,
+                      }}
+                    >
                       ({user.role})
                     </span>
                   </div>
@@ -272,14 +418,15 @@ export const Header: React.FC<HeaderProps> = ({
                     title="Sign Out"
                     aria-label="Sign Out"
                     style={{
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'var(--text-muted)',
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
+                      color: 'var(--text-muted, #94a3b8)',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
-                      padding: '0.3rem',
-                      borderRadius: '4px',
+                      padding: '0.35rem',
+                      borderRadius: 'var(--radius-sm, 6px)',
+                      transition: 'all var(--transition-fast, 150ms ease)',
                     }}
                   >
                     <LogOut size={15} />
@@ -291,7 +438,10 @@ export const Header: React.FC<HeaderProps> = ({
                   size="sm"
                   icon={<LogIn size={14} />}
                   onClick={() => setIsAuthOpen(true)}
-                  style={{ border: '1px solid var(--border-subtle)', fontSize: '0.8rem' }}
+                  style={{
+                    border: '1px solid var(--border-medium, rgba(255, 255, 255, 0.12))',
+                    fontSize: '0.8rem',
+                  }}
                 >
                   Sign In
                 </Button>
@@ -309,54 +459,62 @@ export const Header: React.FC<HeaderProps> = ({
                 type="button"
                 onClick={() => onNavigateTab?.('projects')}
                 style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: '0.2rem 0.35rem',
-                  borderRadius: 'var(--radius-sm)',
-                  color: 'var(--accent-primary)',
-                  fontWeight: 600,
-                  fontSize: '0.85rem',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
+                  padding: '0.3rem 0.55rem',
+                  borderRadius: 'var(--radius-sm, 6px)',
+                  color: 'var(--accent-violet-light, #a78bfa)',
+                  fontWeight: 650,
+                  fontSize: '0.825rem',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.35rem',
+                  gap: '0.4rem',
                   whiteSpace: 'nowrap',
+                  transition: 'all var(--transition-fast, 150ms ease)',
                 }}
                 title="Return to Projects List"
               >
-                <FolderKanban size={15} />
+                <FolderKanban size={14} />
                 <span>Projects</span>
               </button>
 
-              <span style={{ color: 'var(--text-muted)' }}>/</span>
+              <span className="header-compact-hide" style={{ color: 'var(--text-dim, #64748b)', fontSize: '0.85rem' }}>/</span>
 
               {/* Truncated Project Name with Tooltip */}
               <div
+                className="header-compact-hide"
                 style={{
-                  fontWeight: 700,
-                  color: 'var(--text-primary)',
+                  fontWeight: 750,
+                  color: 'var(--text-primary, #ffffff)',
                   fontSize: '0.9rem',
                   maxWidth: '220px',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
+                  letterSpacing: '-0.01em',
                 }}
                 title={activeProj.name}
               >
                 {activeProj.name}
               </div>
 
-              <Badge variant={activeProj.status}>{activeProj.status}</Badge>
+              <div className="header-compact-hide">
+                <Badge variant={activeProj.status}>{activeProj.status}</Badge>
+              </div>
 
               {/* Quick selector (compact) for fast switching & unit test compatibility */}
-              <div style={{ display: 'flex', alignItems: 'center', marginLeft: '0.25rem' }}>
+              <div className="header-compact-hide" style={{ display: 'flex', alignItems: 'center', marginLeft: '0.2rem' }}>
                 <select
                   className="form-select"
                   style={{
                     width: '135px',
-                    padding: '0.2rem 0.4rem',
+                    padding: '0.25rem 0.45rem',
                     fontSize: '0.75rem',
-                    background: 'rgba(0, 0, 0, 0.25)',
+                    background: 'var(--bg-surface-subtle, #0d121f)',
+                    border: '1px solid var(--border-medium, rgba(255, 255, 255, 0.12))',
+                    borderRadius: 'var(--radius-sm, 6px)',
+                    color: '#ffffff',
                   }}
                   value={selectedProjectId || ''}
                   onChange={handleSelectProject}
@@ -373,7 +531,9 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             {/* Right: Live Preview, More Menu, AI Assistant, User Account */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexShrink: 0 }}>
+              <HeaderModeSwitcher />
+
               {/* Primary Workspace Action: Live Preview */}
               <Button
                 id="btn-header-live-preview"
@@ -382,15 +542,28 @@ export const Header: React.FC<HeaderProps> = ({
                 icon={<Monitor size={14} color="#34d399" />}
                 onClick={() => onNavigateTab?.('preview')}
                 style={{
-                  background: 'rgba(16, 185, 129, 0.1)',
-                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  border: '1px solid rgba(16, 185, 129, 0.35)',
                   color: '#34d399',
-                  fontWeight: 600,
+                  fontWeight: 650,
                   fontSize: '0.8rem',
+                  boxShadow: '0 0 12px rgba(16, 185, 129, 0.15)',
                 }}
                 title="Open Live Preview for this application"
               >
-                Live Preview
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: '#34d399',
+                      boxShadow: '0 0 6px #34d399',
+                      display: 'inline-block',
+                    }}
+                  />
+                  <span>Live Preview</span>
+                </div>
               </Button>
 
               {/* More Actions Dropdown Menu */}
@@ -400,16 +573,19 @@ export const Header: React.FC<HeaderProps> = ({
                   id="btn-header-more-actions"
                   onClick={() => setIsMoreMenuOpen((prev) => !prev)}
                   style={{
-                    background: isMoreMenuOpen ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.04)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: 'var(--radius-sm)',
+                    background: isMoreMenuOpen
+                      ? 'rgba(255, 255, 255, 0.1)'
+                      : 'rgba(255, 255, 255, 0.04)',
+                    border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
+                    borderRadius: 'var(--radius-sm, 6px)',
                     padding: '0.35rem 0.5rem',
-                    color: 'var(--text-secondary)',
+                    color: 'var(--text-secondary, #cbd5e1)',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '0.25rem',
                     fontSize: '0.78rem',
+                    transition: 'all var(--transition-fast, 150ms ease)',
                   }}
                   title="More actions"
                   aria-expanded={isMoreMenuOpen}
@@ -422,13 +598,13 @@ export const Header: React.FC<HeaderProps> = ({
                     style={{
                       position: 'absolute',
                       right: 0,
-                      top: '110%',
-                      width: '190px',
-                      background: 'var(--bg-surface-elevated, #1a2234)',
-                      border: '1px solid var(--border-subtle)',
-                      borderRadius: 'var(--radius-md)',
-                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.4)',
-                      padding: '0.35rem',
+                      top: '115%',
+                      width: '200px',
+                      background: 'var(--bg-surface-elevated, #1a2238)',
+                      border: '1px solid var(--border-medium, rgba(255, 255, 255, 0.14))',
+                      borderRadius: 'var(--radius-md, 10px)',
+                      boxShadow: 'var(--shadow-xl, 0 20px 40px rgba(0, 0, 0, 0.6))',
+                      padding: '0.4rem',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: '0.2rem',
@@ -446,18 +622,19 @@ export const Header: React.FC<HeaderProps> = ({
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '0.5rem',
-                          padding: '0.45rem 0.65rem',
-                          borderRadius: '4px',
+                          gap: '0.55rem',
+                          padding: '0.5rem 0.65rem',
+                          borderRadius: 'var(--radius-sm, 6px)',
                           border: 'none',
                           background: 'transparent',
-                          color: 'var(--text-primary)',
-                          fontSize: '0.78rem',
+                          color: 'var(--text-primary, #ffffff)',
+                          fontSize: '0.8rem',
                           cursor: 'pointer',
                           textAlign: 'left',
+                          transition: 'background var(--transition-fast, 150ms ease)',
                         }}
                       >
-                        <Plus size={14} color="var(--accent-primary)" />
+                        <Plus size={14} color="var(--accent-violet-light, #a78bfa)" />
                         <span>Add Feature with AI</span>
                       </button>
                     )}
@@ -470,13 +647,13 @@ export const Header: React.FC<HeaderProps> = ({
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '0.5rem',
-                        padding: '0.45rem 0.65rem',
-                        borderRadius: '4px',
+                        gap: '0.55rem',
+                        padding: '0.5rem 0.65rem',
+                        borderRadius: 'var(--radius-sm, 6px)',
                         border: 'none',
                         background: 'transparent',
-                        color: 'var(--text-primary)',
-                        fontSize: '0.78rem',
+                        color: 'var(--text-primary, #ffffff)',
+                        fontSize: '0.8rem',
                         cursor: 'pointer',
                         textAlign: 'left',
                       }}
@@ -496,22 +673,28 @@ export const Header: React.FC<HeaderProps> = ({
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '0.5rem',
-                        padding: '0.45rem 0.65rem',
-                        borderRadius: '4px',
+                        gap: '0.55rem',
+                        padding: '0.5rem 0.65rem',
+                        borderRadius: 'var(--radius-sm, 6px)',
                         border: 'none',
                         background: 'transparent',
-                        color: 'var(--text-primary)',
-                        fontSize: '0.78rem',
+                        color: 'var(--text-primary, #ffffff)',
+                        fontSize: '0.8rem',
                         cursor: 'pointer',
                         textAlign: 'left',
                       }}
                     >
-                      <Edit3 size={14} color="var(--text-muted)" />
+                      <Edit3 size={14} color="var(--text-muted, #94a3b8)" />
                       <span>Rename Project</span>
                     </button>
 
-                    <div style={{ height: 1, background: 'var(--border-subtle)', margin: '0.2rem 0' }} />
+                    <div
+                      style={{
+                        height: 1,
+                        background: 'var(--border-subtle, rgba(255, 255, 255, 0.08))',
+                        margin: '0.25rem 0',
+                      }}
+                    />
 
                     <button
                       type="button"
@@ -520,13 +703,13 @@ export const Header: React.FC<HeaderProps> = ({
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '0.5rem',
-                        padding: '0.45rem 0.65rem',
-                        borderRadius: '4px',
+                        gap: '0.55rem',
+                        padding: '0.5rem 0.65rem',
+                        borderRadius: 'var(--radius-sm, 6px)',
                         border: 'none',
                         background: 'transparent',
                         color: '#f87171',
-                        fontSize: '0.78rem',
+                        fontSize: '0.8rem',
                         cursor: 'pointer',
                         textAlign: 'left',
                       }}
@@ -543,24 +726,38 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   type="button"
                   id="btn-header-ai-assistant"
+                  className="header-compact-hide"
                   onClick={onToggleAssistant}
                   style={{
                     padding: '0.4rem 0.75rem',
                     fontSize: '0.8rem',
-                    background: isAssistantOpen ? 'rgba(99, 102, 241, 0.2)' : 'var(--bg-surface)',
-                    border: isAssistantOpen ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
-                    color: isAssistantOpen ? '#c7d2fe' : 'var(--text-secondary)',
-                    borderRadius: 'var(--radius-sm)',
+                    background: isAssistantOpen
+                      ? 'rgba(139, 92, 246, 0.22)'
+                      : 'var(--bg-surface-subtle, #0d121f)',
+                    border: isAssistantOpen
+                      ? '1px solid var(--accent-violet, #8b5cf6)'
+                      : '1px solid var(--border-medium, rgba(255, 255, 255, 0.12))',
+                    color: isAssistantOpen ? '#c7d2fe' : 'var(--text-secondary, #cbd5e1)',
+                    borderRadius: 'var(--radius-sm, 6px)',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '0.45rem',
                     cursor: 'pointer',
-                    fontWeight: 600,
+                    fontWeight: 650,
+                    boxShadow: isAssistantOpen ? '0 0 14px rgba(139, 92, 246, 0.35)' : 'none',
+                    transition: 'all var(--transition-fast, 150ms ease)',
                   }}
-                  title={isAssistantOpen ? 'Hide AI Development Assistant' : 'Open AI Development Assistant'}
+                  title={
+                    isAssistantOpen
+                      ? 'Hide AI Development Assistant'
+                      : 'Open AI Development Assistant'
+                  }
                   aria-label="Toggle Intelli Assistant"
                 >
-                  <Bot size={15} color={isAssistantOpen ? 'var(--accent-cyan)' : 'inherit'} />
+                  <Bot
+                    size={15}
+                    color={isAssistantOpen ? 'var(--accent-cyan, #06b6d4)' : 'inherit'}
+                  />
                   <span>AI Assistant</span>
                 </button>
               )}
@@ -572,17 +769,27 @@ export const Header: React.FC<HeaderProps> = ({
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '0.35rem',
-                      padding: '0.25rem 0.55rem',
-                      borderRadius: 'var(--radius-sm)',
-                      background: 'var(--bg-surface-subtle)',
-                      border: '1px solid var(--border-subtle)',
-                      fontSize: '0.76rem',
+                      gap: '0.4rem',
+                      padding: '0.3rem 0.65rem',
+                      borderRadius: 'var(--radius-sm, 6px)',
+                      background: 'var(--bg-surface-subtle, #0d121f)',
+                      border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
+                      fontSize: '0.78rem',
                     }}
                     title={user.email}
                   >
-                    <UserIcon size={12} color="var(--accent-primary)" />
-                    <span style={{ fontWeight: 600, color: 'var(--text-primary)', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <UserIcon size={12} color="var(--accent-violet-light, #a78bfa)" />
+                    <span
+                      className="header-compact-hide"
+                      style={{
+                        fontWeight: 650,
+                        color: 'var(--text-primary, #ffffff)',
+                        maxWidth: '100px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
                       {user.name}
                     </span>
                   </div>
@@ -592,13 +799,15 @@ export const Header: React.FC<HeaderProps> = ({
                     title="Sign Out"
                     aria-label="Sign Out"
                     style={{
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'var(--text-muted)',
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
+                      color: 'var(--text-muted, #94a3b8)',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
-                      padding: '0.3rem',
+                      padding: '0.35rem',
+                      borderRadius: 'var(--radius-sm, 6px)',
+                      transition: 'all var(--transition-fast, 150ms ease)',
                     }}
                   >
                     <LogOut size={15} />
@@ -610,7 +819,10 @@ export const Header: React.FC<HeaderProps> = ({
                   size="sm"
                   icon={<LogIn size={14} />}
                   onClick={() => setIsAuthOpen(true)}
-                  style={{ border: '1px solid var(--border-subtle)', fontSize: '0.78rem' }}
+                  style={{
+                    border: '1px solid var(--border-medium, rgba(255, 255, 255, 0.12))',
+                    fontSize: '0.78rem',
+                  }}
                 >
                   Sign In
                 </Button>
@@ -627,7 +839,14 @@ export const Header: React.FC<HeaderProps> = ({
           onClose={() => setIsRenameModalOpen(false)}
           title={`Rename "${selectedProject.name}"`}
           footer={
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', width: '100%' }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '0.5rem',
+                width: '100%',
+              }}
+            >
               <Button variant="ghost" onClick={() => setIsRenameModalOpen(false)}>
                 Cancel
               </Button>
@@ -642,9 +861,16 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           }
         >
-          <form onSubmit={handleRenameSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <form
+            onSubmit={handleRenameSubmit}
+            style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
+          >
             <div className="form-group">
-              <label className="form-label" htmlFor="rename-input" style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+              <label
+                className="form-label"
+                htmlFor="rename-input"
+                style={{ fontWeight: 650, fontSize: '0.85rem' }}
+              >
                 New Project Name
               </label>
               <input

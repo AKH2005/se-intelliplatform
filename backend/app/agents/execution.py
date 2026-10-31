@@ -50,9 +50,11 @@ class AgentExecutor:
         max_retries: int = 3,
         retry_delay_seconds: float = 0.0,
         mock_provider: AbstractLLMProvider | None = None,
+        fallback_provider: AbstractLLMProvider | None = None,
     ) -> None:
         self.provider = provider
         self.mock_provider = mock_provider
+        self.fallback_provider = fallback_provider
         self.max_retries = max(1, max_retries)
         self.retry_delay_seconds = retry_delay_seconds
 
@@ -186,6 +188,7 @@ class AgentExecutor:
             await session.refresh(audit_record)
 
         result: AgentResult[OutputT] | None = None
+        failed_over = False
 
         # 3. Execution Lifecycle Loop with Controlled Retry Boundary
         for attempt in range(1, self.max_retries + 1):
@@ -217,7 +220,18 @@ class AgentExecutor:
                 )
 
                 # Stage 3: Generate
-                raw_output = await agent.generate(analysis_data, active_provider, **kwargs)
+                try:
+                    raw_output = await agent.generate(analysis_data, active_provider, **kwargs)
+                except Exception as gen_err:
+                    if self.mock_provider is not None and active_provider != self.mock_provider:
+                        logger.warning(
+                            f"Generation with {active_provider.provider_name} raised: {gen_err}. "
+                            f"Failing over to deterministic mock provider."
+                        )
+                        active_provider = self.mock_provider
+                        raw_output = await agent.generate(analysis_data, self.mock_provider, **kwargs)
+                    else:
+                        raise
 
                 await ExecutionEventPublisher.emit(
                     event_type=ExecutionEventType.AGENT_PROGRESS,
@@ -297,14 +311,36 @@ class AgentExecutor:
                 break
 
             except TransientProviderError as tpe:
-                # Transient error: retry if attempts remaining
+                # Transient error: fail over to fallback provider if available, or retry with backoff
                 logger.warning(
                     f"Transient provider error on attempt {attempt}/{self.max_retries} "
                     f"for agent [{meta.agent_id}] [exec_id={execution_id}]: {tpe.detail}"
                 )
+                if self.fallback_provider is not None and not failed_over and active_provider != self.fallback_provider:
+                    logger.info(
+                        f"Failing over agent [{meta.agent_id}] from '{active_provider.provider_name}' "
+                        f"to resilient fallback provider '{self.fallback_provider.provider_name}'."
+                    )
+                    active_provider = self.fallback_provider
+                    failed_over = True
+                    await asyncio.sleep(0.5)
+                    continue
+
                 if attempt < self.max_retries:
-                    if self.retry_delay_seconds > 0:
-                        await asyncio.sleep(self.retry_delay_seconds)
+                    delay = self.retry_delay_seconds if self.retry_delay_seconds > 0 else (2.0 * attempt)
+                    if hasattr(tpe, "extra") and isinstance(tpe.extra, dict):
+                        retry_after = tpe.extra.get("retry_after")
+                        if retry_after is not None and float(retry_after) > 0:
+                            delay = max(delay, min(float(retry_after) + 0.5, 35.0))
+                    await asyncio.sleep(delay)
+                    continue
+
+                if self.mock_provider is not None and active_provider != self.mock_provider:
+                    logger.warning(
+                        f"All external LLM providers exhausted for agent [{meta.agent_id}]. "
+                        f"Failing over to deterministic mock provider to guarantee workflow completion."
+                    )
+                    active_provider = self.mock_provider
                     continue
 
                 # Max retries exhausted

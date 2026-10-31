@@ -20,13 +20,7 @@ class AgentType(str, enum.Enum):
     VALIDATION = "VALIDATION"
 
 
-class AgentExecutionStatus(str, enum.Enum):
-    """Deterministic states of an agent execution lifecycle."""
-    PENDING = "PENDING"
-    RUNNING = "RUNNING"
-    VALIDATING = "VALIDATING"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
+from app.models.agent_audit import AgentExecutionStatus
 
 
 class AgentMetadata(BaseModel):

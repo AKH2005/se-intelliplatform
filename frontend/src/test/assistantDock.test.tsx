@@ -5,10 +5,19 @@ import { assistantApi } from '../services/assistantApi';
 
 vi.mock('../services/assistantApi', () => ({
   assistantApi: {
+    createConversation: vi.fn(),
+    deleteConversation: vi.fn(),
     listConversations: vi.fn(),
+    getConversation: vi.fn(),
     sendMessage: vi.fn(),
     confirmAction: vi.fn(),
     executeActionDirect: vi.fn(),
+  },
+}));
+
+vi.mock('../services/developmentVersionApi', () => ({
+  developmentVersionApi: {
+    getActiveVersion: vi.fn().mockResolvedValue({ version_number: 3, id: 'ver-3' }),
   },
 }));
 
@@ -187,4 +196,248 @@ describe('Phase 11I: Intelli Assistant Dock UI', () => {
       expect(screen.getByText('Network connectivity lost')).toBeInTheDocument();
     });
   });
+
+  it('displays active project name and active version badge in context strip', async () => {
+    vi.mocked(assistantApi.listConversations).mockResolvedValue({ items: [], total: 0 });
+
+    render(
+      <AssistantDock
+        isOpen={true}
+        onClose={() => {}}
+        activeProjectName="MiniTask App"
+        projectId="proj-minitask"
+        activeVersionNumber={2}
+      />
+    );
+
+    expect(screen.getByTestId('assistant-project-badge')).toHaveTextContent('MiniTask App');
+    expect(screen.getByTestId('assistant-version-badge')).toHaveTextContent('v2');
+  });
+
+  it('allows starting a new conversation via the New Chat button', async () => {
+    vi.mocked(assistantApi.listConversations).mockResolvedValue({
+      items: [
+        {
+          conversation_id: 'conv-old',
+          project_id: 'proj-11i',
+          title: 'Old Thread',
+          messages: [
+            {
+              message_id: 'm1',
+              conversation_id: 'conv-old',
+              role: 'user',
+              content: 'Old question',
+              created_at: new Date().toISOString(),
+            },
+          ],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      total: 1,
+    });
+    vi.mocked(assistantApi.createConversation).mockResolvedValue({
+      conversation_id: 'conv-fresh',
+      project_id: 'proj-11i',
+      title: 'New Conversation',
+      messages: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    render(
+      <AssistantDock
+        isOpen={true}
+        onClose={() => {}}
+        activeProjectName="Solaris Engine"
+        projectId="proj-11i"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Old question')).toBeInTheDocument();
+    });
+
+    const newChatBtn = screen.getByTestId('new-conversation-btn');
+    fireEvent.click(newChatBtn);
+
+    await waitFor(() => {
+      expect(assistantApi.createConversation).toHaveBeenCalledWith('proj-11i');
+      expect(screen.queryByText('Old question')).not.toBeInTheDocument();
+    });
+  });
+
+  it('prevents duplicate submissions when send action is triggered while loading', async () => {
+    vi.mocked(assistantApi.listConversations).mockResolvedValue({ items: [], total: 0 });
+
+    let resolveSendMessage: (val: any) => void;
+    const pendingPromise = new Promise((resolve) => {
+      resolveSendMessage = resolve;
+    });
+    vi.mocked(assistantApi.sendMessage).mockReturnValue(pendingPromise as any);
+
+    render(
+      <AssistantDock
+        isOpen={true}
+        onClose={() => {}}
+        activeProjectName="Solaris Engine"
+        projectId="proj-11i"
+      />
+    );
+
+    const input = screen.getByLabelText('Assistant message input');
+    fireEvent.change(input, { target: { value: 'Explain architecture' } });
+
+    const sendBtn = screen.getByLabelText('Send inquiry');
+    fireEvent.click(sendBtn);
+
+    // Click again immediately while loading
+    fireEvent.click(sendBtn);
+    fireEvent.click(sendBtn);
+
+    expect(assistantApi.sendMessage).toHaveBeenCalledTimes(1);
+
+    // Resolve response to clear loading state
+    resolveSendMessage!({
+      message_id: 'msg-done',
+      conversation_id: 'conv-done',
+      role: 'assistant',
+      content: 'Here is the architecture summary.',
+      created_at: new Date().toISOString(),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Here is the architecture summary.')).toBeInTheDocument();
+    });
+  });
+
+  it('retries last failed prompt when retry button in error notice is clicked', async () => {
+    vi.mocked(assistantApi.listConversations).mockResolvedValue({ items: [], total: 0 });
+    vi.mocked(assistantApi.sendMessage)
+      .mockRejectedValueOnce(new Error('503 Service Unavailable'))
+      .mockResolvedValueOnce({
+        message_id: 'msg-retry-ok',
+        conversation_id: 'conv-retry-ok',
+        role: 'assistant',
+        content: 'Success after retry.',
+        created_at: new Date().toISOString(),
+      });
+
+    render(
+      <AssistantDock
+        isOpen={true}
+        onClose={() => {}}
+        activeProjectName="Solaris Engine"
+        projectId="proj-11i"
+      />
+    );
+
+    const input = screen.getByLabelText('Assistant message input');
+    fireEvent.change(input, { target: { value: 'Debug login issue' } });
+    fireEvent.click(screen.getByLabelText('Send inquiry'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('assistant-error-banner')).toBeInTheDocument();
+      expect(screen.getByTestId('retry-message-btn')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('retry-message-btn'));
+
+    await waitFor(() => {
+      expect(assistantApi.sendMessage).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('Success after retry.')).toBeInTheDocument();
+    });
+  });
+
+  it('streams assistant response progressively when sendMessageStream is available', async () => {
+    vi.mocked(assistantApi.listConversations).mockResolvedValue({ items: [], total: 0 });
+
+    const mockStream = vi.fn().mockImplementation(async (_projectId, _payload, callbacks) => {
+      callbacks?.onStart?.({ conversation_id: 'conv-stream-100' });
+      callbacks?.onChunk?.('Streaming first chunk... ');
+      callbacks?.onChunk?.('Streaming second chunk.');
+      const finalMsg = {
+        message_id: 'msg-stream-done',
+        conversation_id: 'conv-stream-100',
+        role: 'assistant',
+        content: 'Streaming first chunk... Streaming second chunk.',
+        created_at: new Date().toISOString(),
+      };
+      callbacks?.onDone?.(finalMsg);
+      return finalMsg;
+    });
+
+    (assistantApi as any).sendMessageStream = mockStream;
+
+    try {
+      render(
+        <AssistantDock
+          isOpen={true}
+          onClose={() => {}}
+          activeProjectName="Solaris Engine"
+          projectId="proj-stream"
+        />
+      );
+
+      const input = screen.getByLabelText('Assistant message input');
+      fireEvent.change(input, { target: { value: 'Test streaming output' } });
+      fireEvent.click(screen.getByLabelText('Send inquiry'));
+
+      await waitFor(() => {
+        expect(mockStream).toHaveBeenCalled();
+        expect(screen.getByText(/Streaming first chunk\.\.\. Streaming second chunk\./)).toBeInTheDocument();
+      });
+    } finally {
+      delete (assistantApi as any).sendMessageStream;
+    }
+  });
+
+  it('allows user to stop/cancel response generation while in progress', async () => {
+    vi.mocked(assistantApi.listConversations).mockResolvedValue({ items: [], total: 0 });
+
+    const mockStream = vi.fn().mockImplementation(async (_projectId, _payload, callbacks, options) => {
+      callbacks?.onChunk?.('Partial answer before cancel...');
+      return new Promise((_, reject) => {
+        if (options?.signal) {
+          options.signal.addEventListener('abort', () => {
+            const abortErr = new Error('The user aborted a request.');
+            abortErr.name = 'AbortError';
+            reject(abortErr);
+          });
+        }
+      });
+    });
+
+    (assistantApi as any).sendMessageStream = mockStream;
+
+    try {
+      render(
+        <AssistantDock
+          isOpen={true}
+          onClose={() => {}}
+          activeProjectName="Solaris Engine"
+          projectId="proj-stream"
+        />
+      );
+
+      const input = screen.getByLabelText('Assistant message input');
+      fireEvent.change(input, { target: { value: 'Cancel me midway' } });
+      fireEvent.click(screen.getByLabelText('Send inquiry'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('cancel-message-btn')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('cancel-message-btn'));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Response generation was cancelled/)).toBeInTheDocument();
+        expect(screen.getByText(/\*\(Generation stopped by user\)\*/)).toBeInTheDocument();
+      });
+    } finally {
+      delete (assistantApi as any).sendMessageStream;
+    }
+  });
 });
+
+

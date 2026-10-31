@@ -2,7 +2,7 @@
 
 from typing import Any
 from app.agents.architecture_recommendation.contracts import ArchitectureRecommendationOutput
-from app.agents.code_generation.contracts import CodeGenerationPlan
+from app.agents.code_generation.contracts import CodeGenerationPlan, is_fullstack_project
 from app.agents.database_design.contracts import DatabaseDesignOutput
 from app.agents.requirement_analysis.contracts import RequirementAnalysisOutput
 from app.schemas.context import ProjectContextResponse
@@ -13,28 +13,42 @@ from app.schemas.context import ProjectContextResponse
 # ==============================================================================
 
 PLANNING_SYSTEM_PROMPT = """You are the Senior Software Architect and Code Generation Planner for SE IntelliPlatform.
-Your role is to propose a minimal, robust, modular project scaffold plan for a production service.
+Your role is to propose a minimal, robust, modular project scaffold plan for a production application.
 
-AUTHORITATIVE TARGET STACK:
-- Language: python
-- Framework: fastapi
-- Database: postgresql
-- Package Manager: pip
+SUPPORTED TARGET STACKS:
+1. Backend Service (when no web UI or frontend is requested):
+   - Language: python | Framework: fastapi | Database: postgresql/sqlite | Package Manager: pip
+   - Files: app/main.py, app/config.py, app/models.py, app/api.py, app/persistence.py, requirements.txt, README.md
+2. Full-Stack Application (when React, web interface, frontend, or dashboard is requested):
+   - Language: polyglot | Framework: react+fastapi | Package Manager: npm+pip
+   - Frontend files:
+     - `frontend/package.json`: Dependencies for Vite, React, TypeScript.
+     - `frontend/index.html`: Web entry HTML.
+     - `frontend/src/main.tsx`: React mounting entrypoint.
+     - `frontend/src/App.tsx`: Main React application component with task list, create, complete, and delete.
+     - `frontend/src/components/TaskCard.tsx`: Task card component.
+     - `frontend/src/components/TaskForm.tsx`: Task form component.
+     - `frontend/src/services/api.ts`: API client connecting to FastAPI backend with env URL fallback.
+     - `frontend/src/styles/App.css`: Modern styling.
+   - Backend files:
+     - `backend/requirements.txt`: Python package dependencies (fastapi, uvicorn, pydantic).
+     - `backend/app/main.py`: FastAPI application entrypoint with CORS middleware.
+     - `backend/app/config.py`: Environment configuration and allowed origins.
+     - `backend/app/models.py`: Database models and Pydantic schemas.
+     - `backend/app/api.py`: REST endpoint router handling domain operations.
+     - `backend/app/persistence.py`: Thread-safe persistence repository.
+   - Root documentation:
+     - `README.md`: Architecture overview and setup guides for frontend and backend.
 
 ARCHITECTURAL PRINCIPLES:
-1. Conservative Scaffold Size: Propose between 3 and 6 core files that form a coherent skeleton.
-   Typical structure:
-   - `app/main.py`: FastAPI application entrypoint and route mounting.
-   - `app/config.py`: Environment configuration using Pydantic Settings.
-   - `app/models.py`: Database models or domain schemas grounded in the logical database design.
-   - `app/api.py`: REST endpoint router handling domain operations.
-   - `requirements.txt`: Python package dependencies.
-   - `README.md`: Architecture overview and setup guide.
-2. Path Safety: Every file path MUST be relative, using forward slashes (e.g., 'app/main.py').
-   NEVER use absolute paths, Windows drive letters, or '..' path traversals.
+1. Full-Stack Invariant: If the project context, requirements, or architecture components specify a frontend (e.g. React, web UI, dashboard), you MUST propose the complete full-stack structure with both frontend/ and backend/ directories. Never generate a backend-only scaffold for a project that requires a React frontend.
+2. Path Safety: Every file path MUST be relative, using forward slashes (e.g., 'frontend/src/App.tsx', 'backend/app/main.py'). NEVER use absolute paths, Windows drive letters, or '..' path traversals.
 3. Traceability:
    - Map each file's `requirement_ids` to the exact UUIDs of the canonical requirements it addresses.
    - Map `architecture_component` to the exact name of an upstream architecture component.
+     * Backend source and dependency files (e.g., `backend/requirements.txt`, `backend/app/main.py`) MUST map to the declared backend component (e.g., 'CoreService', 'Backend API', or similar). Never assign `requirements.txt` to 'Documentation'.
+     * Frontend files (e.g., `frontend/src/App.tsx`, `frontend/package.json`) MUST map to the declared frontend component (e.g., 'Frontend', 'React UI', or similar).
+     * Root documentation files (e.g., `README.md`) may have `architecture_component` set to null or match a declared component.
 4. Completeness: Every planned file must have a clear, descriptive `purpose` (at least 5 characters).
 5. Output: Return structured JSON matching the CodeGenerationPlan schema.
 """
@@ -114,6 +128,22 @@ def build_code_generation_plan_prompt(
                     db_lines.append(f"  - {e.name}: [{attrs}]")
             db_block = "\n".join(db_lines)
 
+    fullstack = is_fullstack_project(context, architecture_recommendation)
+    if fullstack:
+        plan_instruction = (
+            "The project explicitly requires a FULL-STACK application (React frontend + FastAPI backend).\n"
+            "You MUST propose a complete full-stack scaffold including both 'frontend/' (package.json, index.html, "
+            "src/main.tsx, src/App.tsx, src/components/TaskCard.tsx, src/components/TaskForm.tsx, src/services/api.ts, src/styles/App.css) and 'backend/' "
+            "(requirements.txt, app/main.py with CORS, app/config.py, app/models.py, app/api.py, app/persistence.py), and 'README.md'.\n"
+            "Set project_type='fullstack', language='polyglot', framework='react+fastapi', package_manager='npm+pip'."
+        )
+    else:
+        plan_instruction = (
+            "The project requires a backend service (Python/FastAPI).\n"
+            "Generate a CodeGenerationPlan proposing a concise, production-ready Python/FastAPI project scaffold.\n"
+            "Set project_type='backend-service', language='python', framework='fastapi', package_manager='pip'."
+        )
+
     return f"""Project: {project.name} (slug: {project.slug})
 Description: {project.description or 'None provided'}
 
@@ -129,8 +159,7 @@ Description: {project.description or 'None provided'}
 {db_block}
 --- END DATABASE DESIGN ---
 
-Based on the canonical project context, architecture components, and database entities above,
-generate a CodeGenerationPlan proposing a concise, production-ready Python/FastAPI project scaffold.
+{plan_instruction}
 Ensure all file paths are safe, relative, and cleanly map to the upstream architecture components and requirements."""
 
 
@@ -151,13 +180,20 @@ CRITICAL INVARIANTS:
    - Always read credentials from environment variables using `os.getenv(...)` or Pydantic `BaseSettings`.
 3. SYNTACTIC & STRUCTURAL INTEGRITY:
    - All Python code MUST be syntactically valid and parseable with Python's AST compiler.
-   - Do NOT emit Markdown code blocks (```python) inside the JSON string values.
-   - Do NOT emit placeholders like '... implement here ...'. Provide concrete, working skeleton implementations.
-4. TRACEABILITY:
-   - Implement routes, models, and logic that reflect the upstream architecture and database entities.
-5. NO ARBITRARY SHELL EXECUTION:
+   - All JSON files (such as package.json) MUST be valid, parseable JSON without trailing commas.
+   - All TypeScript / TSX and HTML files MUST be complete, well-formed, and functional.
+   - Do NOT emit Markdown code blocks (```python, ```typescript) inside the JSON string values.
+   - Do NOT emit placeholders like '... implement here ...'. Provide concrete, working implementations.
+4. FULL-STACK COHESION:
+   - When generating a full-stack project, ensure the FastAPI backend (`backend/app/main.py`) includes CORSMiddleware so the React frontend can communicate with it.
+   - Serve the frontend entrypoint (`frontend/index.html`) at root `GET /` (e.g. via FileResponse) and mount static files if present.
+   - Expose the health check endpoint `@app.get("/health")`.
+   - Ensure the REST endpoints are accessible (e.g. `/api/tasks` and `/tasks`) and the frontend API client connects cleanly to the backend, handling errors and loading states.
+5. TRACEABILITY:
+   - Implement routes, models, and UI that reflect the upstream architecture, requirements, and database entities.
+6. NO ARBITRARY SHELL EXECUTION:
    - Never generate shell scripts, deployment scripts, or executable system commands.
-6. FORMAT:
+7. FORMAT:
    - Return a valid JSON object matching the CodeGenerationOutput candidate schema.
 """
 

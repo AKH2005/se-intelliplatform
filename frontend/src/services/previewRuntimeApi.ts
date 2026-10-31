@@ -1,9 +1,21 @@
 import { apiClient } from './apiClient';
 import { RuntimeStatusResponse } from '../types/previewRuntime';
 
+export interface PreviewTokenResponse {
+  preview_token: string;
+  token_type: string;
+  expires_in: number;
+  project_id: string;
+  scope: string;
+}
+
 export const previewRuntimeApi = {
   getStatus: (projectId: string): Promise<RuntimeStatusResponse> => {
     return apiClient.get<RuntimeStatusResponse>(`/projects/${projectId}/runtime/status`);
+  },
+
+  getPreviewToken: (projectId: string): Promise<PreviewTokenResponse> => {
+    return apiClient.post<PreviewTokenResponse>(`/projects/${projectId}/runtime/preview-token`, {});
   },
 
   start: (projectId: string): Promise<RuntimeStatusResponse> => {
@@ -42,6 +54,10 @@ export const previewRuntimeApi = {
     if (app && !url.includes('app=')) {
       params.push(`app=${encodeURIComponent(app)}`);
     }
+
+    // Security Hardening:
+    // Only attach a dedicated short-lived, project-scoped preview token.
+    // NEVER fall back to or place the user's long-lived main access token in the iframe URL!
     if (previewToken && !url.includes('preview_token=')) {
       params.push(`preview_token=${encodeURIComponent(previewToken)}`);
     }
@@ -53,5 +69,3 @@ export const previewRuntimeApi = {
     return url;
   },
 };
-
-

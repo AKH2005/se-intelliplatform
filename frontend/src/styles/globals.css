@@ -1,4 +1,9 @@
 @import './tokens.css';
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+/* =========================================================================
+   SE IntelliPlatform Global Reset & Typography Baseline
+   ========================================================================= */
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -9,25 +14,60 @@
 html, body {
   height: 100%;
   width: 100%;
+  overflow-x: hidden;
   background-color: var(--bg-primary);
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+  line-height: 1.55;
   font-size: 14px;
 }
 
 #root {
   min-height: 100%;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
 }
 
-/* Scrollbar customization */
+/* =========================================================================
+   Keyboard Navigation & Focus Indicators
+   ========================================================================= */
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-violet);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--border-focus-ring);
+}
+
+/* =========================================================================
+   Reduced Motion Accessibility
+   ========================================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* =========================================================================
+   Custom Scrollbar
+   ========================================================================= */
+
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
@@ -36,48 +76,124 @@ html, body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--bg-surface-active);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--bg-secondary);
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-dim);
 }
 
-/* Typography Headings */
+/* =========================================================================
+   Typography Scale & Text Styles
+   ========================================================================= */
+
 h1, h2, h3, h4, h5, h6 {
   color: var(--text-primary);
-  font-weight: 600;
-  line-height: 1.25;
+  font-weight: 650;
+  line-height: 1.28;
 }
 
-h1 { font-size: 1.85rem; letter-spacing: -0.025em; }
-h2 { font-size: 1.4rem; letter-spacing: -0.02em; }
-h3 { font-size: 1.15rem; }
-h4 { font-size: 1rem; }
+h1 {
+  font-size: 1.85rem;
+  letter-spacing: -0.03em;
+  font-weight: 750;
+}
+
+h2 {
+  font-size: 1.35rem;
+  letter-spacing: -0.025em;
+  font-weight: 700;
+}
+
+h3 {
+  font-size: 1.125rem;
+  letter-spacing: -0.015em;
+  font-weight: 650;
+}
+
+h4 {
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+}
+
+h5 {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+h6 {
+  font-size: 0.775rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
 
 p {
   color: var(--text-secondary);
+  line-height: 1.55;
 }
 
-code, pre {
-  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-  font-size: 0.875rem;
+small {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Code & Monospace Elements */
+code, pre, kbd, samp {
+  font-family: var(--font-mono);
+}
+
+code {
+  font-size: 0.85em;
+  padding: 0.15em 0.4em;
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  color: #e2e8f0;
 }
 
 pre {
-  background: #090c14;
+  background: var(--bg-surface-well);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   padding: var(--space-md);
   overflow-x: auto;
   color: #e2e8f0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
-/* Layout Utilities */
+pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+kbd {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-medium);
+  border-bottom: 2px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  padding: 0.15rem 0.45rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-xs);
+}
+
+/* =========================================================================
+   Application Layout Containers
+   ========================================================================= */
+
 .app-container {
   display: flex;
   height: 100vh;
   overflow: hidden;
+  background-color: var(--bg-primary);
 }
 
 .main-content {
@@ -87,12 +203,12 @@ pre {
   height: 100vh;
   overflow-y: auto;
   position: relative;
-  background: radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.05) 0%, transparent 60%);
+  background: var(--mesh-radial), var(--bg-primary);
 }
 
 .view-content {
   padding: var(--space-xl);
-  max-width: 1400px;
+  max-width: 1440px;
   margin: 0 auto;
   width: 100%;
   display: flex;
@@ -100,17 +216,30 @@ pre {
   gap: var(--space-xl);
 }
 
-/* Flex & Grid utilities */
+/* =========================================================================
+   Flexbox & Grid Utilities
+   ========================================================================= */
+
 .flex { display: flex; }
+.inline-flex { display: inline-flex; }
 .flex-col { display: flex; flex-direction: column; }
+.flex-row { display: flex; flex-direction: row; }
+.flex-1 { flex: 1; }
 .items-center { align-items: center; }
+.items-start { align-items: flex-start; }
+.items-end { align-items: flex-end; }
 .justify-between { justify-content: space-between; }
 .justify-center { justify-content: center; }
+.justify-end { justify-content: flex-end; }
+.flex-wrap { flex-wrap: wrap; }
+
+.gap-2xs { gap: var(--space-2xs); }
 .gap-xs { gap: var(--space-xs); }
 .gap-sm { gap: var(--space-sm); }
 .gap-md { gap: var(--space-md); }
 .gap-lg { gap: var(--space-lg); }
 .gap-xl { gap: var(--space-xl); }
+.gap-2xl { gap: var(--space-2xl); }
 
 .grid-2 {
   display: grid;
@@ -124,8 +253,23 @@ pre {
   gap: var(--space-lg);
 }
 
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-lg);
+}
+
+@media (max-width: 1100px) {
+  .grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 900px) {
-  .grid-2, .grid-3 {
+  .grid-2, .grid-3, .grid-4 {
     grid-template-columns: 1fr;
+  }
+  .view-content {
+    padding: var(--space-md);
   }
 }

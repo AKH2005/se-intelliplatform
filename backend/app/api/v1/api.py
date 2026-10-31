@@ -14,8 +14,10 @@ from app.api.v1.endpoints import (
     context,
     development_versions,
     environments,
+    general_chat,
     health,
     preview_runtime,
+    project_files,
     projects,
     remediation,
     requirements,
@@ -29,6 +31,7 @@ api_v1_router = APIRouter()
 
 api_v1_router.include_router(health.router, tags=["Health"])
 api_v1_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+api_v1_router.include_router(general_chat.router, prefix="/chat", tags=["Global AI Assistant"])
 api_v1_router.include_router(projects.router, prefix="/projects", tags=["Projects"])
 api_v1_router.include_router(
     requirements.router,
@@ -71,6 +74,11 @@ api_v1_router.include_router(
     development_versions.router,
     prefix="/projects/{project_id}/versions",
     tags=["Development Versions"],
+)
+api_v1_router.include_router(
+    project_files.router,
+    prefix="/projects/{project_id}/files",
+    tags=["Project Files & Code Studio"],
 )
 api_v1_router.include_router(
     assistant.router,

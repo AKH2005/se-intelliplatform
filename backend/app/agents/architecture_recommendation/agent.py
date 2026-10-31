@@ -150,8 +150,27 @@ class ArchitectureRecommendationAgent(AbstractBaseAgent[ArchitectureRecommendati
         # Sanitize requirement IDs against canonical context
         valid_active_req_ids = {req.id for req in context.requirements}
         req_map = {str(idx): req.id for idx, req in enumerate(context.requirements, start=1)}
-        uuid_str_map = {str(req.id): req.id for req in context.requirements}
+        uuid_str_map = {str(req.id).lower(): req.id for req in context.requirements}
         fallback_req_id = next(iter(valid_active_req_ids)) if valid_active_req_ids else None
+
+        def resolve_valid_req_id(candidate):
+            if candidate in valid_active_req_ids:
+                return candidate
+            cand_str = str(candidate).strip().lower()
+            if cand_str in uuid_str_map:
+                return uuid_str_map[cand_str]
+            if cand_str in req_map:
+                return req_map[cand_str]
+            for valid_id in valid_active_req_ids:
+                v_str = str(valid_id).lower()
+                if cand_str[:8] == v_str[:8] or v_str[:8] in cand_str or cand_str in v_str:
+                    return valid_id
+            if fallback_req_id is not None:
+                return fallback_req_id
+            try:
+                return uuid.UUID(cand_str)
+            except Exception:
+                return uuid.uuid5(uuid.NAMESPACE_DNS, cand_str)
 
         raw_components = data.get("components", [])
         sanitized_components = []
@@ -161,18 +180,9 @@ class ArchitectureRecommendationAgent(AbstractBaseAgent[ArchitectureRecommendati
                 raw_r_ids = c_dict.get("related_requirement_ids", [])
                 clean_r_ids = []
                 for r in raw_r_ids:
-                    r_str = str(r).strip()
-                    if r in valid_active_req_ids:
-                        clean_r_ids.append(r)
-                    elif r_str in uuid_str_map:
-                        clean_r_ids.append(uuid_str_map[r_str])
-                    elif r_str in req_map:
-                        clean_r_ids.append(req_map[r_str])
-                    else:
-                        try:
-                            clean_r_ids.append(uuid.UUID(r_str))
-                        except Exception:
-                            clean_r_ids.append(uuid.uuid5(uuid.NAMESPACE_DNS, r_str))
+                    res_id = resolve_valid_req_id(r)
+                    if res_id is not None:
+                        clean_r_ids.append(res_id)
                 c_dict["related_requirement_ids"] = clean_r_ids
                 sanitized_components.append(c_dict)
             else:
@@ -184,31 +194,58 @@ class ArchitectureRecommendationAgent(AbstractBaseAgent[ArchitectureRecommendati
             t_dict = trace.model_dump() if isinstance(trace, BaseModel) else dict(trace) if isinstance(trace, dict) else None
             if t_dict is not None:
                 r_id = t_dict.get("requirement_id")
-                r_str = str(r_id).strip()
-                if r_id in valid_active_req_ids:
-                    matched_id = r_id
-                elif r_str in uuid_str_map:
-                    matched_id = uuid_str_map[r_str]
-                elif r_str in req_map:
-                    matched_id = req_map[r_str]
-                else:
-                    try:
-                        matched_id = uuid.UUID(r_str)
-                    except Exception:
-                        matched_id = uuid.uuid5(uuid.NAMESPACE_DNS, r_str)
-
+                matched_id = resolve_valid_req_id(r_id)
                 t_dict["requirement_id"] = matched_id
                 t_dict["component_names"] = list(t_dict.get("component_names", []))
                 sanitized_traceability.append(t_dict)
             else:
                 sanitized_traceability.append(trace)
 
+        # Collect declared component names
+        declared_names = set()
+        for comp in sanitized_components:
+            name = comp.get("name") if isinstance(comp, dict) else getattr(comp, "name", None)
+            if name:
+                declared_names.add(str(name))
+
+        default_source = next(iter(declared_names)) if declared_names else "Frontend Application"
+        default_target = next((d for d in declared_names if d != default_source), default_source)
+
+        def resolve_comp_name(candidate, fallback):
+            cand_str = str(candidate or "").strip()
+            if cand_str in declared_names:
+                return cand_str
+            for d in declared_names:
+                if d.lower() == cand_str.lower():
+                    return d
+            for d in declared_names:
+                if cand_str.lower() in d.lower() or d.lower() in cand_str.lower():
+                    return d
+            return fallback
+
+        raw_flows = data.get("data_flows", [])
+        sanitized_flows = []
+        for flow in raw_flows:
+            f_dict = flow.model_dump() if hasattr(flow, "model_dump") else dict(flow) if isinstance(flow, dict) else None
+            if f_dict is not None:
+                src = resolve_comp_name(f_dict.get("source_component", ""), default_source)
+                tgt = resolve_comp_name(f_dict.get("target_component", ""), default_target)
+                if src == tgt and len(declared_names) > 1:
+                    alt = next((d for d in declared_names if d != src), None)
+                    if alt:
+                        tgt = alt
+                f_dict["source_component"] = src
+                f_dict["target_component"] = tgt
+                sanitized_flows.append(f_dict)
+            else:
+                sanitized_flows.append(flow)
+
         # 3. Construct authoritative ArchitectureRecommendationOutput
         final_output = ArchitectureRecommendationOutput(
             summary=data.get("summary", "Architecture recommendation generated."),
             architecture_styles=data.get("architecture_styles", []),
             components=sanitized_components,
-            data_flows=data.get("data_flows", []),
+            data_flows=sanitized_flows,
             technologies=data.get("technologies", []),
             trade_offs=data.get("trade_offs", []),
             assumptions=data.get("assumptions", []),

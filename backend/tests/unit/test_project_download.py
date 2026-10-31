@@ -85,6 +85,27 @@ def test_filter_and_sanitize_empty_project_generates_readme():
     assert "# Empty Project" in readme
     assert "empty-project" in readme
     assert "DRAFT" in readme
+    assert "Code Generation Workflow" in readme
+
+
+def test_filter_and_sanitize_files_ensures_app_init_py():
+    """Verify app/__init__.py is added when app/ directory contains Python source files."""
+    raw_files = {
+        "app/main.py": "from fastapi import FastAPI\napp = FastAPI()\n",
+        "app/config.py": "class Settings: pass\n",
+        "requirements.txt": "fastapi>=0.110.0\n",
+    }
+    project = Project(
+        name="Init Package App",
+        slug="init-package-app",
+        status=ProjectStatus.IN_PROGRESS,
+    )
+
+    clean_files = ProjectDownloadService.filter_and_sanitize_files(raw_files, project)
+
+    assert "app/__init__.py" in clean_files
+    assert "app/main.py" in clean_files
+    assert "app/config.py" in clean_files
 
 
 def test_zip_archive_structure_and_integrity():
@@ -117,3 +138,146 @@ def test_zip_archive_structure_and_integrity():
         assert "README.md" in namelist
         assert "config.json" in namelist
         assert zf.read("src/main.py").decode("utf-8") == raw_files["src/main.py"]
+
+
+@pytest.mark.asyncio
+async def test_generate_project_zip_parent_directories_and_posix_permissions(db_session):
+    """Verify generate_project_zip produces explicit directory entries and UNIX attributes."""
+    import uuid
+    from app.models.workflow_execution import WorkflowExecution, WorkflowStatus
+    from app.agents.code_generation.contracts import (
+        CodeGenerationOutput,
+        CodeGenerationPlan,
+        GeneratedFile,
+        PlannedFile,
+        FileType,
+    )
+
+    project = Project(
+        id=uuid.uuid4(),
+        name="Structured Zip App",
+        slug="structured-zip-app",
+        status=ProjectStatus.IN_PROGRESS,
+    )
+    db_session.add(project)
+
+    # Add workflow execution with nested app/ structure
+    code_output = CodeGenerationOutput(
+        plan=CodeGenerationPlan(
+            files=[
+                PlannedFile(path="app/main.py", purpose="FastAPI application entrypoint", file_type=FileType.SOURCE),
+                PlannedFile(path="requirements.txt", purpose="Project dependencies specification", file_type=FileType.DEPENDENCY),
+            ],
+            rationale="Test project scaffold plan",
+        ),
+        generated_files=[
+            GeneratedFile(path="app/main.py", content="print('hello')", size_bytes=14),
+            GeneratedFile(path="requirements.txt", content="fastapi>=0.110.0\n", size_bytes=16),
+        ],
+        total_files=2,
+        total_size_bytes=30,
+        summary="Generated scaffold",
+    )
+    wf = WorkflowExecution(
+        workflow_execution_id=uuid.uuid4(),
+        project_id=project.id,
+        workflow_id="code-generation-workflow",
+        workflow_version="1.0.0",
+        status=WorkflowStatus.COMPLETED,
+        artifacts={"code-generation": code_output.model_dump(mode="json")},
+    )
+    db_session.add(wf)
+    await db_session.commit()
+
+    service = ProjectDownloadService(db_session)
+    zip_bytes, zip_filename = await service.generate_project_zip(project.id)
+
+    assert zip_filename == "structured-zip-app.zip"
+    assert len(zip_bytes) > 0
+
+    read_buf = io.BytesIO(zip_bytes)
+    with zipfile.ZipFile(read_buf, "r") as zf:
+        infolist = zf.infolist()
+        namelist = [info.filename for info in infolist]
+
+        # Directory entry for 'app/' must exist
+        assert "app/" in namelist
+        app_dir_info = next(i for i in infolist if i.filename == "app/")
+        assert app_dir_info.create_system == 3  # UNIX
+        # Directory bit must be set (0x10)
+        assert (app_dir_info.external_attr & (0x10 << 16)) or (app_dir_info.external_attr & 0x10)
+
+        # File entry permissions must be UNIX (create_system=3)
+        main_info = next(i for i in infolist if i.filename == "app/main.py")
+        assert main_info.create_system == 3
+        # Mode 0o644 in high 16 bits
+        assert (main_info.external_attr >> 16) & 0o777 == 0o644
+
+        # Auto-added package init must be present
+        assert "app/__init__.py" in namelist
+
+
+@pytest.mark.asyncio
+async def test_get_project_files_scans_across_multiple_workflow_executions(db_session):
+    """Verify get_project_files finds code artifact even if later non-code executions occurred."""
+    import uuid
+    from datetime import datetime, timezone, timedelta
+    from app.models.workflow_execution import WorkflowExecution, WorkflowStatus
+    from app.agents.code_generation.contracts import (
+        CodeGenerationOutput,
+        CodeGenerationPlan,
+        GeneratedFile,
+        PlannedFile,
+        FileType,
+    )
+
+    project = Project(
+        id=uuid.uuid4(),
+        name="Multi Run App",
+        slug="multi-run-app",
+        status=ProjectStatus.IN_PROGRESS,
+    )
+    db_session.add(project)
+
+    # 1. Earlier execution that produced code
+    earlier_code = CodeGenerationOutput(
+        plan=CodeGenerationPlan(
+            files=[PlannedFile(path="app/main.py", purpose="Application entrypoint", file_type=FileType.SOURCE)],
+            rationale="Earlier plan",
+        ),
+        generated_files=[
+            GeneratedFile(path="app/main.py", content="# App code from v1", size_bytes=17),
+        ],
+        total_files=1,
+        total_size_bytes=17,
+        summary="Scaffold v1",
+    )
+    wf_code = WorkflowExecution(
+        workflow_execution_id=uuid.uuid4(),
+        project_id=project.id,
+        workflow_id="code-generation-workflow",
+        workflow_version="1.0.0",
+        status=WorkflowStatus.COMPLETED,
+        started_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        artifacts={"code-generation": earlier_code.model_dump(mode="json")},
+    )
+    db_session.add(wf_code)
+
+    # 2. Later execution that did NOT produce code (e.g. estimation workflow)
+    wf_est = WorkflowExecution(
+        workflow_execution_id=uuid.uuid4(),
+        project_id=project.id,
+        workflow_id="project-estimation-workflow",
+        workflow_version="1.0.0",
+        status=WorkflowStatus.COMPLETED,
+        started_at=datetime.now(timezone.utc),
+        artifacts={"risk-prediction": {"risk_score": 0.2}},
+    )
+    db_session.add(wf_est)
+    await db_session.commit()
+
+    service = ProjectDownloadService(db_session)
+    files_map = await service.get_project_files(project.id)
+
+    assert "app/main.py" in files_map
+    assert files_map["app/main.py"] == "# App code from v1"

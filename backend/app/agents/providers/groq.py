@@ -2,7 +2,8 @@
 
 import json
 import logging
-from typing import Any, TypeVar
+import re
+from typing import Any, AsyncGenerator, TypeVar
 from pydantic import BaseModel, ValidationError
 
 from app.agents.exceptions import ProviderError, TransientProviderError
@@ -37,9 +38,9 @@ class GroqProvider(AbstractLLMProvider):
         self.timeout = timeout
         self.last_usage_metadata: dict[str, Any] | None = None
         
-        # Lazy client initialization
+        # Lazy client initialization with zero internal blocking retries
         from groq import AsyncGroq
-        self._client = AsyncGroq(api_key=api_key, timeout=timeout)
+        self._client = AsyncGroq(api_key=api_key, timeout=timeout, max_retries=0)
 
     @property
     def provider_name(self) -> str:
@@ -78,6 +79,25 @@ class GroqProvider(AbstractLLMProvider):
 
             return LLMResponse(content=content, raw_metadata=raw_metadata)
 
+        except Exception as exc:
+            self._handle_groq_exception(exc)
+
+    async def generate_stream(self, request: LLMRequest) -> AsyncGenerator[str, None]:
+        """Execute a text completion stream using Groq inference."""
+        model = request.model or self.default_model
+        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+
+        try:
+            stream = await self._client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+                stream=True,
+            )
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
         except Exception as exc:
             self._handle_groq_exception(exc)
 
@@ -144,6 +164,26 @@ class GroqProvider(AbstractLLMProvider):
                 except Exception:
                     pass
 
+            # Fallback for json_validate_failed or tool_use_failed: try non-json_object mode chat completion
+            err_str = str(exc).lower()
+            if "json_validate_failed" in err_str or "tool_use_failed" in err_str:
+                try:
+                    fallback_msgs = list(messages)
+                    fallback_msgs.append({
+                        "role": "system",
+                        "content": "IMPORTANT: Do NOT invoke any tools or call functions. Respond ONLY with a valid JSON object matching the required schema.",
+                    })
+                    fallback_response = await self._client.chat.completions.create(
+                        model=model,
+                        messages=fallback_msgs,
+                        temperature=request.temperature,
+                        max_tokens=request.max_tokens or 1500,
+                    )
+                    fallback_text = fallback_response.choices[0].message.content or ""
+                    return self._parse_and_validate(fallback_text, response_model)
+                except Exception:
+                    pass
+
             self._handle_groq_exception(exc, response_model_name=response_model.__name__)
 
     def _parse_and_validate(self, text: str, response_model: type[T]) -> T:
@@ -157,14 +197,27 @@ class GroqProvider(AbstractLLMProvider):
             clean_text = clean_text[:-3]
         clean_text = clean_text.strip()
 
+        parsed_data = None
         try:
             parsed_data = json.loads(clean_text)
-        except json.JSONDecodeError as jde:
-            raise ProviderError(
-                message=f"Groq output was not valid JSON: {jde}. Raw output prefix: {clean_text[:200]}",
-                provider_name=self.provider_name,
-                transient=False,
-            ) from jde
+        except json.JSONDecodeError:
+            # Fallback: extract the outermost JSON object if preamble/postamble exists
+            match = re.search(r"(\{[\s\S]*\})", text)
+            if match:
+                try:
+                    parsed_data = json.loads(match.group(1))
+                except json.JSONDecodeError as jde:
+                    raise ProviderError(
+                        message=f"Groq output was not valid JSON: {jde}. Raw output prefix: {clean_text[:200]}",
+                        provider_name=self.provider_name,
+                        transient=False,
+                    ) from jde
+            else:
+                raise ProviderError(
+                    message=f"Groq output was not valid JSON and no JSON object was found. Raw output prefix: {clean_text[:200]}",
+                    provider_name=self.provider_name,
+                    transient=False,
+                )
 
         try:
             return response_model.model_validate(parsed_data)
@@ -189,14 +242,42 @@ class GroqProvider(AbstractLLMProvider):
         # Rate limits, timeouts, and network connection drops are transient
         is_rate_limit = (
             exc_name in ("RateLimitError", "APIConnectionError", "APITimeoutError")
-            or "rate_limit_exceeded" in msg.lower()
+            or "rate limit" in msg.lower()
+            or "rate_limit" in msg.lower()
+            or "too many requests" in msg.lower()
             or getattr(exc, "status_code", None) in (429, 503)
         )
         if is_rate_limit:
-            logger.warning(f"Groq transient failure: {exc_name} - {sanitized_msg}")
+            retry_after: float | None = None
+            if hasattr(exc, "response") and hasattr(getattr(exc, "response"), "headers"):
+                retry_header = getattr(exc.response, "headers", {}).get("retry-after")
+                if retry_header:
+                    try:
+                        retry_after = float(retry_header)
+                    except ValueError:
+                        pass
+            if retry_after is None:
+                m = re.search(r"try again in ([\d.]+)s", msg, re.IGNORECASE)
+                if m:
+                    try:
+                        retry_after = float(m.group(1))
+                    except ValueError:
+                        pass
+
+            retry_msg = f"Groq API rate limit or transient error ({exc_name}): {sanitized_msg}."
+            if retry_after is not None:
+                retry_msg += f" Retry guidance: please wait {retry_after:.1f}s before retrying."
+
+            logger.warning(f"Groq transient failure: {exc_name} - {sanitized_msg} (retry_after={retry_after}s)")
+            extra_payload = {
+                "retry_after": retry_after,
+                "is_rate_limit": True,
+                "tier_boundary": "8,000 TPM",
+            }
             raise TransientProviderError(
-                message=f"Groq transient error ({exc_name}): {sanitized_msg}",
+                message=retry_msg,
                 provider_name=self.provider_name,
+                extra=extra_payload,
             ) from exc
 
         # Authentication, model not found, invalid request are non-transient

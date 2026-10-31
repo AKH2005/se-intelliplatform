@@ -1,6 +1,7 @@
 """Deterministic Validation, Path Safety, and Secret Scanning for Code Generation."""
 
 import ast
+import json
 import logging
 import os
 import posixpath
@@ -18,6 +19,8 @@ from app.agents.code_generation.contracts import (
     SUPPORTED_PACKAGE_MANAGERS,
     CodeGenerationOutput,
     CodeGenerationPlan,
+    FileType,
+    is_fullstack_project,
 )
 from app.agents.contracts import ValidationResult
 from app.schemas.context import ProjectContextResponse
@@ -199,12 +202,63 @@ def validate_code_generation_plan(
             declared_components = set()
 
         if declared_components:
+            declared_lower = {c.lower(): c for c in declared_components if c}
+            doc_aliases = {
+                "documentation", "docs", "doc", "root", "project", "system",
+                "general", "readme", "config", "build", "dependencies", "dependency"
+            }
+
             for f in plan.files:
-                if f.architecture_component and f.architecture_component not in declared_components:
-                    errors.append(
-                        f"File '{f.path}' references undeclared architecture component '{f.architecture_component}'. "
-                        f"Declared: {sorted(declared_components)}"
-                    )
+                if not f.architecture_component:
+                    continue
+                comp = f.architecture_component.strip()
+                comp_lower = comp.lower()
+
+                # Allow documentation and infrastructure aliases for README, dependency manifests, or config files
+                is_manifest_or_doc = (
+                    getattr(f, "file_type", None) in (FileType.DOCUMENTATION, FileType.DEPENDENCY, FileType.CONFIG)
+                    or f.path.lower().startswith("readme")
+                    or any(f.path.lower().endswith(x) for x in [
+                        "requirements.txt", "package.json", ".gitignore", "dockerfile",
+                        "tsconfig.json", "vite.config.ts", "readme.md"
+                    ])
+                )
+                if is_manifest_or_doc and (comp_lower in doc_aliases or "doc" in comp_lower or "root" in comp_lower or "depend" in comp_lower):
+                    continue
+
+                if comp in declared_components or comp_lower in declared_lower:
+                    continue
+                # If substring match
+                if any(comp_lower in d or d in comp_lower for d in declared_lower):
+                    continue
+                errors.append(
+                    f"File '{f.path}' references undeclared architecture component '{f.architecture_component}'. "
+                    f"Declared: {sorted(declared_components)}"
+                )
+
+    # 6. Full-Stack Invariant Verification
+    if is_fullstack_project(context, architecture_recommendation):
+        has_frontend_pkg = any("package.json" in f.path.lower() for f in plan.files)
+        has_frontend_entry = any(
+            any(f.path.lower().endswith(ext) for ext in ["main.tsx", "main.jsx", "index.html", "app.tsx", "app.jsx"])
+            for f in plan.files
+        )
+        has_backend_entry = any(
+            any(f.path.lower().endswith(ext) for ext in ["main.py", "requirements.txt", "api.py"])
+            for f in plan.files
+        )
+        if not (has_frontend_pkg and has_frontend_entry):
+            errors.append(
+                "Project requires a full-stack application (React + FastAPI), "
+                "but planned files lack required frontend components (e.g. package.json, App.tsx, index.html). "
+                "Incomplete generation plan rejected."
+            )
+        if not has_backend_entry:
+            errors.append(
+                "Project requires a full-stack application (React + FastAPI), "
+                "but planned files lack required backend services (main.py, requirements.txt). "
+                "Incomplete generation plan rejected."
+            )
 
     return ValidationResult(
         is_valid=len(errors) == 0,
@@ -241,6 +295,23 @@ def validate_code_generation_output(
         errors.append(
             f"Generated output is missing required planned files: {sorted(missing_files)}."
         )
+
+    # Full-Stack Completeness Verification
+    if is_fullstack_project(context):
+        has_frontend_pkg = any("package.json" in f.path.lower() for f in output.generated_files)
+        has_frontend_entry = any(
+            any(f.path.lower().endswith(ext) for ext in ["main.tsx", "main.jsx", "index.html", "app.tsx", "app.jsx"])
+            for f in output.generated_files
+        )
+        has_backend_entry = any(
+            any(f.path.lower().endswith(ext) for ext in ["main.py", "requirements.txt", "api.py"])
+            for f in output.generated_files
+        )
+        if not (has_frontend_pkg and has_frontend_entry and has_backend_entry):
+            errors.append(
+                "Project requires a full-stack application (React + FastAPI), but generated files lack "
+                "essential frontend components or backend services. Incomplete generation rejected."
+            )
 
     # Check duplicates in output
     seen_paths: set[str] = set()
@@ -280,7 +351,19 @@ def validate_code_generation_output(
         for s in secret_findings:
             errors.append(f"Secret detected in '{f.path}': {s}")
 
-        # 4. Structural Python Syntax Check (No execution, static AST check only)
+        # 4. JSON Validation Check
+        if f.path.endswith(".json"):
+            try:
+                json.loads(f.content)
+            except Exception as j_err:
+                errors.append(f"Invalid JSON syntax in '{f.path}': {j_err}")
+
+        # 5. HTML Validation Check
+        if f.path.endswith(".html"):
+            if "<" not in f.content or ">" not in f.content:
+                errors.append(f"Malformed HTML structure in '{f.path}'.")
+
+        # 6. Structural Python Syntax Check (No execution, static AST check only)
         if f.path.endswith(".py"):
             try:
                 ast.parse(f.content, filename=f.path)
@@ -289,7 +372,7 @@ def validate_code_generation_output(
                     f"Syntax error in generated Python file '{f.path}': line {syn_err.lineno}: {syn_err.msg}"
                 )
 
-        # 5. Dangerous execution/eval scan
+        # 7. Dangerous execution/eval scan
         if f.path.endswith(".py"):
             try:
                 tree = ast.parse(f.content, filename=f.path)

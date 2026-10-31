@@ -36,8 +36,10 @@ export const AppShell: React.FC<AppShellProps> = ({
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [internalIsAssistantOpen, setInternalIsAssistantOpen] = useState(false);
 
-  const isAssistantOpen = externalIsAssistantOpen !== undefined ? externalIsAssistantOpen : internalIsAssistantOpen;
-  const handleToggleAssistant = externalOnToggleAssistant || (() => setInternalIsAssistantOpen((prev) => !prev));
+  const isAssistantOpen =
+    externalIsAssistantOpen !== undefined ? externalIsAssistantOpen : internalIsAssistantOpen;
+  const handleToggleAssistant =
+    externalOnToggleAssistant || (() => setInternalIsAssistantOpen((prev) => !prev));
 
   return (
     <div className="app-shell">
@@ -66,33 +68,37 @@ export const AppShell: React.FC<AppShellProps> = ({
           <div
             role="status"
             style={{
-              background: 'rgba(245, 158, 11, 0.1)',
-              borderBottom: '1px solid rgba(245, 158, 11, 0.3)',
-              color: '#fcd34d',
+              background:
+                'linear-gradient(90deg, rgba(245, 158, 11, 0.14) 0%, rgba(217, 119, 6, 0.08) 100%)',
+              borderBottom: '1px solid rgba(245, 158, 11, 0.28)',
+              color: '#fef3c7',
               padding: '0.65rem 1.5rem',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               fontSize: '0.825rem',
               gap: '1rem',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.25)',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              <AlertTriangle size={16} color="#f59e0b" />
-              <span>{staleProjectNotice}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <AlertTriangle size={16} color="#fbbf24" style={{ flexShrink: 0 }} />
+              <span style={{ fontWeight: 550 }}>{staleProjectNotice}</span>
             </div>
             {clearStaleProjectNotice && (
               <button
                 type="button"
                 onClick={clearStaleProjectNotice}
                 style={{
-                  background: 'transparent',
+                  background: 'rgba(255, 255, 255, 0.06)',
                   border: 'none',
-                  color: '#fcd34d',
+                  color: '#fbbf24',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  padding: '0.2rem',
+                  padding: '0.25rem',
+                  borderRadius: '4px',
+                  transition: 'all var(--transition-fast, 150ms ease)',
                 }}
                 aria-label="Dismiss notice"
               >

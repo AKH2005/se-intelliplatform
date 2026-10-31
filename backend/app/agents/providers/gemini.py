@@ -78,9 +78,11 @@ class GeminiProvider(AbstractLLMProvider):
             "temperature": request.temperature,
         }
         if request.max_tokens:
-            generation_config["maxOutputTokens"] = request.max_tokens
+            generation_config["maxOutputTokens"] = max(request.max_tokens, 4096)
         if force_json:
             generation_config["responseMimeType"] = "application/json"
+            if "2.5" in (request.model or self.default_model):
+                generation_config["thinkingConfig"] = {"thinkingBudget": 0}
 
         payload: dict[str, Any] = {
             "contents": contents,

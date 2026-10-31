@@ -19,6 +19,7 @@ import { CapabilityState } from '../common/CapabilityBadge';
 export type NavigationTab =
   | 'overview'
   | 'preview'
+  | 'code-studio'
   | 'specification'
   | 'development'
   | 'testing'
@@ -68,8 +69,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ? 'intelligence'
       : activeTab;
 
-  const [isAdvancedExpanded, setIsAdvancedExpanded] = React.useState(true);
-
   const navGroups: NavGroup[] = [
     {
       groupName: 'PROJECT',
@@ -77,7 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           id: 'projects',
           label: 'Projects',
-          icon: <FolderKanban size={17} color="var(--accent-primary)" />,
+          icon: <FolderKanban size={17} color="var(--accent-primary, #6366f1)" />,
           requiresProject: false,
           status: 'IMPLEMENTED',
         },
@@ -89,9 +88,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           status: 'IMPLEMENTED',
         },
         {
+          id: 'code-studio',
+          label: 'Code Studio',
+          icon: <Code2 size={17} color="var(--accent-cyan, #06b6d4)" />,
+          requiresProject: true,
+          status: 'IMPLEMENTED',
+          badge: 'IDE',
+        },
+        {
           id: 'preview',
           label: 'Live Preview',
-          icon: <PlayCircle size={17} color="var(--accent-cyan)" />,
+          icon: <PlayCircle size={17} color="var(--accent-cyan, #06b6d4)" />,
           requiresProject: true,
           status: 'IMPLEMENTED',
           badge: 'LIVE',
@@ -99,29 +106,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           id: 'assistant',
           label: 'AI Development Assistant',
-          icon: <Brain size={17} color="var(--accent-primary)" />,
-          requiresProject: true,
-          status: 'IMPLEMENTED',
-        },
-        {
-          id: 'development',
-          label: 'Code & Files',
-          icon: <Code2 size={17} />,
-          requiresProject: true,
-          status: 'IMPLEMENTED',
-        },
-        {
-          id: 'intelligence',
-          label: 'Data & Schemas',
-          icon: <Layers size={17} />,
+          icon: <Brain size={17} color="var(--accent-violet-light, #a78bfa)" />,
           requiresProject: true,
           status: 'IMPLEMENTED',
         },
       ],
     },
     {
-      groupName: 'ENGINEERING',
+      groupName: 'DEVELOPMENT',
       items: [
+        {
+          id: 'development',
+          label: 'Code & Versions',
+          icon: <Code2 size={17} />,
+          requiresProject: true,
+          status: 'IMPLEMENTED',
+        },
         {
           id: 'specification',
           label: 'Requirements & Specs',
@@ -140,6 +140,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'code-intelligence',
           label: 'Code Intelligence',
           icon: <Terminal size={17} />,
+          requiresProject: true,
+          status: 'IMPLEMENTED',
+        },
+      ],
+    },
+    {
+      groupName: 'INTELLIGENCE',
+      items: [
+        {
+          id: 'intelligence',
+          label: 'Data & Schemas',
+          icon: <Layers size={17} />,
           requiresProject: true,
           status: 'IMPLEMENTED',
         },
@@ -181,15 +193,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       role="navigation"
       aria-label="Main Navigation"
       style={{
-        width: isCollapsed ? 'var(--sidebar-collapsed-width)' : 'var(--sidebar-width)',
-        borderRight: '1px solid var(--border-subtle)',
-        background: 'var(--bg-secondary)',
+        width: isCollapsed ? 'var(--sidebar-collapsed-width, 68px)' : 'var(--sidebar-width, 250px)',
+        borderRight: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
+        background: 'var(--bg-secondary, #0f1422)',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
-        padding: isCollapsed ? 'var(--space-md) var(--space-xs)' : 'var(--space-md) var(--space-sm)',
+        padding: isCollapsed ? 'var(--space-sm) var(--space-xs)' : 'var(--space-md) var(--space-sm)',
         flexShrink: 0,
-        transition: 'width var(--transition-normal)',
+        transition: 'width var(--transition-normal, 220ms ease)',
+        userSelect: 'none',
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
@@ -199,28 +212,51 @@ export const Sidebar: React.FC<SidebarProps> = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: isCollapsed ? 'center' : 'space-between',
-            padding: '0 0.5rem 0.5rem 0.5rem',
-            borderBottom: '1px solid var(--border-subtle)',
+            padding: isCollapsed ? '0.25rem 0 0.5rem 0' : '0.25rem 0.5rem 0.75rem 0.5rem',
+            borderBottom: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
+            minHeight: '44px',
           }}
         >
           {!isCollapsed && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
               <div
                 style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 'var(--radius-sm)',
-                  background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cyan))',
+                  width: 28,
+                  height: 28,
+                  borderRadius: 'var(--radius-sm, 6px)',
+                  background: 'linear-gradient(135deg, var(--accent-violet, #8b5cf6), var(--accent-primary, #6366f1))',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  boxShadow: '0 2px 10px rgba(139, 92, 246, 0.35)',
                 }}
               >
-                <Layers size={15} color="#fff" />
+                <Layers size={16} color="#ffffff" />
               </div>
-              <span style={{ fontWeight: 700, fontSize: '0.85rem', letterSpacing: '-0.01em' }}>
-                SE IntelliPlatform
-              </span>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span
+                  style={{
+                    fontWeight: 750,
+                    fontSize: '0.875rem',
+                    letterSpacing: '-0.02em',
+                    color: 'var(--text-primary, #ffffff)',
+                    lineHeight: 1.2,
+                  }}
+                >
+                  SE IntelliPlatform
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.65rem',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    color: 'var(--accent-violet-light, #a78bfa)',
+                  }}
+                >
+                  Developer Studio
+                </span>
+              </div>
             </div>
           )}
 
@@ -230,15 +266,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={onToggleCollapse}
               aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--text-muted)',
+                background: 'rgba(255, 255, 255, 0.04)',
+                border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
+                color: 'var(--text-muted, #94a3b8)',
                 cursor: 'pointer',
-                padding: '0.25rem',
-                borderRadius: 'var(--radius-sm)',
+                padding: '0.35rem',
+                borderRadius: 'var(--radius-sm, 6px)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                transition: 'all var(--transition-fast, 150ms ease)',
               }}
               title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
@@ -249,52 +286,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Navigation Groups */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-          <span style={{ display: 'none' }}>DEVELOPMENT</span>
-          <span style={{ display: 'none' }}>INTELLIGENCE</span>
           {navGroups.map((group) => (
             <div key={group.groupName} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-              {!isCollapsed && (
-                group.groupName === 'ENGINEERING' ? (
-                  <button
-                    type="button"
-                    onClick={() => setIsAdvancedExpanded(!isAdvancedExpanded)}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      padding: 'var(--space-xs) var(--space-md)',
-                      fontSize: '0.68rem',
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.07em',
-                      color: 'var(--text-muted)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      cursor: 'pointer',
-                      width: '100%',
-                    }}
-                  >
-                    <span>{group.groupName}</span>
-                    <span style={{ fontSize: '0.65rem' }}>{isAdvancedExpanded ? 'Hide' : 'Show'}</span>
-                  </button>
-                ) : (
-                  <div
-                    style={{
-                      padding: 'var(--space-xs) var(--space-md)',
-                      fontSize: '0.68rem',
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.07em',
-                      color: 'var(--text-muted)',
-                    }}
-                  >
-                    {group.groupName}
-                  </div>
-                )
+              {!isCollapsed ? (
+                <div
+                  style={{
+                    padding: 'var(--space-xs) var(--space-md)',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                    color: 'var(--text-dim, #64748b)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                  }}
+                >
+                  <span>{group.groupName}</span>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    height: '1px',
+                    background: 'var(--border-subtle, rgba(255, 255, 255, 0.06))',
+                    margin: '0.35rem 0.5rem',
+                  }}
+                  title={group.groupName}
+                />
               )}
 
-              {(group.groupName !== 'ENGINEERING' || isAdvancedExpanded) &&
-                group.items.map((item) => {
+              {group.items.map((item) => {
                 const isActive = canonicalActiveTab === item.id;
                 const isDisabled = item.requiresProject && !hasActiveProject;
 
@@ -304,28 +325,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     type="button"
                     onClick={() => !isDisabled && onSelectTab(item.id)}
                     disabled={isDisabled}
+                    aria-current={isActive ? 'page' : undefined}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: isCollapsed ? 'center' : 'space-between',
                       gap: '0.65rem',
                       padding: isCollapsed ? '0.65rem 0' : '0.55rem 0.75rem',
-                      borderRadius: 'var(--radius-sm)',
+                      borderRadius: 'var(--radius-sm, 6px)',
                       border: 'none',
-                      background: isActive ? 'var(--bg-surface-active)' : 'transparent',
+                      background: isActive
+                        ? 'linear-gradient(90deg, rgba(139, 92, 246, 0.16) 0%, rgba(99, 102, 241, 0.05) 100%)'
+                        : 'transparent',
                       color: isActive
-                        ? 'var(--text-primary)'
+                        ? '#ffffff'
                         : isDisabled
-                        ? 'var(--text-dim)'
-                        : 'var(--text-secondary)',
-                      fontWeight: isActive ? 600 : 500,
+                        ? 'var(--text-faint, #475569)'
+                        : 'var(--text-secondary, #cbd5e1)',
+                      fontWeight: isActive ? 650 : 500,
                       fontSize: '0.825rem',
                       cursor: isDisabled ? 'not-allowed' : 'pointer',
                       textAlign: 'left',
-                      transition: 'all var(--transition-fast)',
+                      transition: 'all var(--transition-fast, 150ms ease)',
                       borderLeft: isActive
-                        ? '3px solid var(--accent-primary)'
+                        ? '3px solid var(--accent-violet, #8b5cf6)'
                         : '3px solid transparent',
+                      boxShadow: isActive
+                        ? 'inset 1px 0 0 0 rgba(167, 139, 250, 0.35)'
+                        : 'none',
+                      opacity: isDisabled ? 0.45 : 1,
+                      position: 'relative',
                     }}
                     title={
                       isDisabled
@@ -333,11 +362,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         : `${item.label} (${item.status})`
                     }
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                      <span style={{ color: isActive ? 'var(--accent-primary)' : 'inherit' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0 }}>
+                      <span
+                        style={{
+                          color: isActive
+                            ? 'var(--accent-violet-light, #a78bfa)'
+                            : isDisabled
+                            ? 'var(--text-faint, #475569)'
+                            : 'inherit',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
                         {item.icon}
                       </span>
-                      {!isCollapsed && <span>{item.label}</span>}
+                      {!isCollapsed && (
+                        <span
+                          style={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {item.label}
+                        </span>
+                      )}
+
                       {/* Backward compatibility test text aliases */}
                       {item.id === 'specification' && <span style={{ display: 'none' }}>Specification</span>}
                       {item.id === 'development' && <span style={{ display: 'none' }}>Development</span>}
@@ -346,18 +398,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </div>
 
                     {!isCollapsed && (
-                      <div>
+                      <div style={{ flexShrink: 0 }}>
                         {item.badge && (
                           <span
                             style={{
                               fontSize: '0.62rem',
                               padding: '0.15rem 0.45rem',
                               borderRadius: '4px',
-                              background: 'rgba(16, 185, 129, 0.2)',
+                              background: 'rgba(16, 185, 129, 0.18)',
                               color: '#34d399',
                               fontWeight: 700,
                               letterSpacing: '0.04em',
                               border: '1px solid rgba(16, 185, 129, 0.35)',
+                              boxShadow: '0 0 8px rgba(16, 185, 129, 0.2)',
                             }}
                           >
                             {item.badge}
@@ -390,16 +443,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Footer Info Box */}
       {!isCollapsed ? (
         <div
+          title="Developer Studio environment: Client initialized and ready"
           style={{
             padding: 'var(--space-sm) var(--space-md)',
-            background: 'var(--bg-surface)',
-            borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--border-subtle)',
+            background: 'var(--bg-surface-subtle, #0d121f)',
+            borderRadius: 'var(--radius-sm, 6px)',
+            border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
             fontSize: '0.72rem',
-            color: 'var(--text-muted)',
+            color: 'var(--text-muted, #94a3b8)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.3)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
@@ -409,22 +464,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 height: 7,
                 borderRadius: '50%',
                 background: '#10b981',
-                boxShadow: '0 0 6px #10b981',
+                boxShadow: '0 0 8px #10b981',
+                display: 'inline-block',
               }}
             />
-            <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Studio Ready</span>
+            <span style={{ fontWeight: 650, color: 'var(--text-secondary, #cbd5e1)' }}>Studio Ready</span>
           </div>
-          <span style={{ fontSize: '0.65rem', color: 'var(--text-dim)' }}>v2.0</span>
+          <span
+            style={{
+              fontSize: '0.65rem',
+              color: 'var(--text-dim, #64748b)',
+              fontWeight: 600,
+              background: 'rgba(255, 255, 255, 0.04)',
+              padding: '0.1rem 0.35rem',
+              borderRadius: '4px',
+              border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.06))',
+            }}
+          >
+            v2.0
+          </span>
         </div>
       ) : (
         <div
+          title="Developer Studio environment: Client initialized and ready"
           style={{
             display: 'flex',
             justifyContent: 'center',
             padding: 'var(--space-sm) 0',
-            color: 'var(--text-dim)',
+            color: 'var(--text-dim, #64748b)',
           }}
-          title="SE IntelliPlatform Studio: Ready"
         >
           <span
             style={{
@@ -432,6 +500,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               height: 8,
               borderRadius: '50%',
               background: '#10b981',
+              boxShadow: '0 0 6px #10b981',
+              display: 'inline-block',
             }}
           />
         </div>
