@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from typing import Any
+from typing import Any, Optional
 from pydantic import BaseModel
 
 from app.agents.base import AbstractBaseAgent
@@ -152,9 +152,11 @@ class RequirementAnalysisAgent(AbstractBaseAgent[RequirementAnalysisOutput]):
         req_map = {str(idx): req.id for idx, req in enumerate(context.requirements, start=1)}
         fallback_req_id = next(iter(valid_active_ids)) if valid_active_ids else None
 
-        def match_req_id(raw_val: Any) -> uuid.UUID:
+        def match_req_id(raw_val: Any) -> Optional[uuid.UUID]:
+            if not raw_val:
+                return fallback_req_id
             if isinstance(raw_val, uuid.UUID):
-                return raw_val
+                return raw_val if raw_val in valid_active_ids else fallback_req_id
             raw_s = str(raw_val).strip()
             if raw_s in uuid_str_map:
                 return uuid_str_map[raw_s]
@@ -164,38 +166,47 @@ class RequirementAnalysisAgent(AbstractBaseAgent[RequirementAnalysisOutput]):
             for u_str, u_id in uuid_str_map.items():
                 if u_str in raw_s or raw_s in u_str:
                     return u_id
+            if fallback_req_id:
+                return fallback_req_id
             try:
                 return uuid.UUID(raw_s)
             except Exception:
                 return uuid.uuid5(uuid.NAMESPACE_DNS, raw_s)
 
-        # Sanitize ambiguities
+        # Sanitize ambiguities (only retain valid canonical references)
         raw_ambiguities = ai_data.get("ambiguities", [])
         sanitized_ambiguities = []
         for item in raw_ambiguities:
             d = item.model_dump() if isinstance(item, BaseModel) else dict(item) if isinstance(item, dict) else None
             if d:
-                d["requirement_id"] = match_req_id(d.get("requirement_id"))
-                sanitized_ambiguities.append(d)
+                matched_id = match_req_id(d.get("requirement_id"))
+                if matched_id in valid_active_ids:
+                    d["requirement_id"] = matched_id
+                    sanitized_ambiguities.append(d)
 
-        # Sanitize conflicts
+        # Sanitize conflicts (both distinct and active)
         raw_conflicts = ai_data.get("conflicts", [])
         sanitized_conflicts = []
         for item in raw_conflicts:
             d = item.model_dump() if isinstance(item, BaseModel) else dict(item) if isinstance(item, dict) else None
             if d:
-                d["requirement_id"] = match_req_id(d.get("requirement_id"))
-                d["related_requirement_id"] = match_req_id(d.get("related_requirement_id"))
-                sanitized_conflicts.append(d)
+                req_id = match_req_id(d.get("requirement_id"))
+                rel_id = match_req_id(d.get("related_requirement_id"))
+                if req_id and rel_id and req_id != rel_id and req_id in valid_active_ids and rel_id in valid_active_ids:
+                    d["requirement_id"] = req_id
+                    d["related_requirement_id"] = rel_id
+                    sanitized_conflicts.append(d)
 
-        # Sanitize refinements
+        # Sanitize refinements (only retain valid canonical references)
         raw_refinements = ai_data.get("refinements", [])
         sanitized_refinements = []
         for item in raw_refinements:
             d = item.model_dump() if isinstance(item, BaseModel) else dict(item) if isinstance(item, dict) else None
             if d:
-                d["requirement_id"] = match_req_id(d.get("requirement_id"))
-                sanitized_refinements.append(d)
+                matched_id = match_req_id(d.get("requirement_id"))
+                if matched_id in valid_active_ids:
+                    d["requirement_id"] = matched_id
+                    sanitized_refinements.append(d)
 
         # 4. Authoritatively inject Phase 2 deterministic metrics (LLM cannot spoof or own these)
         authoritative_completeness = context.statistics.completion_percentage

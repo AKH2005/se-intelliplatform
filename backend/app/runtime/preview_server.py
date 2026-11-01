@@ -50,17 +50,19 @@ project_contexts: dict[str, dict] = {}
 
 def detect_mode(name: str = "", desc: str = "") -> str:
     combined = f"{name} {desc}".lower()
-    if any(k in combined for k in ["analytics", "kpi", "dashboard", "metric", "executive", "revenue", "bi "]):
-        return "analytics"
-    if any(k in combined for k in ["event", "meet", "summit", "conference", "ticket"]):
-        return "eventhub"
-    if any(k in combined for k in ["snake", "arcade", "game", "retro"]):
+    if any(k in combined for k in ["snake", "arcade", "game", "retro", "2d arcade", "canvas"]):
         return "snake_game"
-    if any(k in combined for k in ["shop", "store", "commerce", "cart", "product", "checkout", "market"]):
+    if any(k in combined for k in ["teamconnect", "directory", "member", "employee", "roster", "staff", "faculty", "hr"]):
+        return "management"
+    if any(k in combined for k in ["analytics", "kpi", "dashboard", "metric", "executive", "revenue", "bi ", "intelligence", "finance"]):
+        return "analytics"
+    if any(k in combined for k in ["event", "meet", "summit", "conference", "ticket", "booking"]):
+        return "eventhub"
+    if any(k in combined for k in ["shop", "store", "commerce", "cart", "product", "checkout", "market", "catalog"]):
         return "ecommerce"
-    if any(k in combined for k in ["task", "todo", "action", "item", "flow", "kanban"]):
+    if any(k in combined for k in ["kanban", "taskflow", "task-manager", "task manager", "todo", "to-do", "tasks", "task", "backlog", "scrum", "sprint"]):
         return "taskflow"
-    if any(k in combined for k in ["student", "manage", "employee", "admin", "record", "faculty", "school"]):
+    if any(k in combined for k in ["team", "manage", "admin", "record", "school", "portal", "profile"]):
         return "management"
     return "custom"
 
@@ -1308,6 +1310,13 @@ EVENTHUB_HTML = """<!DOCTYPE html>
 """
 
 def get_taskflow_html(project_id: Optional[str] = None):
+    try:
+        from app.agents.code_generation.archetypes import get_archetype_file_content
+        rendered = get_archetype_file_content("taskflow", "frontend/index.html", "KanbanFlow Board", "Real-time collaborative Kanban board")
+        if rendered:
+            return rendered
+    except Exception:
+        pass
     has_auth = runtime_features.get("auth", False)
     is_modern = runtime_features.get("modern_ui", False)
     has_search = runtime_features.get("search", False)
@@ -4520,7 +4529,7 @@ def get_analytics_dashboard_html(title: str = "Executive Analytics Dashboard", d
           <span class="kpi-label">Total ARR / Revenue</span>
           <span class="kpi-trend trend-up">+14.8%</span>
         </div>
-        <div class="kpi-value" id="kpiRevenue">$1,428,500</div>
+        <div class="kpi-value" id="kpiRevenue" data-testid="kpi-arr">$1,428,500</div>
         <div class="kpi-subtext">+12.4% vs previous 30-day cohort</div>
       </div>
 
@@ -4529,7 +4538,7 @@ def get_analytics_dashboard_html(title: str = "Executive Analytics Dashboard", d
           <span class="kpi-label">Active Workspaces</span>
           <span class="kpi-trend trend-up">+21.4%</span>
         </div>
-        <div class="kpi-value" id="kpiWorkspaces">3,842</div>
+        <div class="kpi-value" id="kpiWorkspaces" data-testid="kpi-workspaces">3,842</div>
         <div class="kpi-subtext">98.2% customer retention index</div>
       </div>
 
@@ -4538,7 +4547,7 @@ def get_analytics_dashboard_html(title: str = "Executive Analytics Dashboard", d
           <span class="kpi-label">Conversion Rate</span>
           <span class="kpi-trend trend-up">+3.2%</span>
         </div>
-        <div class="kpi-value" id="kpiConversion">24.6%</div>
+        <div class="kpi-value" id="kpiConversion" data-testid="kpi-conversion">24.6%</div>
         <div class="kpi-subtext">Trial-to-paid funnel completion</div>
       </div>
 
@@ -4547,7 +4556,7 @@ def get_analytics_dashboard_html(title: str = "Executive Analytics Dashboard", d
           <span class="kpi-label">Customer Churn</span>
           <span class="kpi-trend trend-up">-0.4%</span>
         </div>
-        <div class="kpi-value" id="kpiChurn">1.8%</div>
+        <div class="kpi-value" id="kpiChurn" data-testid="kpi-churn">1.8%</div>
         <div class="kpi-subtext">Benchmark avg: 3.5% annually</div>
       </div>
     </section>
@@ -4565,7 +4574,7 @@ def get_analytics_dashboard_html(title: str = "Executive Analytics Dashboard", d
         </div>
 
         <div class="svg-chart-container">
-          <svg class="trend-chart" viewBox="0 0 600 220" preserveAspectRatio="none">
+          <svg id="chart-revenue-trend" class="trend-chart" viewBox="0 0 600 220" preserveAspectRatio="none">
             <defs>
               <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stop-color="#6366f1" stop-opacity="0.45"/>
@@ -4672,7 +4681,7 @@ def get_analytics_dashboard_html(title: str = "Executive Analytics Dashboard", d
         <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
           <div class="search-box">
             <span class="search-icon">🔍</span>
-            <input type="text" id="metricSearch" class="search-input" placeholder="Search metrics or dimensions..." onkeyup="filterTable()" />
+            <input type="text" id="metricSearch" data-testid="metric-search-input" class="search-input" placeholder="Search metrics or dimensions..." onkeyup="filterTable()" />
           </div>
 
           <div class="category-tabs">
@@ -4685,7 +4694,7 @@ def get_analytics_dashboard_html(title: str = "Executive Analytics Dashboard", d
       </div>
 
       <div style="overflow-x: auto;">
-        <table class="data-table" id="metricsTable">
+        <table class="data-table" id="metricsTable" data-testid="metrics-table">
           <thead>
             <tr>
               <th onclick="sortTable(0)">Metric Name ↕</th>
@@ -4920,165 +4929,15 @@ def get_analytics_dashboard_html(title: str = "Executive Analytics Dashboard", d
 </html>"""
 
 
-def get_management_html(title: str = "Enterprise Management System", desc: str = "") -> str:
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{title} — Live Management Portal</title>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    :root {{
-      --bg: #090d16;
-      --card: #111827;
-      --border: rgba(255, 255, 255, 0.08);
-      --accent: #6366f1;
-      --text: #f8fafc;
-      --muted: #94a3b8;
-    }}
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{
-      font-family: 'Plus Jakarta Sans', sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      padding: 1.5rem 2rem;
-    }}
-    .header {{
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 2rem;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 1.25rem;
-    }}
-    .stats-grid {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1.25rem;
-      margin-bottom: 2rem;
-    }}
-    .stat-card {{
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.25rem;
-    }}
-    .stat-val {{ font-size: 1.8rem; font-weight: 700; color: #818cf8; margin-top: 0.35rem; }}
-    .table-card {{
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      overflow: hidden;
-    }}
-    table {{ width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem; }}
-    th {{ background: rgba(255, 255, 255, 0.03); color: var(--muted); padding: 0.9rem 1.25rem; font-weight: 600; border-bottom: 1px solid var(--border); }}
-    td {{ padding: 0.9rem 1.25rem; border-bottom: 1px solid var(--border); }}
-    .badge {{ display: inline-block; padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }}
-    .badge-active {{ background: rgba(16, 185, 129, 0.15); color: #34d399; }}
-    .badge-pending {{ background: rgba(245, 158, 11, 0.15); color: #fbbf24; }}
-    .btn {{
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      padding: 0.55rem 1.25rem;
-      border-radius: 8px;
-      font-weight: 600;
-      cursor: pointer;
-    }}
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div>
-      <h1 style="font-size: 1.5rem; font-weight: 700;">📊 {title}</h1>
-      <p style="color: var(--muted); font-size: 0.85rem; margin-top: 0.25rem;">{desc or 'Centralized management dashboard for resources, records, and departmental workflows.'}</p>
-    </div>
-    <button class="btn" onclick="openAddModal()">+ Add Record</button>
-  </div>
-
-  <div class="stats-grid">
-    <div class="stat-card">
-      <div style="color: var(--muted); font-size: 0.8rem;">TOTAL RECORDS</div>
-      <div class="stat-val" id="stat-total">4</div>
-    </div>
-    <div class="stat-card">
-      <div style="color: var(--muted); font-size: 0.8rem;">ACTIVE STATUS</div>
-      <div class="stat-val" id="stat-active" style="color: #34d399;">3</div>
-    </div>
-    <div class="stat-card">
-      <div style="color: var(--muted); font-size: 0.8rem;">PENDING REVIEW</div>
-      <div class="stat-val" id="stat-pending" style="color: #fbbf24;">1</div>
-    </div>
-  </div>
-
-  <div class="table-card">
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>NAME / TITLE</th>
-          <th>DEPARTMENT / CATEGORY</th>
-          <th>STATUS</th>
-          <th>LAST UPDATED</th>
-          <th>ACTION</th>
-        </tr>
-      </thead>
-      <tbody id="table-body"></tbody>
-    </table>
-  </div>
-
-  <script>
-    let records = [
-      {{ id: 'REC-101', name: 'Software Intelligence Pipeline', dept: 'Engineering', status: 'ACTIVE', updated: '2026-10-24' }},
-      {{ id: 'REC-102', name: 'Autonomous Testing Cluster', dept: 'DevOps', status: 'ACTIVE', updated: '2026-10-23' }},
-      {{ id: 'REC-103', name: 'Database Model Migration', dept: 'Infrastructure', status: 'PENDING', updated: '2026-10-22' }},
-      {{ id: 'REC-104', name: 'Frontend Design Token System', dept: 'Product UI', status: 'ACTIVE', updated: '2026-10-21' }}
-    ];
-
-    function renderTable() {{
-      const tbody = document.getElementById('table-body');
-      tbody.innerHTML = records.map(r => `
-        <tr>
-          <td style="font-family: monospace; color: #818cf8;">${{r.id}}</td>
-          <td style="font-weight: 600;">${{r.name}}</td>
-          <td>${{r.dept}}</td>
-          <td><span class="badge ${{r.status === 'ACTIVE' ? 'badge-active' : 'badge-pending'}}">${{r.status}}</span></td>
-          <td style="color: var(--muted);">${{r.updated}}</td>
-          <td><button onclick="deleteRecord('${{r.id}}')" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 0.8rem;">Delete</button></td>
-        </tr>
-      `).join('');
-
-      document.getElementById('stat-total').textContent = records.length;
-      document.getElementById('stat-active').textContent = records.filter(r => r.status === 'ACTIVE').length;
-      document.getElementById('stat-pending').textContent = records.filter(r => r.status !== 'ACTIVE').length;
-    }}
-
-    function deleteRecord(id) {{
-      records = records.filter(r => r.id !== id);
-      renderTable();
-    }}
-
-    function openAddModal() {{
-      const name = prompt('Enter record name:');
-      if (!name) return;
-      const dept = prompt('Enter department or category:') || 'General';
-      const newRec = {{
-        id: 'REC-' + (100 + records.length + 1),
-        name,
-        dept,
-        status: 'ACTIVE',
-        updated: new Date().toISOString().split('T')[0]
-      }};
-      records.unshift(newRec);
-      renderTable();
-    }}
-
-    renderTable();
-  </script>
-</body>
-</html>"""
+def get_management_html(title: str = "TeamConnect Directory", desc: str = "") -> str:
+    try:
+        from app.agents.code_generation.archetypes import get_archetype_file_content
+        rendered = get_archetype_file_content("management", "frontend/index.html", title, desc)
+        if rendered:
+            return rendered
+    except Exception as exc:
+        pass
+    return f"""<!DOCTYPE html><html><body><h1>{title}</h1></body></html>"""
 
 
 def get_custom_app_html(title: str = "SE IntelliPlatform Application", desc: str = "") -> str:
@@ -5210,12 +5069,20 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
                 cur = conn.cursor()
                 pid_s = str(project_id)
                 pid_h = pid_s.replace("-", "")
-                cur.execute("SELECT name, description FROM projects WHERE id = ? OR id = ?", (pid_s, pid_h))
+                cur.execute("SELECT name, description, settings FROM projects WHERE id = ? OR id = ?", (pid_s, pid_h))
                 row = cur.fetchone()
                 conn.close()
                 if row:
                     p_name, p_desc = row[0] or "", row[1] or ""
-                    mode = detect_mode(p_name, p_desc)
+                    p_settings = {}
+                    if len(row) > 2 and row[2]:
+                        try:
+                            import json
+                            p_settings = json.loads(row[2]) if isinstance(row[2], str) else row[2]
+                        except Exception:
+                            p_settings = {}
+                    p_arch = (p_settings.get("archetype") or "").lower() if isinstance(p_settings, dict) else ""
+                    mode = p_arch if p_arch in {"analytics", "snake_game", "taskflow", "eventhub", "ecommerce", "management", "custom"} else detect_mode(p_name, p_desc)
                     project_contexts[str(project_id)] = {
                         "project_id": str(project_id),
                         "project_name": p_name,

@@ -314,9 +314,9 @@ class CodeGenerationPlanningAgent(AbstractBaseAgent[CodeGenerationPlan]):
                         comp_name = name
 
         if not comp_name:
-            comp_name = "Task API Service"
+            comp_name = f"{context.project.name} Core Service" if context.project.name else "Core Backend Service"
         if not fe_comp_name:
-            fe_comp_name = "React Frontend"
+            fe_comp_name = f"{context.project.name} UI" if context.project.name else "Frontend UI"
 
         if fullstack:
             archetype = detect_project_archetype(

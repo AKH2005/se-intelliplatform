@@ -1,0 +1,129 @@
+/* Dark Mode Styles */
+body.dark-mode {
+  background-color: #282c34;
+  color: #e0e0e0;
+}
+
+body.dark-mode .app-header {
+  background-color: #3a3f47;
+  border-bottom: 1px solid #555;
+}
+
+body.dark-mode h1, body.dark-mode h3 {
+  color: #e0e0e0;
+}
+
+body.dark-mode .task-stats span {
+  color: #bbb;
+}
+
+body.dark-mode .task-form {
+  background-color: #3a3f47;
+  border: 1px solid #555;
+}
+
+body.dark-mode .task-form input[type="text"],
+body.dark-mode .task-form input[type="date"],
+body.dark-mode .task-form select {
+  background-color: #4a4f57;
+  color: #e0e0e0;
+  border: 1px solid #666;
+}
+
+body.dark-mode .task-form input::placeholder {
+  color: #aaa;
+}
+
+body.dark-mode .task-form button {
+  background-color: #5cb85c;
+  color: white;
+}
+
+body.dark-mode .task-form button:disabled {
+  background-color: #6c757d;
+}
+
+body.dark-mode .filter-bar button {
+  background-color: #4a4f57;
+  color: #e0e0e0;
+  border: 1px solid #666;
+}
+
+body.dark-mode .filter-bar button.active {
+  background-color: #007bff;
+  border-color: #007bff;
+  color: white;
+}
+
+body.dark-mode .task-card {
+  background-color: #3a3f47;
+  border: 1px solid #555;
+}
+
+body.dark-mode .task-card.completed {
+  background-color: #30343a;
+  border-color: #444;
+}
+
+body.dark-mode .task-card .task-title {
+  color: #e0e0e0;
+}
+
+body.dark-mode .task-card.completed .task-title {
+  color: #a0a0a0;
+}
+
+body.dark-mode .task-card .priority-badge {
+  background-color: #555;
+  color: #e0e0e0;
+}
+
+body.dark-mode .task-card .priority-badge.priority-high {
+  background-color: #dc3545;
+}
+
+body.dark-mode .task-card .priority-badge.priority-medium {
+  background-color: #ffc107;
+  color: #333;
+}
+
+body.dark-mode .task-card .priority-badge.priority-low {
+  background-color: #17a2b8;
+}
+
+body.dark-mode .task-card .task-description {
+  color: #bbb;
+}
+
+body.dark-mode .task-card .task-due-date {
+  color: #bbb;
+}
+
+body.dark-mode .task-card .btn-delete {
+  background-color: #dc3545;
+  color: white;
+}
+
+body.dark-mode .error-banner {
+  background-color: #dc3545;
+  color: white;
+}
+
+body.dark-mode .loading-state, body.dark-mode .empty-state {
+  color: #bbb;
+}
+
+.dark-mode-toggle {
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+  transition: background-color 0.2s ease;
+}
+
+.dark-mode-toggle:hover {
+  background-color: #5a6268;
+}

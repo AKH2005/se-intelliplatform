@@ -98,20 +98,25 @@ def resolve_project_mode(project: Optional[Project], requested_mode: Optional[st
     p_desc = (project.description or "").lower()
     p_cat = ""
     if isinstance(project.settings, dict):
+        p_arch = (project.settings.get("archetype") or "").lower()
+        if p_arch in valid_modes:
+            return p_arch
         p_cat = (project.settings.get("category") or "").lower()
 
-    combined = f"{p_name} {p_desc} {p_cat}"
-    if any(k in combined for k in ["analytics", "kpi", "dashboard", "metric", "executive", "revenue", "bi "]):
-        return "analytics"
-    if any(k in combined for k in ["snake", "arcade", "game", "retro"]):
+    combined = f"{p_name} {p_desc} {p_cat}".lower()
+    if any(k in combined for k in ["snake", "arcade", "game", "retro", "2d arcade", "canvas"]):
         return "snake_game"
-    if any(k in combined for k in ["event", "meet", "summit", "conference", "ticket"]):
+    if any(k in combined for k in ["teamconnect", "directory", "member", "employee", "roster", "staff", "faculty", "hr"]):
+        return "management"
+    if any(k in combined for k in ["analytics", "kpi", "dashboard", "metric", "executive", "revenue", "bi ", "intelligence", "finance"]):
+        return "analytics"
+    if any(k in combined for k in ["event", "meet", "summit", "conference", "ticket", "booking"]):
         return "eventhub"
-    if any(k in combined for k in ["shop", "store", "commerce", "cart", "product", "checkout", "market"]):
+    if any(k in combined for k in ["shop", "store", "commerce", "cart", "product", "checkout", "market", "catalog"]):
         return "ecommerce"
-    if any(k in combined for k in ["task", "todo", "action", "item", "flow", "kanban"]):
+    if any(k in combined for k in ["kanban", "taskflow", "task-manager", "task manager", "todo", "to-do", "tasks", "task", "backlog", "scrum", "sprint"]):
         return "taskflow"
-    if any(k in combined for k in ["student", "manage", "employee", "admin", "record", "faculty", "school"]):
+    if any(k in combined for k in ["team", "manage", "admin", "record", "school", "portal", "profile"]):
         return "management"
     return "custom"
 
@@ -243,6 +248,7 @@ def inject_preview_bridge(html_content: str, project_id: str, preview_token: Opt
                 url.indexOf('/scores') === 0 || url.indexOf('/api/scores') === 0 ||
                 url.indexOf('/metrics') === 0 || url.indexOf('/api/metrics') === 0 ||
                 url.indexOf('/analytics') === 0 || url.indexOf('/api/analytics') === 0 ||
+                url.indexOf('/members') === 0 || url.indexOf('/api/members') === 0 ||
                 url.indexOf('/api/auth') === 0 || url.indexOf('/api/events') === 0 ||
                 url.indexOf('/api/registrations') === 0 || url.indexOf('/api/ecommerce') === 0;
     if (isApi) {{
@@ -678,6 +684,30 @@ async def project_preview_api_proxy(
     elif norm_subpath in ("metrics", "analytics") or norm_subpath.startswith("analytics/"):
         metrics = PreviewApiService.get_analytics_metrics(pid_str)
         return JSONResponse(status_code=200, content=metrics)
+
+    # Handle Directory Members (TeamConnect Directory)
+    elif norm_subpath in ("members", "directory") or norm_subpath.startswith("members/"):
+        if method == "GET":
+            members = PreviewApiService.get_directory_members(pid_str)
+            return JSONResponse(status_code=200, content=members)
+        elif method == "POST":
+            body = await request.json()
+            new_id = f"mem-{uuid.uuid4().hex[:6]}"
+            name_val = body.get("name", "New Team Member")
+            initials = "".join([part[0] for part in name_val.split()[:2]]).upper() or "TM"
+            new_member = {
+                "id": new_id,
+                "name": name_val,
+                "role": body.get("role", "Software Engineer"),
+                "department": body.get("department", "Engineering"),
+                "email": body.get("email", f"member@{pid_str[:8]}.team"),
+                "status": body.get("status", "ACTIVE"),
+                "location": body.get("location", "Remote"),
+                "avatar": initials,
+                "bio": body.get("bio", "Newly joined team member."),
+                "skills": body.get("skills") if isinstance(body.get("skills"), list) else [s.strip() for s in str(body.get("skills", "")).split(",") if s.strip()],
+            }
+            return JSONResponse(status_code=201, content=new_member)
 
     # Handle Auth Mock
     elif norm_subpath == "auth/me":

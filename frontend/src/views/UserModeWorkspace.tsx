@@ -464,13 +464,29 @@ export const UserModeWorkspace: React.FC<UserModeWorkspaceProps> = ({
   const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
 
   // Active project resolution
-  const currentProject = createdProject || selectedProject || (projects.length > 0 ? projects[0] : null);
+  const currentProject = selectedProject || createdProject || (projects.length > 0 ? projects[0] : null);
 
   useEffect(() => {
     if (!selectedProject && projects.length > 0) {
       selectProject(projects[0]);
     }
   }, [projects, selectedProject, selectProject]);
+
+  // Synchronize Live Preview and Code Studio when user switches projects in Header or Projects list
+  useEffect(() => {
+    if (selectedProject?.id) {
+      setLivePreviewUrl(null);
+      setPreviewKey(Date.now());
+      setRefinementMessages([]);
+      setPendingActionResult(null);
+      if (activeTab === 'code-studio') {
+        loadStudioFiles(selectedProject.id);
+      }
+      if (activeTab === 'preview') {
+        handleLaunchProjectPreview(selectedProject);
+      }
+    }
+  }, [selectedProject?.id]);
 
   function findFirstFileNode(nodes: FileNode[]): FileNode | null {
     for (const node of nodes) {
@@ -706,13 +722,23 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
 
   // Load a supported template into blueprint review (Stage 1 -> Stage 3)
   const handleSelectTemplate = (template: AppTemplate) => {
+    const arch = template.id === 'canvas_arcade_game' ? 'snake_game'
+      : template.id === 'management_directory' ? 'management'
+      : template.id === 'executive_analytics_dashboard' ? 'analytics'
+      : template.id === 'kanban_task_manager' ? 'taskflow'
+      : template.id === 'event_booking_hub' ? 'eventhub'
+      : template.id === 'ecommerce_store' ? 'ecommerce'
+      : 'custom';
+
     setPlanResult({
       name: template.name,
       slug: template.slug,
       description: template.description,
       requirements: template.requirements,
       suggested_features: template.features,
-    });
+      archetype: arch,
+      category: template.category,
+    } as any);
     setPromptInput(template.prompt);
     setActiveCreationMode('templates');
   };
@@ -883,10 +909,16 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
       let newProj: ProjectResponse;
       if (onCreateProject) {
         const uniqueSlug = `${planResult.slug}-${Date.now().toString(36).slice(-4)}`;
+        const arch = (planResult as any).archetype;
+        const cat = (planResult as any).category;
         newProj = await onCreateProject({
           name: planResult.name,
           slug: uniqueSlug,
           description: planResult.description,
+          settings: {
+            ...(arch ? { archetype: arch } : {}),
+            ...(cat ? { category: cat } : {}),
+          },
           autoBuild: true,
         });
       } else {
@@ -1229,6 +1261,7 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
               ].map((item) => (
                 <button
                   key={item.id}
+                  data-testid={`user-nav-${item.id}`}
                   type="button"
                   onClick={() => {
                     setActiveTab(item.id as any);
@@ -1885,6 +1918,7 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
                   {SUPPORTED_TEMPLATES.map((tmpl) => (
                     <div
                       key={tmpl.id}
+                      data-testid={`template-card-${tmpl.id}`}
                       style={{
                         background: 'rgba(10, 14, 26, 0.75)',
                         border: '1px solid rgba(255, 255, 255, 0.09)',
@@ -1950,6 +1984,7 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
                       <Button
                         variant="primary"
                         size="sm"
+                        data-testid={`btn-use-template-${tmpl.id}`}
                         onClick={() => handleSelectTemplate(tmpl)}
                         icon={<Sparkles size={14} />}
                         style={{
