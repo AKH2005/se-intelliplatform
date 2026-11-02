@@ -475,6 +475,7 @@ export const UserModeWorkspace: React.FC<UserModeWorkspaceProps> = ({
   // Synchronize Live Preview and Code Studio when user switches projects in Header or Projects list
   useEffect(() => {
     if (selectedProject?.id) {
+      setCreatedProject(selectedProject);
       setLivePreviewUrl(null);
       setPreviewKey(Date.now());
       setRefinementMessages([]);
@@ -1003,7 +1004,8 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
   // Continuous Natural-Language App Refinement Handlers (Stage 6)
   const handleSendRefinement = async (promptToSend?: string) => {
     const text = (promptToSend !== undefined ? promptToSend : refinementPrompt).trim();
-    if (!text || !createdProject || isRefining || isApplyingChange) return;
+    const targetProj = currentProject || createdProject;
+    if (!text || !targetProj || isRefining || isApplyingChange) return;
 
     setRefinementError(null);
     setRefinementSuccess(null);
@@ -1021,7 +1023,7 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
     setRefinementPrompt('');
 
     try {
-      const res = await assistantApi.sendMessage(createdProject.id, {
+      const res = await assistantApi.sendMessage(targetProj.id, {
         content: text,
         conversation_id: conversationId || undefined,
       });
@@ -1055,13 +1057,14 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
   };
 
   const handleConfirmRefinement = async (token: string) => {
-    if (!createdProject || !token) return;
+    const targetProj = currentProject || createdProject;
+    if (!targetProj || !token) return;
     setIsApplyingChange(true);
     setRefinementError(null);
     setRefinementSuccess(null);
 
     try {
-      const res = await assistantApi.confirmAction(createdProject.id, {
+      const res = await assistantApi.confirmAction(targetProj.id, {
         confirmation_token: token,
       });
 
@@ -1069,7 +1072,7 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
         message_id: `confirmed-${Date.now()}`,
         conversation_id: conversationId || 'refine',
         role: 'assistant',
-        content: `Changes applied to ${createdProject.name}: ${res.summary}`,
+        content: `Changes applied to ${targetProj.name}: ${res.summary}`,
         action_id: res.action_id,
         action_status: res.status,
         action_result: res,
@@ -1097,13 +1100,14 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
   };
 
   const handleRollback = async () => {
-    if (!createdProject || activeVersionNum <= 1) return;
+    const targetProj = currentProject || createdProject;
+    if (!targetProj || activeVersionNum <= 1) return;
     setIsApplyingChange(true);
     setRefinementError(null);
     setRefinementSuccess(null);
 
     try {
-      const verList = await developmentVersionApi.listVersions(createdProject.id);
+      const verList = await developmentVersionApi.listVersions(targetProj.id);
       const targetVer =
         verList.items.find((v) => v.version_number === activeVersionNum - 1) ||
         verList.items[verList.items.length - 1];
@@ -1112,7 +1116,7 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
       }
 
       await developmentVersionApi.rollbackVersion(
-        createdProject.id,
+        targetProj.id,
         targetVer.version_id,
         `Rollback to v${targetVer.version_number} from User Mode`
       );
@@ -3876,9 +3880,9 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
                   }}
                 >
                   <iframe
-                    key={previewKey}
+                    key={`user-preview-${(currentProject || createdProject)?.id || 'none'}-${activeVersionNum}-${previewKey}`}
                     src={livePreviewUrl}
-                    title={`${(createdProject || currentProject)?.name || 'Application'} Live Application Preview`}
+                    title={`${(currentProject || createdProject)?.name || 'Application'} Live Application Preview`}
                     sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                     referrerPolicy="no-referrer"
                     style={{

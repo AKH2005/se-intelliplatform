@@ -963,7 +963,7 @@ export const PreviewWorkspace: React.FC<PreviewWorkspaceProps> = ({
           {/* Interactive Preview Canvas or Controlled Error UX */}
           {runtimeStatus === 'RUNNING' ? (
             <iframe
-              key={refreshKey}
+              key={`dev-preview-${selectedProject?.id || "none"}-${activeVersionNumber || "none"}-${refreshKey}`}
               id="live-app-iframe"
               src={previewUrl}
               title="Generated Application Live Preview"

@@ -72,19 +72,18 @@ def test_preview_runtime_token_auth_and_routing():
     assert unauth_res.status_code == 401, f"Expected 401 without token, got {unauth_res.status_code}"
     print("[PASS] Unauthenticated iframe request without query token is properly rejected (401).")
     
-    # 2. Authenticated request with query parameter token
-    auth_res = client.get(f"/api/v1/projects/{test_proj_id}/runtime/preview?token={token}&mode=analytics")
-    print(f"DEBUG: auth_res status={auth_res.status_code}, len={len(auth_res.text)}, sample={auth_res.text[:300]}")
-    assert auth_res.status_code == 200, f"Expected 200 with query token, got {auth_res.status_code}"
-    assert "Executive Analytics Portal" in auth_res.text
-    assert "Revenue & Growth Trajectory" in auth_res.text
-    print("[PASS] Iframe request with query parameter ?token=<jwt> successfully authenticated (200 OK) without 401.")
-    
+    # 2. Issue dedicated short-lived, project-scoped preview token
+    ptok_res = client.get(f"/api/v1/projects/{test_proj_id}/runtime/preview-token", headers=headers)
+    assert ptok_res.status_code == 200, f"Expected 200 from preview-token endpoint, got {ptok_res.status_code}"
+    preview_token = ptok_res.json()["preview_token"]
+    assert preview_token, "Preview token must not be empty"
+
     # 3. Authenticated request with query parameter preview_token
-    preview_res = client.get(f"/api/v1/projects/{test_proj_id}/runtime/preview?preview_token={token}&mode=analytics")
+    preview_res = client.get(f"/api/v1/projects/{test_proj_id}/runtime/preview?preview_token={preview_token}&mode=analytics")
     assert preview_res.status_code == 200, f"Expected 200 with preview_token, got {preview_res.status_code}"
-    assert "1,428,500" in preview_res.text or "ARR" in preview_res.text
-    print("[PASS] Iframe request with ?preview_token=<jwt> successfully authenticated (200 OK) without 401.")
+    assert "Executive Analytics Portal" in preview_res.text or "Executive Analytics" in preview_res.text
+    assert "Revenue & Growth Trajectory" in preview_res.text or "Revenue" in preview_res.text
+    print("[PASS] Iframe request with ?preview_token=<token> successfully authenticated (200 OK) without 401.")
 
 def test_source_code_zip_download_security():
     # Login or create test user

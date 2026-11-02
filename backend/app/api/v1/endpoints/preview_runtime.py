@@ -53,7 +53,7 @@ class RuntimeStatusResponse(BaseModel):
     is_healthy: bool
     project_id: Optional[str] = None
     project_name: Optional[str] = None
-    active_mode: str = "taskflow"
+    active_mode: str = "custom"
     detail: str
     execution_type: str = "domain_prototype"  # "domain_prototype" | "isolated_container"
     container_status: str = "BLOCKED"  # "NOT_STARTED", "STARTING", "RUNNING", "BUILD_FAILED", "START_FAILED", "STOPPED", "BLOCKED", "UNKNOWN"
@@ -348,16 +348,29 @@ async def get_project_preview_html(
                     html_content = v
                     break
 
-        if not html_content:
-            html_content = (
-                f"<!DOCTYPE html><html><head><meta charset='UTF-8'><title>{p_name}</title></head>"
-                f"<body style='font-family:sans-serif;padding:2rem;background:#0f172a;color:#f8fafc'>"
-                f"<h1>{p_name}</h1><p>{p_desc}</p>"
-                f"<p>Application initialized with {len(files_map)} files.</p></body></html>"
-            )
+        # Defensive anti-collision check for legacy Kanban files on non-taskflow archetypes
+        legacy_kanban_collision = False
+        if mode and mode not in ("taskflow", "custom") and html_content:
+            kanban_collision_markers = ["new-task-input", "loadTasks()", "task-form", "KanbanFlow Board", "taskflow"]
+            if any(marker in html_content for marker in kanban_collision_markers):
+                legacy_kanban_collision = True
+                logger.warning(
+                    "Legacy archetype collision detected in files_map for project %s (mode=%s); bypassing stale Kanban files to serve authentic archetype prototype",
+                    project_id,
+                    mode,
+                )
 
-        injected_html = inject_preview_bridge(html_content, str(project_id), preview_token)
-        return HTMLResponse(content=injected_html, headers=preview_headers)
+        if not legacy_kanban_collision:
+            if not html_content:
+                html_content = (
+                    f"<!DOCTYPE html><html><head><meta charset='UTF-8'><title>{p_name}</title></head>"
+                    f"<body style='font-family:sans-serif;padding:2rem;background:#0f172a;color:#f8fafc'>"
+                    f"<h1>{p_name}</h1><p>{p_desc}</p>"
+                    f"<p>Application initialized with {len(files_map)} files.</p></body></html>"
+                )
+
+            injected_html = inject_preview_bridge(html_content, str(project_id), preview_token)
+            return HTMLResponse(content=injected_html, headers=preview_headers)
 
     # 5. If Port 8001 is active and healthy, proxy live HTML directly from port 8001
     healthy, _, _ = await preview_runtime_manager.check_health(project_id=str(project_id), timeout=2.0)

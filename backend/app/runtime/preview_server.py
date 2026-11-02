@@ -5093,7 +5093,7 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
                 pass
 
     if not mode:
-        mode = active_project_context.get("mode", "taskflow")
+        mode = active_project_context.get("mode", "custom")
         p_name = active_project_context.get("project_name", "")
         p_desc = active_project_context.get("project_description", "")
 
@@ -5111,7 +5111,7 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
         return get_management_html(p_name or "Enterprise Management System", p_desc)
     elif mode == "custom":
         return get_custom_app_html(p_name or "SE IntelliPlatform Application", p_desc)
-    return get_taskflow_html(project_id)
+    return get_custom_app_html(p_name or "SE IntelliPlatform Application", p_desc)
 
 
 @app.get("/", response_class=HTMLResponse)

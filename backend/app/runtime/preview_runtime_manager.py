@@ -94,22 +94,23 @@ class PreviewRuntimeManager:
         """
         if settings.ENVIRONMENT == "production":
             try:
-                from app.services.preview_api_service import PreviewApiService
-                await PreviewApiService.ensure_schema()
-                tasks_sample = await PreviewApiService.get_tasks(project_id)
+                from app.core.database import AsyncSessionLocal
+                from sqlalchemy import text
+                async with AsyncSessionLocal() as test_session:
+                    await test_session.execute(text("SELECT 1"))
                 api_healthy = True
             except Exception as exc:
-                logger.warning(f"Production preview API health probe failed: {exc}")
+                logger.warning(f"Production database health probe failed: {exc}")
                 api_healthy = False
 
             if not api_healthy:
-                return False, "Integrated application preview API service degraded.", {
+                return False, "Integrated application preview database degraded.", {
                     "environment": "production",
                     "mode": "integrated",
                     "port": 443,
                     "status": "FAILED",
-                    "container_status": "START_FAILED",
-                    "execution_type": "isolated_container",
+                    "container_status": "NOT_APPLICABLE",
+                    "execution_type": "integrated_runtime",
                 }
 
             return True, "Integrated application preview active via HTTPS and verified healthy.", {
@@ -117,9 +118,8 @@ class PreviewRuntimeManager:
                 "mode": "integrated",
                 "port": 443,
                 "status": "RUNNING",
-                "container_status": "RUNNING",
-                "execution_type": "isolated_container",
-                "tasks_count": len(tasks_sample),
+                "container_status": "NOT_APPLICABLE",
+                "execution_type": "integrated_runtime",
             }
 
         if project_id and self._is_docker_available():
@@ -330,7 +330,12 @@ class PreviewRuntimeManager:
     ) -> Tuple[bool, str, dict]:
         """Ensure the preview server process or Docker container is running and responding on Port 8001."""
         if settings.ENVIRONMENT == "production":
-            return True, "Integrated application preview active in production environment.", {"port": 443}
+            return True, "Integrated application preview active in production environment.", {
+                "port": 443,
+                "status": "RUNNING",
+                "container_status": "NOT_APPLICABLE",
+                "execution_type": "integrated_runtime",
+            }
 
         async with self._lock:
             return await self._ensure_running_unlocked(
@@ -346,7 +351,12 @@ class PreviewRuntimeManager:
     ) -> Tuple[bool, str, dict]:
         """Internal unlocked runner for ensure_running and restart_runtime."""
         if settings.ENVIRONMENT == "production":
-            return True, "Integrated application preview active in production environment.", {"port": 443}
+            return True, "Integrated application preview active in production environment.", {
+                "port": 443,
+                "status": "RUNNING",
+                "container_status": "NOT_APPLICABLE",
+                "execution_type": "integrated_runtime",
+            }
 
         # 1. Quick probe: is it already running and healthy? (Only if not forcing restart)
         if not force_restart:
