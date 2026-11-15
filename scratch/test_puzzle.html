@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tile Shift Puzzle — Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #064e3b 0%, #022c22 70%);
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem;
+    }
+    .header { text-align: center; margin-bottom: 1.25rem; }
+    h1 { font-size: 2rem; font-weight: 800; background: linear-gradient(135deg, #fff 30%, #34d399 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .stats-bar { display: flex; gap: 1.5rem; background: rgba(6, 78, 59, 0.8); border: 1px solid rgba(52, 211, 153, 0.3); padding: 0.6rem 1.75rem; border-radius: 9999px; margin-bottom: 1.25rem; font-family: 'JetBrains Mono', monospace; font-size: 0.95rem; }
+    .grid-board { display: grid; grid-template-columns: repeat(4, 75px); grid-template-rows: repeat(4, 75px); gap: 8px; background: #064e3b; padding: 12px; border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); border: 2px solid rgba(52, 211, 153, 0.3); }
+    .tile { background: linear-gradient(135deg, #10b981, #059669); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 800; border-radius: 8px; cursor: pointer; user-select: none; box-shadow: 0 4px 6px rgba(0,0,0,0.2); transition: transform 0.1s; }
+    .tile:active { transform: scale(0.96); }
+    .tile.empty { background: rgba(0,0,0,0.3); box-shadow: none; cursor: default; }
+    .btn { margin-top: 1.25rem; padding: 0.6rem 1.5rem; background: #10b981; color: #022c22; font-weight: 800; border: none; border-radius: 8px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Tile Shift Puzzle</h1>
+    <p style="color: #a7f3d0;">Classic 15-Puzzle Sliding Challenge</p>
+  </div>
+  <div class="stats-bar">
+    <div>MOVES: <span id="moveCount" style="color: #fbbf24; font-weight: 800;">0</span></div>
+    <div>TIME: <span id="timerVal" style="color: #38bdf8; font-weight: 800;">0s</span></div>
+    <div>STATUS: <span id="winStatus" style="color: #34d399; font-weight: 800;">Solving</span></div>
+  </div>
+  <div class="grid-board" id="puzzleBoard"></div>
+  <button class="btn" onclick="shufflePuzzle()">Shuffle & Restart</button>
+
+  <script>
+    let grid = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,0];
+    let moves = 0;
+    let seconds = 0;
+    let timer = setInterval(() => { seconds++; document.getElementById('timerVal').innerText = seconds + 's'; }, 1000);
+
+    function renderGrid() {
+      const b = document.getElementById('puzzleBoard');
+      b.innerHTML = '';
+      grid.forEach((num, idx) => {
+        const t = document.createElement('div');
+        t.className = 'tile' + (num === 0 ? ' empty' : '');
+        t.innerText = num === 0 ? '' : num;
+        if (num !== 0) t.onclick = () => tryMove(idx);
+        b.appendChild(t);
+      });
+    }
+
+    function tryMove(idx) {
+      const emptyIdx = grid.indexOf(0);
+      const r1 = Math.floor(idx / 4), c1 = idx % 4;
+      const r2 = Math.floor(emptyIdx / 4), c2 = emptyIdx % 4;
+      if (Math.abs(r1 - r2) + Math.abs(c1 - c2) === 1) {
+        grid[emptyIdx] = grid[idx];
+        grid[idx] = 0;
+        moves++;
+        document.getElementById('moveCount').innerText = moves;
+        renderGrid();
+        checkWin();
+      }
+    }
+
+    function checkWin() {
+      const isWin = grid.slice(0, 15).every((val, i) => val === i + 1);
+      if (isWin) {
+        document.getElementById('winStatus').innerText = '🎉 SOLVED!';
+        document.getElementById('winStatus').style.color = '#fbbf24';
+      }
+    }
+
+    function shufflePuzzle() {
+      for (let i = 0; i < 120; i++) {
+        const emptyIdx = grid.indexOf(0);
+        const r = Math.floor(emptyIdx / 4), c = emptyIdx % 4;
+        const neighbors = [];
+        if (r > 0) neighbors.push(emptyIdx - 4);
+        if (r < 3) neighbors.push(emptyIdx + 4);
+        if (c > 0) neighbors.push(emptyIdx - 1);
+        if (c < 3) neighbors.push(emptyIdx + 1);
+        const swapIdx = neighbors[Math.floor(Math.random() * neighbors.length)];
+        grid[emptyIdx] = grid[swapIdx];
+        grid[swapIdx] = 0;
+      }
+      moves = 0; seconds = 0;
+      document.getElementById('moveCount').innerText = '0';
+      document.getElementById('winStatus').innerText = 'Solving';
+      renderGrid();
+    }
+
+    shufflePuzzle();
+  </script>
+</body>
+</html>

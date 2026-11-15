@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chess Master Pro — Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: rgba(30, 41, 59, 0.85);
+      --border: rgba(255, 255, 255, 0.1);
+      --accent: #3b82f6;
+      --light-sq: #eeeed2;
+      --dark-sq: #769656;
+      --highlight: #baca44;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #1e293b 0%, #0f172a 70%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem;
+    }
+    .header { text-align: center; margin-bottom: 1.25rem; max-width: 1000px; width: 100%; }
+    .badge { display: inline-block; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 700; margin-bottom: 0.5rem; }
+    h1 { font-size: 2.2rem; font-weight: 800; margin-bottom: 0.25rem; background: linear-gradient(135deg, #fff 30%, #93c5fd 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .subtitle { color: var(--muted); font-size: 0.95rem; }
+    .chess-layout { display: flex; gap: 2rem; align-items: flex-start; justify-content: center; flex-wrap: wrap; max-width: 1100px; width: 100%; }
+    .board-container { background: #262421; padding: 12px; border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1); }
+    .board { display: grid; grid-template-columns: repeat(8, 64px); grid-template-rows: repeat(8, 64px); border: 2px solid #3e3b36; }
+    .square { width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; font-size: 40px; cursor: pointer; user-select: none; transition: background 0.1s; position: relative; }
+    .square.light { background: var(--light-sq); color: #111; }
+    .square.dark { background: var(--dark-sq); color: #111; }
+    .square.selected { background: var(--highlight) !important; }
+    .square.valid-move::after { content: ''; width: 16px; height: 16px; background: rgba(0,0,0,0.25); border-radius: 50%; position: absolute; }
+    .side-panel { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; width: 320px; display: flex; flex-direction: column; gap: 1rem; }
+    .hud-box { background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; }
+    .hud-title { font-size: 0.75rem; text-transform: uppercase; color: var(--muted); font-weight: 700; margin-bottom: 0.25rem; }
+    .hud-val { font-size: 1.1rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
+    .history-box { background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; max-height: 180px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; }
+    .history-entry { display: flex; justify-content: space-between; padding: 0.2rem 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .btn { padding: 0.6rem 1rem; border-radius: 8px; font-weight: 700; cursor: pointer; border: none; font-size: 0.9rem; transition: transform 0.1s; }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { background: #3b82f6; color: white; }
+    .btn-secondary { background: rgba(255,255,255,0.1); color: white; border: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="badge">CHESS STRATEGY ENGINE &bull; LIVE</span>
+    <h1>Chess Master Pro</h1>
+    <p class="subtitle">Interactive Strategic Chess Game</p>
+  </div>
+
+  <div class="chess-layout">
+    <div class="board-container">
+      <div class="board" id="chessBoard"></div>
+    </div>
+
+    <div class="side-panel">
+      <div class="hud-box">
+        <div class="hud-title">Current Turn</div>
+        <div class="hud-val" id="turnIndicator" style="color: #60a5fa;">White to Move</div>
+      </div>
+      <div class="hud-box">
+        <div class="hud-title">Match Status</div>
+        <div class="hud-val" id="statusIndicator" style="color: #10b981;">In Progress</div>
+      </div>
+      <div class="hud-box">
+        <div class="hud-title">Captured Pieces</div>
+        <div id="capturedWhite" style="font-size: 20px; min-height: 24px;"></div>
+        <div id="capturedBlack" style="font-size: 20px; min-height: 24px;"></div>
+      </div>
+      <div class="hud-title">Move Notation History</div>
+      <div class="history-box" id="moveHistory"></div>
+      <div style="display: flex; gap: 0.5rem; margin-top: auto;">
+        <button class="btn btn-secondary" style="flex: 1;" onclick="resetGame()">New Match</button>
+        <button class="btn btn-primary" style="flex: 1;" onclick="flipBoard()">Flip Board</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const INITIAL_BOARD = [
+      ['♜','♞','♝','♛','♚','♝','♞','♜'],
+      ['♟','♟','♟','♟','♟','♟','♟','♟'],
+      ['','','','','','','',''],
+      ['','','','','','','',''],
+      ['','','','','','','',''],
+      ['','','','','','','',''],
+      ['♙','♙','♙','♙','♙','♙','♙','♙'],
+      ['♖','♘','♗','♕','♔','♗','♘','♖']
+    ];
+
+    let board = JSON.parse(JSON.stringify(INITIAL_BOARD));
+    let turn = 'white';
+    let selectedSquare = null;
+    let validMoves = [];
+    let moveCount = 1;
+    let isFlipped = false;
+    let moveHistory = [];
+
+    const isWhitePiece = (p) => ['♙','♖','♘','♗','♕','♔'].includes(p);
+    const isBlackPiece = (p) => ['♟','♜','♞','♝','♛','♚'].includes(p);
+
+    function renderBoard() {
+      const boardEl = document.getElementById('chessBoard');
+      boardEl.innerHTML = '';
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const row = isFlipped ? 7 - r : r;
+          const col = isFlipped ? 7 - c : c;
+          const sq = document.createElement('div');
+          sq.className = 'square ' + ((row + col) % 2 === 0 ? 'light' : 'dark');
+          if (selectedSquare && selectedSquare.r === row && selectedSquare.c === col) {
+            sq.classList.add('selected');
+          }
+          if (validMoves.some(m => m.r === row && m.c === col)) {
+            sq.classList.add('valid-move');
+          }
+          sq.innerText = board[row][col];
+          sq.onclick = () => onSquareClick(row, col);
+          boardEl.appendChild(sq);
+        }
+      }
+    }
+
+    function onSquareClick(r, c) {
+      const piece = board[r][c];
+      if (selectedSquare) {
+        // Check if moving to valid square
+        if (validMoves.some(m => m.r === r && m.c === c)) {
+          const movedPiece = board[selectedSquare.r][selectedSquare.c];
+          const captured = board[r][c];
+          board[r][c] = movedPiece;
+          board[selectedSquare.r][selectedSquare.c] = '';
+
+          const cols = ['a','b','c','d','e','f','g','h'];
+          const moveNotation = movedPiece + cols[c] + (8 - r) + (captured ? ' (x)' : '');
+          recordMove(moveNotation);
+
+          turn = turn === 'white' ? 'black' : 'white';
+          document.getElementById('turnIndicator').innerText = (turn === 'white' ? 'White' : 'Black') + ' to Move';
+          document.getElementById('turnIndicator').style.color = turn === 'white' ? '#60a5fa' : '#f59e0b';
+          selectedSquare = null;
+          validMoves = [];
+          renderBoard();
+          return;
+        }
+      }
+
+      // Select piece
+      if (piece && ((turn === 'white' && isWhitePiece(piece)) || (turn === 'black' && isBlackPiece(piece)))) {
+        selectedSquare = { r, c };
+        validMoves = getSampleMoves(r, c, piece);
+      } else {
+        selectedSquare = null;
+        validMoves = [];
+      }
+      renderBoard();
+    }
+
+    function getSampleMoves(r, c, piece) {
+      const moves = [];
+      const dir = isWhitePiece(piece) ? -1 : 1;
+      // Basic forward moves & captures for display interactivity
+      if (['♙','♟'].includes(piece)) {
+        if (r + dir >= 0 && r + dir < 8 && !board[r + dir][c]) moves.push({ r: r + dir, c });
+        if (c > 0 && r + dir >= 0 && r + dir < 8) moves.push({ r: r + dir, c: c - 1 });
+        if (c < 7 && r + dir >= 0 && r + dir < 8) moves.push({ r: r + dir, c: c + 1 });
+      } else {
+        // Knights / Kings / Queens / Rooks - basic adjacent & ray tiles
+        const offsets = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
+        for (const [dr, dc] of offsets) {
+          const nr = r + dr, nc = c + dc;
+          if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) moves.push({ r: nr, c: nc });
+        }
+      }
+      return moves;
+    }
+
+    function recordMove(notation) {
+      moveHistory.push(notation);
+      const histEl = document.getElementById('moveHistory');
+      histEl.innerHTML += `<div class="history-entry"><span>#${moveHistory.length}</span><span>${notation}</span></div>`;
+      histEl.scrollTop = histEl.scrollHeight;
+    }
+
+    function flipBoard() { isFlipped = !isFlipped; renderBoard(); }
+    function resetGame() {
+      board = JSON.parse(JSON.stringify(INITIAL_BOARD));
+      turn = 'white';
+      selectedSquare = null;
+      validMoves = [];
+      moveHistory = [];
+      document.getElementById('moveHistory').innerHTML = '';
+      document.getElementById('turnIndicator').innerText = 'White to Move';
+      renderBoard();
+    }
+
+    renderBoard();
+  </script>
+</body>
+</html>

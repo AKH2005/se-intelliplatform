@@ -185,11 +185,17 @@ class CodeGenerationAgent(AbstractBaseAgent[CodeGenerationOutput]):
             for cf in candidate_files
         )
 
-        archetype = detect_project_archetype(
-            name=context.project.name,
-            desc=context.project.description or "",
-            slug=context.project.slug or "",
+        archetype = (
+            context.project.settings.get("archetype")
+            if hasattr(context.project, "settings") and isinstance(context.project.settings, dict)
+            else None
         )
+        if not archetype:
+            archetype = detect_project_archetype(
+                name=context.project.name,
+                desc=context.project.description or "",
+                slug=context.project.slug or "",
+            )
 
         for cf in candidate_files:
             p = cf.path if isinstance(cf, (GeneratedFile, GeneratedFileCandidate)) else cf.get("path", "")
@@ -308,6 +314,7 @@ class CodeGenerationAgent(AbstractBaseAgent[CodeGenerationOutput]):
 
         return CodeGenerationOutput(
             plan=plan,
+            complexity_level=getattr(plan, "complexity_level", "MEDIUM"),
             generated_files=generated_files,
             total_files=len(generated_files),
             total_size_bytes=total_size,
@@ -340,11 +347,17 @@ class CodeGenerationAgent(AbstractBaseAgent[CodeGenerationOutput]):
         """Construct deterministic, syntactically valid mock files matching the plan manifest."""
         mock_files: list[dict[str, Any]] = []
 
-        archetype = detect_project_archetype(
-            name=context.project.name,
-            desc=context.project.description or "",
-            slug=context.project.slug or "",
+        archetype = (
+            context.project.settings.get("archetype")
+            if hasattr(context.project, "settings") and isinstance(context.project.settings, dict)
+            else None
         )
+        if not archetype:
+            archetype = detect_project_archetype(
+                name=context.project.name,
+                desc=context.project.description or "",
+                slug=context.project.slug or "",
+            )
 
         for p in plan.files:
             path = p.path

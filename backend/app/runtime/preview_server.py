@@ -1,3 +1,4 @@
+from app.runtime.preview_medium_complexity import get_inventory_html, get_lms_html
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -49,22 +50,8 @@ active_project_context = {
 project_contexts: dict[str, dict] = {}
 
 def detect_mode(name: str = "", desc: str = "") -> str:
-    combined = f"{name} {desc}".lower()
-    if any(k in combined for k in ["snake", "arcade", "game", "retro", "2d arcade", "canvas"]):
-        return "snake_game"
-    if any(k in combined for k in ["teamconnect", "directory", "member", "employee", "roster", "staff", "faculty", "hr"]):
-        return "management"
-    if any(k in combined for k in ["analytics", "kpi", "dashboard", "metric", "executive", "revenue", "bi ", "intelligence", "finance"]):
-        return "analytics"
-    if any(k in combined for k in ["event", "meet", "summit", "conference", "ticket", "booking"]):
-        return "eventhub"
-    if any(k in combined for k in ["shop", "store", "commerce", "cart", "product", "checkout", "market", "catalog"]):
-        return "ecommerce"
-    if any(k in combined for k in ["kanban", "taskflow", "task-manager", "task manager", "todo", "to-do", "tasks", "task", "backlog", "scrum", "sprint"]):
-        return "taskflow"
-    if any(k in combined for k in ["team", "manage", "admin", "record", "school", "portal", "profile"]):
-        return "management"
-    return "custom"
+    from app.agents.code_generation.archetypes import detect_project_archetype
+    return detect_project_archetype(name=name, desc=desc)
 
 @app.get("/health")
 def health_check():
@@ -82,32 +69,32 @@ def set_project_context(payload: dict):
     p_id = str(payload.get("project_id") or "")
     p_name = payload.get("project_name") or ""
     p_desc = payload.get("project_description") or ""
+    mode = payload.get("mode")
 
-    # If project_id is provided but name is missing, look up from database
-    if p_id and not p_name:
+    if p_id:
         try:
-            import json as _j
+            import json as _j, uuid
             conn = get_db_conn()
             cur = conn.cursor()
-            pid_s = str(p_id)
-            pid_h = pid_s.replace("-", "")
-            cur.execute("SELECT name, description, settings FROM projects WHERE id = ? OR id = ?", (pid_s, pid_h))
+            clean_pid = str(uuid.UUID(str(p_id)))
+            pid_h = clean_pid.replace("-", "")
+            cur.execute("SELECT name, description, settings FROM projects WHERE id = ? OR id = ?", (clean_pid, pid_h))
             row = cur.fetchone()
             conn.close()
             if row:
-                p_name = row[0] or ""
-                p_desc = row[1] or ""
+                p_name = p_name or row[0] or ""
+                p_desc = p_desc or row[1] or ""
                 try:
                     s_dict = _j.loads(row[2]) if isinstance(row[2], str) else (row[2] or {})
-                    cat = s_dict.get("category", "")
-                    if cat:
-                        p_desc = f"{p_desc} {cat}"
+                    if not mode:
+                        mode = s_dict.get("archetype")
                 except Exception:
                     pass
         except Exception:
             pass
 
-    mode = detect_mode(p_name, p_desc)
+    if not mode:
+        mode = detect_mode(p_name, p_desc)
     
     ctx = {
         "project_id": p_id if p_id else None,
@@ -193,6 +180,456 @@ def sync_tasks_from_db():
     except Exception:
         pass
     return tasks_db
+
+        
+
+# ==============================================================================
+# MEDIUM-COMPLEXITY SQLITE PERSISTENCE ENGINES & APIS
+# ==============================================================================
+
+def sync_events_from_db():
+    global events_db, registrations_db
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS preview_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                category TEXT DEFAULT 'Technology',
+                location TEXT DEFAULT 'Virtual',
+                date TEXT DEFAULT '2026-11-20',
+                time TEXT DEFAULT '10:00 AM',
+                total_seats INTEGER DEFAULT 100,
+                available_seats INTEGER DEFAULT 100,
+                price REAL DEFAULT 0.0
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS preview_event_registrations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER NOT NULL,
+                attendee_name TEXT NOT NULL,
+                attendee_email TEXT NOT NULL,
+                ticket_type TEXT DEFAULT 'Standard Pass',
+                registration_date TEXT DEFAULT '',
+                status TEXT DEFAULT 'CONFIRMED'
+            )
+        """)
+        cur.execute("SELECT id, title, description, category, location, date, time, total_seats, available_seats, price FROM preview_events ORDER BY id ASC")
+        rows = cur.fetchall()
+        if not rows:
+            initial = [
+                ("Global AI Architecture Summit 2026", "Premier engineering conference on autonomous agents, neural architectures, and distributed intelligent systems.", "Technology", "San Francisco / Virtual", "2026-11-20", "09:00 AM", 75, 74, 199.0),
+                ("Next-Gen Cloud & Microservices Expo", "Deep dive into event-driven design, high-throughput streaming, and zero-trust mesh architectures.", "Technology", "Austin, TX", "2026-12-05", "10:30 AM", 150, 148, 149.0),
+                ("Modern Design Systems & UX Conference", "Interactive workshop on scalable component tokens, micro-animations, and accessible web ergonomics.", "Design", "Seattle, WA", "2026-12-12", "01:00 PM", 40, 22, 89.0),
+                ("Cybersecurity & Zero-Trust Defense Forum", "Hands-on threat intelligence, confidential computing, and hardened infrastructure best practices.", "Security", "Boston, MA", "2026-12-18", "11:00 AM", 60, 58, 249.0),
+                ("Enterprise Engineering Leadership Forum", "Executive roundtable on engineering velocity, developer autonomy, and scaling tech teams.", "Business", "New York, NY", "2026-11-25", "02:00 PM", 25, 0, 299.0)
+            ]
+            cur.executemany("INSERT INTO preview_events (title, description, category, location, date, time, total_seats, available_seats, price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", initial)
+            cur.execute("""
+                INSERT INTO preview_event_registrations (event_id, attendee_name, attendee_email, ticket_type, registration_date, status)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (1, "Developer User", "developer@se-intelliplatform.local", "VIP Pass", "2026-11-15", "CONFIRMED"))
+            conn.commit()
+            cur.execute("SELECT id, title, description, category, location, date, time, total_seats, available_seats, price FROM preview_events ORDER BY id ASC")
+            rows = cur.fetchall()
+
+        events_db = [
+            {
+                "id": r[0], "title": r[1], "description": r[2], "category": r[3],
+                "location": r[4], "date": r[5], "time": r[6], "total_seats": r[7],
+                "available_seats": r[8], "price": r[9]
+            }
+            for r in rows
+        ]
+
+        cur.execute("SELECT id, event_id, attendee_name, attendee_email, ticket_type, registration_date, status FROM preview_event_registrations ORDER BY id DESC")
+        reg_rows = cur.fetchall()
+        registrations_db = [
+            {
+                "registration_id": r[0], "event_id": r[1], "user_name": r[2], "user_email": r[3],
+                "ticket_type": r[4], "registered_at": r[5], "status": r[6]
+            }
+            for r in reg_rows
+        ]
+        conn.close()
+    except Exception:
+        pass
+
+# Inventory State & Sync
+inventory_products_db = []
+inventory_adjustments_db = []
+
+class InventoryProductCreate(BaseModel):
+    sku: str
+    name: str
+    category: str = "Components"
+    stock: int = 0
+    reorder_point: int = 15
+    unit_price: float = 0.0
+    supplier: str = "Apex Logistics"
+
+class InventoryAdjustmentCreate(BaseModel):
+    sku: str
+    product_name: Optional[str] = None
+    adjustment_type: str = "INBOUND_RESTOCK"
+    quantity: int = 10
+    reason: str = "Routine Adjustment"
+
+def sync_inventory_from_db():
+    global inventory_products_db, inventory_adjustments_db
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS preview_inventory_products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sku TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                category TEXT DEFAULT 'Components',
+                stock INTEGER DEFAULT 0,
+                reorder_point INTEGER DEFAULT 15,
+                unit_price REAL DEFAULT 0.0,
+                supplier TEXT DEFAULT 'Apex Dynamics Ltd',
+                status TEXT DEFAULT 'IN_STOCK'
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS preview_inventory_adjustments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sku TEXT NOT NULL,
+                product_name TEXT NOT NULL,
+                adjustment_type TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                previous_stock INTEGER NOT NULL,
+                new_stock INTEGER NOT NULL,
+                reason TEXT DEFAULT '',
+                timestamp TEXT NOT NULL
+            )
+        """)
+        cur.execute("SELECT id, sku, name, category, stock, reorder_point, unit_price, supplier, status FROM preview_inventory_products ORDER BY id ASC")
+        rows = cur.fetchall()
+        if not rows:
+            initial = [
+                ("APX-SRV-901", "Dual Xeon Neural Rack Server 2U", "Servers", 18, 10, 3499.00, "Apex Compute Ltd", "IN_STOCK"),
+                ("APX-GPU-409", "PCIe Tensor Accelerator 48GB", "Accelerators", 8, 12, 2890.00, "Silicon Dynamics", "LOW_STOCK"),
+                ("APX-SW-100G", "48-Port 100GbE Leaf Switch", "Networking", 24, 15, 1850.00, "Cisco Systems", "IN_STOCK"),
+                ("APX-NVME-8T", "Enterprise NVMe SSD 7.68TB U.3", "Storage", 55, 20, 620.00, "Samsung Semiconductor", "IN_STOCK"),
+                ("APX-RAM-128", "DDR5-5600 ECC Reg RDIMM 128GB", "Memory", 5, 25, 410.00, "Micron Technology", "CRITICAL_STOCK"),
+                ("APX-PSU-160", "Titanium Redundant PSU 1600W", "Power", 32, 15, 275.00, "Delta Electronics", "IN_STOCK")
+            ]
+            cur.executemany("INSERT INTO preview_inventory_products (sku, name, category, stock, reorder_point, unit_price, supplier, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", initial)
+            cur.execute("""
+                INSERT INTO preview_inventory_adjustments (sku, product_name, adjustment_type, quantity, previous_stock, new_stock, reason, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, ("APX-GPU-409", "PCIe Tensor Accelerator 48GB", "OUTBOUND_DISPATCH", -4, 12, 8, "Fulfilled Order #ORD-8492 to North Lab", "2026-11-14 16:30"))
+            conn.commit()
+            cur.execute("SELECT id, sku, name, category, stock, reorder_point, unit_price, supplier, status FROM preview_inventory_products ORDER BY id ASC")
+            rows = cur.fetchall()
+
+        inventory_products_db = [
+            {
+                "id": r[0], "sku": r[1], "name": r[2], "category": r[3],
+                "stock": r[4], "reorder_point": r[5], "unit_price": r[6],
+                "supplier": r[7], "status": r[8]
+            }
+            for r in rows
+        ]
+
+        cur.execute("SELECT id, sku, product_name, adjustment_type, quantity, previous_stock, new_stock, reason, timestamp FROM preview_inventory_adjustments ORDER BY id DESC")
+        adj_rows = cur.fetchall()
+        inventory_adjustments_db = [
+            {
+                "id": r[0], "sku": r[1], "product_name": r[2], "adjustment_type": r[3],
+                "quantity": r[4], "previous_stock": r[5], "new_stock": r[6],
+                "reason": r[7], "timestamp": r[8]
+            }
+            for r in adj_rows
+        ]
+        conn.close()
+    except Exception:
+        pass
+
+@app.get("/api/inventory/products")
+def get_inventory_products(
+    category: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    low_stock: Optional[bool] = Query(None),
+):
+    sync_inventory_from_db()
+    results = list(inventory_products_db)
+    if category and category.lower() != "all":
+        results = [p for p in results if p["category"].lower() == category.lower()]
+    if search:
+        q = search.lower().strip()
+        results = [p for p in results if q in p["sku"].lower() or q in p["name"].lower() or (p["supplier"] and q in p["supplier"].lower())]
+    if low_stock:
+        results = [p for p in results if p["stock"] <= p.get("reorder_point", 15)]
+    return results
+
+@app.post("/api/inventory/products", status_code=status.HTTP_201_CREATED)
+def create_inventory_product(payload: InventoryProductCreate):
+    conn = get_db_conn()
+    cur = conn.cursor()
+    status_label = "IN_STOCK" if payload.stock > payload.reorder_point else ("LOW_STOCK" if payload.stock > 5 else "CRITICAL_STOCK")
+    cur.execute("""
+        INSERT INTO preview_inventory_products (sku, name, category, stock, reorder_point, unit_price, supplier, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (payload.sku, payload.name, payload.category, payload.stock, payload.reorder_point, payload.unit_price, payload.supplier, status_label))
+    conn.commit()
+    conn.close()
+    sync_inventory_from_db()
+    return {"status": "SUCCESS", "sku": payload.sku, "message": "Product created successfully."}
+
+@app.post("/api/inventory/adjustments", status_code=status.HTTP_201_CREATED)
+def create_inventory_adjustment(payload: InventoryAdjustmentCreate):
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, sku, name, stock, reorder_point FROM preview_inventory_products WHERE sku = ?", (payload.sku,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Product with SKU '{payload.sku}' not found.")
+
+    p_id, sku, name, current_stock, reorder_pt = row
+    if payload.adjustment_type == "CYCLE_COUNT":
+        new_stock = max(0, payload.quantity)
+        delta = new_stock - current_stock
+    else:
+        delta = payload.quantity
+        new_stock = max(0, current_stock + delta)
+
+    status_label = "IN_STOCK" if new_stock > reorder_pt else ("LOW_STOCK" if new_stock > 5 else "CRITICAL_STOCK")
+    cur.execute("UPDATE preview_inventory_products SET stock = ?, status = ? WHERE id = ?", (new_stock, status_label, p_id))
+
+    from datetime import datetime
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    cur.execute("""
+        INSERT INTO preview_inventory_adjustments (sku, product_name, adjustment_type, quantity, previous_stock, new_stock, reason, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (sku, name, payload.adjustment_type, delta, current_stock, new_stock, payload.reason, now_str))
+
+    conn.commit()
+    conn.close()
+    sync_inventory_from_db()
+    return {
+        "status": "SUCCESS",
+        "sku": sku,
+        "previous_stock": current_stock,
+        "new_stock": new_stock,
+        "delta": delta,
+    }
+
+@app.get("/api/inventory/adjustments")
+def get_inventory_adjustments():
+    sync_inventory_from_db()
+    return inventory_adjustments_db
+
+@app.get("/api/inventory/stats")
+def get_inventory_stats():
+    sync_inventory_from_db()
+    total_skus = len(inventory_products_db)
+    total_units = sum(p["stock"] for p in inventory_products_db)
+    valuation = sum(p["stock"] * p["unit_price"] for p in inventory_products_db)
+    low_stock = sum(1 for p in inventory_products_db if p["stock"] <= p.get("reorder_point", 15))
+    return {
+        "total_skus": total_skus,
+        "total_units": total_units,
+        "total_valuation": round(valuation, 2),
+        "low_stock_count": low_stock
+    }
+
+# LMS State & Sync
+lms_courses_db = []
+lms_lessons_db = []
+lms_enrollments_db = []
+
+class LMSCourseEnroll(BaseModel):
+    student_name: str = "Alex Mercer"
+    student_email: str = "alex.mercer@enterprise.io"
+
+class LMSQuizSubmit(BaseModel):
+    course_id: int = 1
+    score: int = 100
+
+def sync_lms_from_db():
+    global lms_courses_db, lms_lessons_db, lms_enrollments_db
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS preview_lms_courses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                category TEXT DEFAULT 'AI & Systems',
+                level TEXT DEFAULT 'Intermediate',
+                description TEXT DEFAULT '',
+                instructor TEXT DEFAULT 'Dr. Aris Vance',
+                duration_hours REAL DEFAULT 12.5,
+                rating REAL DEFAULT 4.9,
+                total_enrolled INTEGER DEFAULT 450
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS preview_lms_lessons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                course_id INTEGER NOT NULL,
+                lesson_number INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT DEFAULT '',
+                duration_mins INTEGER DEFAULT 25,
+                is_completed INTEGER DEFAULT 0
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS preview_lms_enrollments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                course_id INTEGER NOT NULL,
+                student_name TEXT NOT NULL,
+                student_email TEXT NOT NULL,
+                progress_pct INTEGER DEFAULT 0,
+                completed_lessons INTEGER DEFAULT 0,
+                is_certified INTEGER DEFAULT 0,
+                enrolled_date TEXT DEFAULT ''
+            )
+        """)
+        cur.execute("SELECT id, title, category, level, description, instructor, duration_hours, rating, total_enrolled FROM preview_lms_courses ORDER BY id ASC")
+        rows = cur.fetchall()
+        if not rows:
+            c_initial = [
+                ("Autonomous Agent Architectures & LLM Orchestration", "AI & Systems", "Advanced", "Master multi-agent choreography, tool routing, reactive state machines, and real-time inference guardrails.", "Dr. Elena Rostova", 16.0, 4.95, 820),
+                ("Production Microservices with Rust & Tokio", "Backend & Cloud", "Intermediate", "Build zero-allocation, high-concurrency event pipelines with asynchronous Rust and distributed telemetry.", "Marcus Thorne", 14.5, 4.88, 540),
+                ("High-Performance React 18 & Design System Engineering", "Frontend", "Intermediate", "Modern reactive component tokens, concurrent rendering, virtual lists, and accessible design systems.", "Sarah Lin", 10.0, 4.92, 1150),
+                ("Zero-Trust Cloud Infrastructure on Kubernetes", "DevOps & Security", "Advanced", "Service mesh mTLS, eBPF security observability, automated GitOps deployments, and resilient multi-cluster scaling.", "David Chen", 18.0, 4.90, 670),
+            ]
+            cur.executemany("INSERT INTO preview_lms_courses (title, category, level, description, instructor, duration_hours, rating, total_enrolled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", c_initial)
+
+            l_initial = [
+                (1, 1, "Agent Paradigms: ReAct, Planning, and Swarm Topologies", "Introduction to cognitive architectures, reactive wakeup patterns, and decision loops in enterprise agents.", 30, 1),
+                (1, 2, "Tool Dispatch & Schema Verification with OpenAPI", "Implementing deterministic tool calls, sandboxed execution boundaries, and schema parameter validation.", 45, 1),
+                (1, 3, "State Persistence, Context Compaction, and Long-Term Memory", "Managing persistent conversation transcripts, JSONL audit trails, and token compaction strategies.", 40, 0),
+                (1, 4, "Quality Gates & Multi-Perspective Evaluation", "Building automated verification gates, synthetic user simulations, and playability benchmarks.", 50, 0),
+                (2, 1, "Asynchronous Runtime Fundamentals with Tokio", "Event loops, non-blocking I/O, task scheduling, and cooperative multi-threading in systems programming.", 35, 1),
+                (2, 2, "Building Resilient gRPC and REST Microservices", "Protocol Buffers, streaming RPCs, connection pooling, and backpressure mitigation under heavy traffic.", 45, 0),
+                (3, 1, "Component Architecture & Clean Design Tokens", "CSS custom property variables, layout isolation, semantic tokens, and typography rhythm.", 25, 1),
+                (3, 2, "State Synchronization & Optimistic UI Updates", "Managing local cache mutations, WebSocket events, and offline persistence.", 35, 0),
+            ]
+            cur.executemany("INSERT INTO preview_lms_lessons (course_id, lesson_number, title, content, duration_mins, is_completed) VALUES (?, ?, ?, ?, ?, ?)", l_initial)
+
+            cur.execute("""
+                INSERT INTO preview_lms_enrollments (course_id, student_name, student_email, progress_pct, completed_lessons, is_certified, enrolled_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (1, "Alex Mercer", "alex.mercer@enterprise.io", 50, 2, 0, "2026-11-10"))
+
+            conn.commit()
+            cur.execute("SELECT id, title, category, level, description, instructor, duration_hours, rating, total_enrolled FROM preview_lms_courses ORDER BY id ASC")
+            rows = cur.fetchall()
+
+        lms_courses_db = [
+            {
+                "id": r[0], "title": r[1], "category": r[2], "level": r[3],
+                "description": r[4], "instructor": r[5], "duration_hours": r[6],
+                "rating": r[7], "total_enrolled": r[8]
+            }
+            for r in rows
+        ]
+
+        cur.execute("SELECT id, course_id, lesson_number, title, content, duration_mins, is_completed FROM preview_lms_lessons ORDER BY course_id ASC, lesson_number ASC")
+        l_rows = cur.fetchall()
+        lms_lessons_db = [
+            {
+                "id": r[0], "course_id": r[1], "lesson_number": r[2], "title": r[3],
+                "content": r[4], "duration_mins": r[5], "is_completed": bool(r[6])
+            }
+            for r in l_rows
+        ]
+
+        cur.execute("SELECT id, course_id, student_name, student_email, progress_pct, completed_lessons, is_certified, enrolled_date FROM preview_lms_enrollments ORDER BY id DESC")
+        e_rows = cur.fetchall()
+        lms_enrollments_db = [
+            {
+                "id": r[0], "course_id": r[1], "student_name": r[2], "student_email": r[3],
+                "progress_pct": r[4], "completed_lessons": r[5], "is_certified": bool(r[6]), "enrolled_date": r[7]
+            }
+            for r in e_rows
+        ]
+        conn.close()
+    except Exception:
+        pass
+
+@app.get("/api/lms/courses")
+def get_lms_courses():
+    sync_lms_from_db()
+    return lms_courses_db
+
+@app.get("/api/lms/courses/{course_id}")
+def get_lms_course_details(course_id: int):
+    sync_lms_from_db()
+    c = next((item for item in lms_courses_db if item["id"] == course_id), None)
+    if not c:
+        raise HTTPException(status_code=404, detail="Course not found")
+    lessons = [l for l in lms_lessons_db if l["course_id"] == course_id]
+    return {**c, "lessons": lessons}
+
+@app.post("/api/lms/courses/{course_id}/enroll", status_code=status.HTTP_201_CREATED)
+def enroll_lms_course(course_id: int, payload: LMSCourseEnroll = LMSCourseEnroll()):
+    conn = get_db_conn()
+    cur = conn.cursor()
+    from datetime import date
+    today = date.today().isoformat()
+    cur.execute("""
+        INSERT INTO preview_lms_enrollments (course_id, student_name, student_email, progress_pct, completed_lessons, is_certified, enrolled_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (course_id, payload.student_name, payload.student_email, 0, 0, 0, today))
+    cur.execute("UPDATE preview_lms_courses SET total_enrolled = total_enrolled + 1 WHERE id = ?", (course_id,))
+    conn.commit()
+    conn.close()
+    sync_lms_from_db()
+    return {"status": "ENROLLED", "course_id": course_id, "student": payload.student_name}
+
+@app.post("/api/lms/lessons/{lesson_id}/complete")
+def complete_lms_lesson(lesson_id: int):
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE preview_lms_lessons SET is_completed = 1 WHERE id = ?", (lesson_id,))
+    cur.execute("SELECT course_id FROM preview_lms_lessons WHERE id = ?", (lesson_id,))
+    row = cur.fetchone()
+    if row:
+        c_id = row[0]
+        cur.execute("SELECT COUNT(*), SUM(is_completed) FROM preview_lms_lessons WHERE course_id = ?", (c_id,))
+        stats_row = cur.fetchone()
+        if stats_row and stats_row[0] > 0:
+            pct = int((stats_row[1] / stats_row[0]) * 100)
+            cur.execute("UPDATE preview_lms_enrollments SET progress_pct = ?, completed_lessons = ? WHERE course_id = ?", (pct, stats_row[1], c_id))
+    conn.commit()
+    conn.close()
+    sync_lms_from_db()
+    return {"status": "SUCCESS", "lesson_id": lesson_id}
+
+@app.post("/api/lms/quizzes/submit")
+def submit_lms_quiz(payload: LMSQuizSubmit):
+    conn = get_db_conn()
+    cur = conn.cursor()
+    passed = payload.score >= 80
+    if passed:
+        cur.execute("UPDATE preview_lms_enrollments SET is_certified = 1, progress_pct = 100 WHERE course_id = ?", (payload.course_id,))
+        conn.commit()
+    conn.close()
+    sync_lms_from_db()
+    return {"status": "EVALUATED", "passed": passed, "score": payload.score, "certificate_awarded": passed}
+
+@app.get("/api/lms/progress")
+def get_lms_progress():
+    sync_lms_from_db()
+    return {
+        "enrolled_courses": lms_enrollments_db,
+        "total_enrolled": len(lms_enrollments_db),
+        "total_completed_lessons": sum(e["completed_lessons"] for e in lms_enrollments_db),
+        "certificates_earned": sum(1 for e in lms_enrollments_db if e["is_certified"])
+    }
+
 
 # ==============================================================================
 # FAST-PATH RUNTIME FEATURE STATE & AUTHENTICATION ENDPOINTS
@@ -2248,6 +2685,2337 @@ def get_snake_game_html(title: str = "Arcade Snake Game") -> str:
   </script>
 </body>
 </html>"""
+
+
+
+
+def get_carrom_game_html(title: str = "Carrom Master", desc: str = "") -> str:
+    p_desc = desc or "Realistic Carrom Board Physics — Drag Striker Back to Aim & Shoot"
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title} — Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #1e1b4b 0%, #090d16 70%);
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.25rem 1rem;
+      user-select: none;
+    }}
+    .header {{ text-align: center; margin-bottom: 0.75rem; }}
+    .header h1 {{
+      font-size: 1.85rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #fbbf24, #f59e0b, #ef4444);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.5px;
+    }}
+    .header p {{ color: #94a3b8; font-size: 0.85rem; margin-top: 0.2rem; }}
+
+    .scoreboard {{
+      display: flex;
+      gap: 1.25rem;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(12px);
+      padding: 0.5rem 1.5rem;
+      border-radius: 9999px;
+      margin-bottom: 0.85rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.88rem;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+    }}
+    .score-badge {{ display: flex; align-items: center; gap: 0.4rem; }}
+    .score-badge span.val {{ color: #fbbf24; font-weight: 700; font-size: 1.05rem; }}
+    .turn-pill {{
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      padding: 0.2rem 0.75rem;
+      border-radius: 9999px;
+      font-weight: 700;
+    }}
+    .queen-pill {{
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      padding: 0.2rem 0.65rem;
+      border-radius: 9999px;
+    }}
+
+    .game-container {{
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+    }}
+    .board-wrapper {{
+      position: relative;
+      border-radius: 20px;
+      padding: 12px;
+      background: linear-gradient(135deg, #45210e 0%, #2b1407 50%, #45210e 100%);
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 40px rgba(245, 158, 11, 0.15), inset 0 2px 4px rgba(255,255,255,0.2);
+      border: 2px solid #5c2d13;
+    }}
+    canvas {{
+      background: #e8c89b;
+      border-radius: 12px;
+      display: block;
+      box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.45);
+      cursor: crosshair;
+    }}
+
+    .status-bar {{
+      margin-top: 0.75rem;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 0.4rem 1.25rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      color: #cbd5e1;
+      min-height: 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }}
+    .status-bar strong {{ color: #fbbf24; }}
+
+    .controls-panel {{
+      margin-top: 0.85rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      justify-content: center;
+      max-width: 624px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 0.75rem 1.25rem;
+      border-radius: 12px;
+    }}
+    .control-group {{
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.82rem;
+      color: #94a3b8;
+    }}
+    .control-group input[type="range"] {{
+      width: 120px;
+      accent-color: #fbbf24;
+      cursor: pointer;
+    }}
+    .btn {{
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #f8fafc;
+      padding: 0.45rem 1rem;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }}
+    .btn:hover {{
+      background: rgba(255, 255, 255, 0.16);
+      transform: translateY(-1px);
+    }}
+    .btn-primary {{
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      border: none;
+      color: #0f172a;
+      font-weight: 700;
+    }}
+    .btn-primary:hover {{
+      background: linear-gradient(135deg, #fbbf24, #f59e0b);
+      box-shadow: 0 4px 12px rgba(245, 158, 11, 0.35);
+    }}
+    .power-gauge {{
+      width: 90px;
+      height: 10px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 9999px;
+      overflow: hidden;
+      display: inline-block;
+      vertical-align: middle;
+      border: 1px solid rgba(255,255,255,0.15);
+    }}
+    .power-fill {{
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #10b981, #f59e0b, #ef4444);
+      transition: width 0.05s ease;
+    }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 id="game-title">{title}</h1>
+    <p>{p_desc}</p>
+  </div>
+
+  <div class="scoreboard">
+    <div class="score-badge">P1 (White): <span class="val" id="p1-score">0</span></div>
+    <div class="score-badge">P2 (Black): <span class="val" id="p2-score">0</span></div>
+    <div class="turn-pill" id="turn-badge">Player 1 Turn</div>
+    <div class="queen-pill" id="queen-badge">Queen: On Board</div>
+    <div class="score-badge">Coins: <span class="val" id="coins-left">18</span></div>
+  </div>
+
+  <div class="game-container">
+    <div class="board-wrapper">
+      <canvas id="carromCanvas" width="600" height="600"></canvas>
+    </div>
+
+    <div class="status-bar" id="status-bar">
+      <span>Drag striker back to aim and power your shot, then release!</span>
+    </div>
+
+    <div class="controls-panel">
+      <div class="control-group">
+        <label for="striker-pos">Striker Pos:</label>
+        <input type="range" id="striker-pos" min="175" max="425" value="300" />
+      </div>
+      <div class="control-group">
+        <label>Power:</label>
+        <div class="power-gauge"><div class="power-fill" id="power-fill"></div></div>
+      </div>
+      <button class="btn btn-primary" id="btn-fire">Shoot</button>
+      <button class="btn" id="btn-reset">Reset Board</button>
+      <button class="btn" id="btn-mode">Mode: 2 Players</button>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('carromCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const BOARD_SIZE = 600;
+    const POCKET_RADIUS = 28;
+    const CUSHION_WIDTH = 38;
+    const PLAY_MIN = CUSHION_WIDTH;
+    const PLAY_MAX = BOARD_SIZE - CUSHION_WIDTH;
+
+    const POCKETS = [
+      {{ x: CUSHION_WIDTH + 4, y: CUSHION_WIDTH + 4 }},
+      {{ x: BOARD_SIZE - CUSHION_WIDTH - 4, y: CUSHION_WIDTH + 4 }},
+      {{ x: CUSHION_WIDTH + 4, y: BOARD_SIZE - CUSHION_WIDTH - 4 }},
+      {{ x: BOARD_SIZE - CUSHION_WIDTH - 4, y: BOARD_SIZE - CUSHION_WIDTH - 4 }}
+    ];
+
+    const FRICTION = 0.986;
+    const RESTITUTION = 0.88;
+
+    let p1Score = 0;
+    let p2Score = 0;
+    let currentTurn = 1;
+    let soloMode = false;
+    let queenPocketed = false;
+    let shotInProgress = false;
+    let pocketedInCurrentShot = [];
+    let foulInCurrentShot = false;
+
+    const STRIKER_RADIUS = 21;
+    const STRIKER_MASS = 3.2;
+    const BASELINE_Y = 482;
+
+    let striker = {{
+      x: 300,
+      y: BASELINE_Y,
+      vx: 0,
+      vy: 0,
+      r: STRIKER_RADIUS,
+      mass: STRIKER_MASS,
+      color: '#fef3c7',
+      isStriker: true,
+      active: true
+    }};
+
+    let pieces = [];
+    let floatingTexts = [];
+
+    function initPieces() {{
+      pieces = [];
+      const CX = 300, CY = 300;
+      const COIN_R = 14;
+      const COIN_M = 1.0;
+
+      pieces.push({{
+        id: 'queen',
+        type: 'queen',
+        x: CX,
+        y: CY,
+        vx: 0,
+        vy: 0,
+        r: COIN_R,
+        mass: COIN_M,
+        active: true
+      }});
+
+      const r1 = COIN_R * 2 + 1;
+      for (let i = 0; i < 6; i++) {{
+        const angle = (i * Math.PI) / 3;
+        const type = (i % 2 === 0) ? 'white' : 'black';
+        pieces.push({{
+          id: `inner_${{i}}`,
+          type: type,
+          x: CX + r1 * Math.cos(angle),
+          y: CY + r1 * Math.sin(angle),
+          vx: 0,
+          vy: 0,
+          r: COIN_R,
+          mass: COIN_M,
+          active: true
+        }});
+      }}
+
+      const r2 = COIN_R * 4 + 2;
+      for (let i = 0; i < 12; i++) {{
+        const angle = (i * Math.PI) / 6 + Math.PI / 12;
+        const type = (i % 2 === 0) ? 'white' : 'black';
+        pieces.push({{
+          id: `outer_${{i}}`,
+          type: type,
+          x: CX + r2 * Math.cos(angle),
+          y: CY + r2 * Math.sin(angle),
+          vx: 0,
+          vy: 0,
+          r: COIN_R,
+          mass: COIN_M,
+          active: true
+        }});
+      }}
+
+      resetStriker();
+      updateUI();
+    }}
+
+    function resetStriker() {{
+      const sliderVal = parseFloat(document.getElementById('striker-pos').value);
+      striker.x = sliderVal;
+      striker.y = BASELINE_Y;
+      striker.vx = 0;
+      striker.vy = 0;
+      striker.active = true;
+    }}
+
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let currentDragX = 0;
+    let currentDragY = 0;
+
+    function getCanvasCoords(e) {{
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      return {{
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY
+      }};
+    }}
+
+    function handlePointerDown(e) {{
+      if (shotInProgress || !striker.active) return;
+      const pt = getCanvasCoords(e);
+      const d = Math.hypot(pt.x - striker.x, pt.y - striker.y);
+      if (d <= striker.r + 24) {{
+        isDragging = true;
+        dragStartX = striker.x;
+        dragStartY = striker.y;
+        currentDragX = pt.x;
+        currentDragY = pt.y;
+      }}
+    }}
+
+    function handlePointerMove(e) {{
+      if (!isDragging) return;
+      const pt = getCanvasCoords(e);
+      currentDragX = pt.x;
+      currentDragY = pt.y;
+
+      const dx = dragStartX - currentDragX;
+      const dy = dragStartY - currentDragY;
+      const dist = Math.hypot(dx, dy);
+      const powerPct = Math.min(100, Math.round((dist / 140) * 100));
+      document.getElementById('power-fill').style.width = powerPct + '%';
+    }}
+
+    function handlePointerUp() {{
+      if (!isDragging) return;
+      isDragging = false;
+      const dx = dragStartX - currentDragX;
+      const dy = dragStartY - currentDragY;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist > 8) {{
+        const speed = Math.min(26, dist * 0.18);
+        const angle = Math.atan2(dy, dx);
+        striker.vx = Math.cos(angle) * speed;
+        striker.vy = Math.sin(angle) * speed;
+        startShot();
+      }}
+      document.getElementById('power-fill').style.width = '0%';
+    }}
+
+    canvas.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('mousemove', handlePointerMove);
+    window.addEventListener('mouseup', handlePointerUp);
+
+    canvas.addEventListener('touchstart', handlePointerDown, {{ passive: false }});
+    window.addEventListener('touchmove', handlePointerMove, {{ passive: false }});
+    window.addEventListener('touchend', handlePointerUp);
+
+    document.getElementById('striker-pos').addEventListener('input', e => {{
+      if (!shotInProgress && striker.active) {{
+        striker.x = parseFloat(e.target.value);
+        striker.y = BASELINE_Y;
+      }}
+    }});
+
+    document.getElementById('btn-fire').addEventListener('click', () => {{
+      if (shotInProgress || !striker.active) return;
+      striker.vx = (Math.random() - 0.5) * 4;
+      striker.vy = -18;
+      startShot();
+    }});
+
+    document.getElementById('btn-reset').addEventListener('click', () => {{
+      p1Score = 0;
+      p2Score = 0;
+      currentTurn = 1;
+      queenPocketed = false;
+      initPieces();
+      setStatus('Board reset! Player 1 takes the break shot.');
+    }});
+
+    document.getElementById('btn-mode').addEventListener('click', () => {{
+      soloMode = !soloMode;
+      document.getElementById('btn-mode').textContent = soloMode ? 'Mode: Solo Practice' : 'Mode: 2 Players';
+      document.getElementById('turn-badge').style.display = soloMode ? 'none' : 'block';
+      setStatus(soloMode ? 'Solo Practice mode enabled!' : '2 Players turn-based mode enabled.');
+    }});
+
+    function setStatus(msg) {{
+      document.getElementById('status-bar').innerHTML = msg;
+    }}
+
+    function addFloatingText(text, x, y, color = '#fbbf24') {{
+      floatingTexts.push({{ text, x, y, color, alpha: 1.0, dy: -1.2 }});
+    }}
+
+    function startShot() {{
+      shotInProgress = true;
+      pocketedInCurrentShot = [];
+      foulInCurrentShot = false;
+      setStatus('Shot in motion...');
+    }}
+
+    function checkShotFinished() {{
+      let moving = false;
+      const allDiscs = [striker, ...pieces.filter(p => p.active)];
+      for (const d of allDiscs) {{
+        if (Math.hypot(d.vx, d.vy) > 0.08) {{
+          moving = true;
+          break;
+        }}
+      }}
+
+      if (!moving && shotInProgress) {{
+        shotInProgress = false;
+        endShotTurn();
+      }}
+    }}
+
+    function endShotTurn() {{
+      let turnPlayerName = currentTurn === 1 ? 'Player 1' : 'Player 2';
+      let earnedPoints = 0;
+      let shouldRepeatTurn = false;
+
+      if (foulInCurrentShot) {{
+        if (currentTurn === 1) p1Score = Math.max(0, p1Score - 5);
+        else p2Score = Math.max(0, p2Score - 5);
+        addFloatingText('-5 FOUL', striker.x, striker.y - 20, '#ef4444');
+        setStatus(`<strong>FOUL!</strong> ${{turnPlayerName}} pocketed the striker (-5 pts).`);
+      }} else if (pocketedInCurrentShot.length > 0) {{
+        for (const item of pocketedInCurrentShot) {{
+          if (item.type === 'queen') {{
+            earnedPoints += 25;
+            queenPocketed = true;
+            addFloatingText('+25 QUEEN!', 300, 260, '#f87171');
+          }} else if (item.type === 'white') {{
+            earnedPoints += 10;
+            addFloatingText('+10', item.x, item.y, '#f8fafc');
+          }} else if (item.type === 'black') {{
+            earnedPoints += 10;
+            addFloatingText('+10', item.x, item.y, '#fbbf24');
+          }}
+        }}
+
+        if (currentTurn === 1) p1Score += earnedPoints;
+        else p2Score += earnedPoints;
+
+        shouldRepeatTurn = true;
+        setStatus(`<strong>Great Shot!</strong> ${{turnPlayerName}} scored +${{earnedPoints}} pts! Extra turn awarded.`);
+      }} else {{
+        setStatus(`${{turnPlayerName}} missed. Turn passes.`);
+      }}
+
+      if (!soloMode && !shouldRepeatTurn) {{
+        currentTurn = currentTurn === 1 ? 2 : 1;
+      }}
+
+      resetStriker();
+      updateUI();
+
+      try {{
+        var sPayload = JSON.stringify({{
+          player_name: turnPlayerName,
+          score: currentTurn === 1 ? p1Score : p2Score,
+          game: 'carrom'
+        }});
+        var apiBase = window.__PREVIEW_API_BASE__ || '';
+        fetch(apiBase ? apiBase + '/scores' : '/scores', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: sPayload
+        }}).catch(function() {{
+          return fetch('/api/scores', {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: sPayload
+          }});
+        }}).catch(function() {{}});
+      }} catch (e) {{}}
+    }}
+
+    function updateUI() {{
+      document.getElementById('p1-score').textContent = p1Score;
+      document.getElementById('p2-score').textContent = p2Score;
+      const turnBadge = document.getElementById('turn-badge');
+      turnBadge.textContent = currentTurn === 1 ? 'Player 1 Turn (White)' : 'Player 2 Turn (Black)';
+      turnBadge.style.color = currentTurn === 1 ? '#f8fafc' : '#fbbf24';
+
+      const queenBadge = document.getElementById('queen-badge');
+      queenBadge.textContent = queenPocketed ? 'Queen: Pocketed' : 'Queen: On Board';
+      queenBadge.style.color = queenPocketed ? '#10b981' : '#f87171';
+
+      const activeCoins = pieces.filter(p => p.active && p.type !== 'queen').length;
+      document.getElementById('coins-left').textContent = activeCoins;
+    }}
+
+    function updatePhysics() {{
+      const activePieces = pieces.filter(p => p.active);
+      const allDiscs = striker.active ? [striker, ...activePieces] : [...activePieces];
+
+      for (const d of allDiscs) {{
+        d.x += d.vx;
+        d.y += d.vy;
+        d.vx *= FRICTION;
+        d.vy *= FRICTION;
+        if (Math.hypot(d.vx, d.vy) < 0.04) {{
+          d.vx = 0;
+          d.vy = 0;
+        }}
+
+        for (const p of POCKETS) {{
+          const dist = Math.hypot(d.x - p.x, d.y - p.y);
+          if (dist < POCKET_RADIUS - 4) {{
+            d.vx = 0;
+            d.vy = 0;
+            if (d.isStriker) {{
+              foulInCurrentShot = true;
+              d.active = false;
+            }} else {{
+              d.active = false;
+              pocketedInCurrentShot.push(d);
+            }}
+            break;
+          }}
+        }}
+
+        if (d.active) {{
+          const minBound = PLAY_MIN + d.r;
+          const maxBound = PLAY_MAX - d.r;
+
+          if (d.x < minBound) {{
+            d.x = minBound;
+            d.vx = -d.vx * RESTITUTION;
+          }} else if (d.x > maxBound) {{
+            d.x = maxBound;
+            d.vx = -d.vx * RESTITUTION;
+          }}
+          if (d.y < minBound) {{
+            d.y = minBound;
+            d.vy = -d.vy * RESTITUTION;
+          }} else if (d.y > maxBound) {{
+            d.y = maxBound;
+            d.vy = -d.vy * RESTITUTION;
+          }}
+        }}
+      }}
+
+      const count = allDiscs.length;
+      for (let i = 0; i < count; i++) {{
+        const d1 = allDiscs[i];
+        if (!d1.active) continue;
+        for (let j = i + 1; j < count; j++) {{
+          const d2 = allDiscs[j];
+          if (!d2.active) continue;
+
+          const dx = d2.x - d1.x;
+          const dy = d2.y - d1.y;
+          const dist = Math.hypot(dx, dy);
+          const minDist = d1.r + d2.r;
+
+          if (dist < minDist && dist > 0) {{
+            const overlap = (minDist - dist) / 2;
+            const nx = dx / dist;
+            const ny = dy / dist;
+
+            d1.x -= nx * overlap;
+            d1.y -= ny * overlap;
+            d2.x += nx * overlap;
+            d2.y += ny * overlap;
+
+            const kx = d1.vx - d2.vx;
+            const ky = d1.vy - d2.vy;
+            const p = 2 * (nx * kx + ny * ky) / (d1.mass + d2.mass);
+
+            d1.vx -= p * d2.mass * nx * RESTITUTION;
+            d1.vy -= p * d2.mass * ny * RESTITUTION;
+            d2.vx += p * d1.mass * nx * RESTITUTION;
+            d2.vy += p * d1.mass * ny * RESTITUTION;
+          }}
+        }}
+      }}
+
+      for (let i = floatingTexts.length - 1; i >= 0; i--) {{
+        const ft = floatingTexts[i];
+        ft.y += ft.dy;
+        ft.alpha -= 0.02;
+        if (ft.alpha <= 0) floatingTexts.splice(i, 1);
+      }}
+
+      checkShotFinished();
+    }}
+
+    function drawBoard() {{
+      ctx.clearRect(0, 0, BOARD_SIZE, BOARD_SIZE);
+
+      ctx.fillStyle = '#edd1a6';
+      ctx.fillRect(0, 0, BOARD_SIZE, BOARD_SIZE);
+
+      ctx.strokeStyle = 'rgba(180, 130, 80, 0.15)';
+      ctx.lineWidth = 1;
+      for (let y = 10; y < BOARD_SIZE; y += 18) {{
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(BOARD_SIZE, y);
+        ctx.stroke();
+      }}
+
+      ctx.fillStyle = '#421f0b';
+      ctx.fillRect(0, 0, BOARD_SIZE, CUSHION_WIDTH);
+      ctx.fillRect(0, BOARD_SIZE - CUSHION_WIDTH, BOARD_SIZE, CUSHION_WIDTH);
+      ctx.fillRect(0, 0, CUSHION_WIDTH, BOARD_SIZE);
+      ctx.fillRect(BOARD_SIZE - CUSHION_WIDTH, 0, CUSHION_WIDTH, BOARD_SIZE);
+
+      ctx.strokeStyle = '#271004';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(CUSHION_WIDTH, CUSHION_WIDTH, BOARD_SIZE - 2 * CUSHION_WIDTH, BOARD_SIZE - 2 * CUSHION_WIDTH);
+
+      for (const p of POCKETS) {{
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, POCKET_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = '#111827';
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#92400e';
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, POCKET_RADIUS - 6, 0, Math.PI * 2);
+        ctx.fillStyle = '#030712';
+        ctx.fill();
+      }}
+
+      const CX = 300, CY = 300;
+      ctx.beginPath();
+      ctx.arc(CX, CY, 68, 0, Math.PI * 2);
+      ctx.strokeStyle = '#b45309';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(CX, CY, 20, 0, Math.PI * 2);
+      ctx.fillStyle = '#fef3c7';
+      ctx.fill();
+      ctx.strokeStyle = '#dc2626';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(CX, CY, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#dc2626';
+      ctx.fill();
+
+      for (let i = 0; i < 8; i++) {{
+        const ang = (i * Math.PI) / 4;
+        ctx.beginPath();
+        ctx.moveTo(CX + 28 * Math.cos(ang), CY + 28 * Math.sin(ang));
+        ctx.lineTo(CX + 62 * Math.cos(ang), CY + 62 * Math.sin(ang));
+        ctx.strokeStyle = 'rgba(180, 83, 9, 0.4)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }}
+
+      drawBaseline(175, 425, BASELINE_Y, false);
+      drawBaseline(175, 425, BOARD_SIZE - BASELINE_Y, false);
+      drawBaseline(175, 425, BASELINE_Y, true);
+      drawBaseline(175, 425, BOARD_SIZE - BASELINE_Y, true);
+
+      drawCornerArrow(CX, CY, POCKETS[0].x, POCKETS[0].y);
+      drawCornerArrow(CX, CY, POCKETS[1].x, POCKETS[1].y);
+      drawCornerArrow(CX, CY, POCKETS[2].x, POCKETS[2].y);
+      drawCornerArrow(CX, CY, POCKETS[3].x, POCKETS[3].y);
+    }}
+
+    function drawBaseline(min, max, coord, isVertical) {{
+      ctx.strokeStyle = '#92400e';
+      ctx.lineWidth = 1.8;
+
+      if (!isVertical) {{
+        ctx.beginPath();
+        ctx.moveTo(min, coord);
+        ctx.lineTo(max, coord);
+        ctx.stroke();
+
+        drawBaseCircle(min, coord);
+        drawBaseCircle(max, coord);
+      }} else {{
+        ctx.beginPath();
+        ctx.moveTo(coord, min);
+        ctx.lineTo(coord, max);
+        ctx.stroke();
+
+        drawBaseCircle(coord, min);
+        drawBaseCircle(coord, max);
+      }}
+    }}
+
+    function drawBaseCircle(x, y) {{
+      ctx.beginPath();
+      ctx.arc(x, y, 13, 0, Math.PI * 2);
+      ctx.fillStyle = '#fee2e2';
+      ctx.fill();
+      ctx.strokeStyle = '#dc2626';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#dc2626';
+      ctx.fill();
+    }}
+
+    function drawCornerArrow(cx, cy, px, py) {{
+      ctx.save();
+      const angle = Math.atan2(py - cy, px - cx);
+      ctx.translate(cx + 95 * Math.cos(angle), cy + 95 * Math.sin(angle));
+      ctx.rotate(angle);
+
+      ctx.strokeStyle = '#b45309';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(75, 0);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(65, -5);
+      ctx.lineTo(75, 0);
+      ctx.lineTo(65, 5);
+      ctx.fillStyle = '#b45309';
+      ctx.fill();
+      ctx.restore();
+    }}
+
+    function drawPieces() {{
+      for (const p of pieces) {{
+        if (!p.active) continue;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+        ctx.shadowBlur = 6;
+        ctx.shadowOffsetY = 3;
+
+        if (p.type === 'queen') {{
+          const grad = ctx.createRadialGradient(p.x - 3, p.y - 3, 2, p.x, p.y, p.r);
+          grad.addColorStop(0, '#f87171');
+          grad.addColorStop(1, '#b91c1c');
+          ctx.fillStyle = grad;
+          ctx.fill();
+          ctx.strokeStyle = '#fef08a';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+          ctx.fillStyle = '#facc15';
+          ctx.fill();
+        }} else if (p.type === 'white') {{
+          const grad = ctx.createRadialGradient(p.x - 3, p.y - 3, 2, p.x, p.y, p.r);
+          grad.addColorStop(0, '#ffffff');
+          grad.addColorStop(1, '#d1d5db');
+          ctx.fillStyle = grad;
+          ctx.fill();
+          ctx.strokeStyle = '#9ca3af';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r * 0.55, 0, Math.PI * 2);
+          ctx.strokeStyle = '#6b7280';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }} else {{
+          const grad = ctx.createRadialGradient(p.x - 3, p.y - 3, 2, p.x, p.y, p.r);
+          grad.addColorStop(0, '#44403c');
+          grad.addColorStop(1, '#1c1917');
+          ctx.fillStyle = grad;
+          ctx.fill();
+          ctx.strokeStyle = '#78716c';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r * 0.55, 0, Math.PI * 2);
+          ctx.strokeStyle = '#a8a29e';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }}
+        ctx.restore();
+      }}
+
+      if (striker.active) {{
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(striker.x, striker.y, striker.r, 0, Math.PI * 2);
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetY = 4;
+
+        const grad = ctx.createRadialGradient(striker.x - 5, striker.y - 5, 3, striker.x, striker.y, striker.r);
+        grad.addColorStop(0, '#fffbeb');
+        grad.addColorStop(0.7, '#fef3c7');
+        grad.addColorStop(1, '#d97706');
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        ctx.strokeStyle = '#b45309';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(striker.x, striker.y, striker.r * 0.65, 0, Math.PI * 2);
+        ctx.strokeStyle = '#d97706';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(striker.x, striker.y, striker.r * 0.3, 0, Math.PI * 2);
+        ctx.fillStyle = '#b45309';
+        ctx.fill();
+
+        ctx.restore();
+      }}
+
+      if (isDragging) {{
+        const dx = dragStartX - currentDragX;
+        const dy = dragStartY - currentDragY;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist > 5) {{
+          ctx.save();
+          const angle = Math.atan2(dy, dx);
+          const aimLen = Math.min(240, dist * 3.2);
+
+          ctx.beginPath();
+          ctx.setLineDash([6, 6]);
+          ctx.moveTo(striker.x, striker.y);
+          ctx.lineTo(striker.x + aimLen * Math.cos(angle), striker.y + aimLen * Math.sin(angle));
+          ctx.strokeStyle = '#dc2626';
+          ctx.lineWidth = 2.2;
+          ctx.stroke();
+
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(striker.x, striker.y);
+          ctx.lineTo(currentDragX, currentDragY);
+          ctx.strokeStyle = 'rgba(245, 158, 11, 0.7)';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.beginPath();
+          const headX = striker.x + aimLen * Math.cos(angle);
+          const headY = striker.y + aimLen * Math.sin(angle);
+          ctx.arc(headX, headY, 5, 0, Math.PI * 2);
+          ctx.fillStyle = '#dc2626';
+          ctx.fill();
+
+          ctx.restore();
+        }}
+      }}
+
+      for (const ft of floatingTexts) {{
+        ctx.save();
+        ctx.font = 'bold 16px "JetBrains Mono", monospace';
+        ctx.fillStyle = ft.color;
+        ctx.globalAlpha = ft.alpha;
+        ctx.fillText(ft.text, ft.x - 20, ft.y);
+        ctx.restore();
+      }}
+    }}
+
+    function gameLoop() {{
+      updatePhysics();
+      drawBoard();
+      drawPieces();
+      requestAnimationFrame(gameLoop);
+    }}
+
+    initPieces();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>"""
+
+
+def get_shadow_master_game_html(title: str = "Shadow Master Skill Builder", desc: str = "") -> str:
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title} — Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg: #07090e;
+      --card-bg: rgba(15, 23, 42, 0.85);
+      --border: rgba(168, 85, 247, 0.25);
+      --border-glow: rgba(168, 85, 247, 0.5);
+      --purple: #a855f7;
+      --purple-light: #c084fc;
+      --purple-dark: #6b21a8;
+      --cyan: #06b6d4;
+      --red: #ef4444;
+      --yellow: #eab308;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #1e1138 0%, #07090e 70%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+    }}
+    .header {{
+      text-align: center;
+      margin-bottom: 1.25rem;
+      max-width: 1100px;
+      width: 100%;
+    }}
+    .badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(168, 85, 247, 0.15);
+      border: 1px solid var(--border);
+      color: var(--purple-light);
+      padding: 0.3rem 0.85rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }}
+    h1 {{
+      font-family: 'Cinzel', serif;
+      font-size: 2.2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #f8fafc 20%, #c084fc 60%, #a855f7 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: 0.02em;
+      margin-bottom: 0.3rem;
+    }}
+    .tagline {{
+      color: var(--muted);
+      font-size: 0.95rem;
+      max-width: 700px;
+      margin: 0 auto;
+    }}
+    .main-grid {{
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 1.25rem;
+      max-width: 1150px;
+      width: 100%;
+    }}
+    @media (max-width: 980px) {{
+      .main-grid {{ grid-template-columns: 1fr; }}
+    }}
+    .card {{
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.25rem;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 20px rgba(168, 85, 247, 0.08);
+      position: relative;
+    }}
+    /* HUD Stats Bar */
+    .hud-bar {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 0.75rem 1.25rem;
+      margin-bottom: 1rem;
+    }}
+    .hud-item {{
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }}
+    .hud-label {{
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }}
+    .hud-val {{
+      font-size: 1.15rem;
+      font-weight: 700;
+      font-family: 'Cinzel', serif;
+    }}
+    .bar-wrap {{
+      width: 120px;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 9999px;
+      overflow: hidden;
+      margin-top: 4px;
+    }}
+    .bar-fill {{
+      height: 100%;
+      border-radius: 9999px;
+      transition: width 0.2s ease;
+    }}
+    .bar-health {{ background: linear-gradient(90deg, #ef4444, #f87171); width: 100%; }}
+    .bar-energy {{ background: linear-gradient(90deg, #9333ea, #c084fc); width: 100%; }}
+    .bar-xp {{ background: linear-gradient(90deg, #06b6d4, #67e8f9); width: 25%; }}
+
+    /* Canvas Area */
+    .canvas-container {{
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      background: #030712;
+      box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.9);
+      display: flex;
+      justify-content: center;
+    }}
+    canvas {{
+      display: block;
+      width: 100%;
+      height: 420px;
+      background: #05070e;
+      cursor: crosshair;
+    }}
+    .canvas-overlay {{
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: rgba(0,0,0,0.6);
+      padding: 0.4rem 0.8rem;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      color: var(--purple-light);
+      pointer-events: none;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+    }}
+    /* Hotbar */
+    .hotbar {{
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.5rem;
+      margin-top: 0.9rem;
+    }}
+    .skill-btn {{
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 0.6rem 0.4rem;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.25rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      position: relative;
+      overflow: hidden;
+    }}
+    .skill-btn:hover:not(:disabled) {{
+      background: rgba(168, 85, 247, 0.15);
+      border-color: var(--purple);
+      transform: translateY(-2px);
+    }}
+    .skill-btn.active {{
+      border-color: var(--purple-light);
+      box-shadow: 0 0 12px rgba(168, 85, 247, 0.5);
+      background: rgba(168, 85, 247, 0.2);
+    }}
+    .skill-key {{
+      font-size: 0.7rem;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      color: var(--muted);
+      font-weight: 700;
+    }}
+    .skill-name {{
+      font-size: 0.8rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }}
+    .skill-cost {{
+      font-size: 0.7rem;
+      color: var(--purple-light);
+    }}
+    .cooldown-overlay {{
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(0, 0, 0, 0.75);
+      height: 0%;
+      pointer-events: none;
+      transition: height 0.1s linear;
+    }}
+
+    /* Controls bar */
+    .controls-row {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-top: 0.9rem;
+      flex-wrap: wrap;
+    }}
+    .btn {{
+      padding: 0.55rem 1.1rem;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.2s;
+    }}
+    .btn-primary {{
+      background: linear-gradient(135deg, var(--purple-dark), var(--purple));
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.1);
+    }}
+    .btn-primary:hover {{
+      background: linear-gradient(135deg, var(--purple), var(--purple-light));
+      box-shadow: 0 0 15px rgba(168, 85, 247, 0.4);
+    }}
+    .btn-secondary {{
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.1);
+    }}
+    .btn-secondary:hover {{
+      background: rgba(255, 255, 255, 0.1);
+    }}
+
+    /* Skill Builder Sidebar */
+    .builder-panel h2 {{
+      font-family: 'Cinzel', serif;
+      font-size: 1.25rem;
+      margin-bottom: 0.25rem;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }}
+    .builder-panel p.sub {{
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }}
+    .form-group {{
+      margin-bottom: 0.9rem;
+    }}
+    .form-label {{
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+      color: var(--muted);
+    }}
+    .form-label span.val {{
+      color: var(--purple-light);
+      font-family: monospace;
+    }}
+    select, input[type="text"] {{
+      width: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 0.55rem 0.75rem;
+      color: var(--text);
+      font-size: 0.85rem;
+      outline: none;
+    }}
+    select:focus, input[type="text"]:focus {{
+      border-color: var(--purple);
+    }}
+    input[type="range"] {{
+      width: 100%;
+      accent-color: var(--purple);
+      cursor: pointer;
+    }}
+    .preset-chips {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-top: 0.5rem;
+    }}
+    .chip {{
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      padding: 0.25rem 0.55rem;
+      font-size: 0.72rem;
+      cursor: pointer;
+      color: var(--muted);
+    }}
+    .chip:hover {{
+      background: rgba(168, 85, 247, 0.2);
+      border-color: var(--purple);
+      color: #fff;
+    }}
+    .json-box {{
+      background: #030712;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 0.75rem;
+      font-family: monospace;
+      font-size: 0.75rem;
+      color: #a7f3d0;
+      max-height: 140px;
+      overflow-y: auto;
+      margin-top: 0.75rem;
+      white-space: pre-wrap;
+    }}
+    .footer-help {{
+      margin-top: 1.5rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-align: center;
+    }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="badge">⚔️ Shadow Combat Ready &bull; Live Preview</div>
+    <h1 id="app-title">{title}</h1>
+    <p class="tagline">{desc or 'Interactive Shadow Master battle arena with dynamic 60 FPS combat physics, ninja abilities, and real-time skill system builder.'}</p>
+  </div>
+
+  <div class="main-grid">
+    <!-- LEFT: COMBAT ARENA -->
+    <div class="card">
+      <!-- HUD STATS BAR -->
+      <div class="hud-bar">
+        <div class="hud-item">
+          <div class="hud-label">Health</div>
+          <div class="hud-val" id="hud-health" style="color: #f87171;">100 / 100</div>
+          <div class="bar-wrap"><div class="bar-fill bar-health" id="bar-health-fill"></div></div>
+        </div>
+        <div class="hud-item">
+          <div class="hud-label">Shadow Energy</div>
+          <div class="hud-val" id="hud-energy" style="color: #c084fc;">100 / 100</div>
+          <div class="bar-wrap"><div class="bar-fill bar-energy" id="bar-energy-fill"></div></div>
+        </div>
+        <div class="hud-item">
+          <div class="hud-label">Combo / Level</div>
+          <div class="hud-val"><span id="hud-combo" style="color: #eab308;">x1</span> &bull; Lv.<span id="hud-level">1</span></div>
+          <div class="bar-wrap"><div class="bar-fill bar-xp" id="bar-xp-fill"></div></div>
+        </div>
+        <div class="hud-item">
+          <div class="hud-label">Combat Score</div>
+          <div class="hud-val" id="hud-score" style="color: #38bdf8;">0</div>
+        </div>
+      </div>
+
+      <!-- CANVAS -->
+      <div class="canvas-container">
+        <div class="canvas-overlay" id="statusOverlay">Status: Ready &bull; Move: WASD / Arrows &bull; Click to Slash</div>
+        <canvas id="combatCanvas" width="700" height="420"></canvas>
+      </div>
+
+      <!-- HOTBAR -->
+      <div class="hotbar">
+        <button class="skill-btn active" id="btn-skill-slash" onclick="triggerSkill('slash')">
+          <span class="skill-key">Q / Click</span>
+          <span class="skill-name">Katana Slash</span>
+          <span class="skill-cost" id="cost-slash">0 Energy</span>
+          <div class="cooldown-overlay" id="cd-slash"></div>
+        </button>
+        <button class="skill-btn" id="btn-skill-dash" onclick="triggerSkill('dash')">
+          <span class="skill-key">W / R-Click</span>
+          <span class="skill-name">Shadow Dash</span>
+          <span class="skill-cost" id="cost-dash">20 Energy</span>
+          <div class="cooldown-overlay" id="cd-dash"></div>
+        </button>
+        <button class="skill-btn" id="btn-skill-shuriken" onclick="triggerSkill('shuriken')">
+          <span class="skill-key">E</span>
+          <span class="skill-name">Shuriken Volley</span>
+          <span class="skill-cost" id="cost-shuriken">15 Energy</span>
+          <div class="cooldown-overlay" id="cd-shuriken"></div>
+        </button>
+        <button class="skill-btn" id="btn-skill-cloak" onclick="triggerSkill('cloak')">
+          <span class="skill-key">R</span>
+          <span class="skill-name">Shadow Cloak</span>
+          <span class="skill-cost" id="cost-cloak">30 Energy</span>
+          <div class="cooldown-overlay" id="cd-cloak"></div>
+        </button>
+        <button class="skill-btn" id="btn-skill-decoy" onclick="triggerSkill('decoy')">
+          <span class="skill-key">Space</span>
+          <span class="skill-name">Shadow Decoy</span>
+          <span class="skill-cost" id="cost-decoy">40 Energy</span>
+          <div class="cooldown-overlay" id="cd-decoy"></div>
+        </button>
+      </div>
+
+      <!-- CONTROLS ROW -->
+      <div class="controls-row">
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn btn-primary" id="btn-start" onclick="toggleBattle()">Start Battle</button>
+          <button class="btn btn-secondary" id="btn-restart" onclick="resetBattle()">Restart</button>
+          <button class="btn btn-secondary" onclick="spawnEnemy()">+ Spawn Guard</button>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--muted);">
+          Stealth: <span id="cloak-status" style="color: #64748b; font-weight: 700;">OFF</span> &bull;
+          Dummies: <span id="dummy-count" style="color: #38bdf8;">2</span> &bull;
+          Guards: <span id="guard-count" style="color: #f87171;">2</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: SKILL BUILDER & CUSTOMIZER -->
+    <div class="card builder-panel">
+      <h2>⚡ Skill Customizer</h2>
+      <p class="sub">Tweak active abilities in real-time or export definitions.</p>
+
+      <div class="form-group">
+        <label class="form-label">Selected Ability</label>
+        <select id="editSkillSelect" onchange="loadSkillToEdit()">
+          <option value="slash">Katana Slash (Melee Strike)</option>
+          <option value="dash">Shadow Dash (Mobility)</option>
+          <option value="shuriken">Shuriken Volley (Ranged)</option>
+          <option value="cloak">Shadow Cloak (Stealth / Crit)</option>
+          <option value="decoy">Shadow Decoy (Illusion)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <div class="form-label">
+          <span>Damage Power</span>
+          <span class="val" id="valDamage">45</span>
+        </div>
+        <input type="range" id="inputDamage" min="10" max="250" value="45" oninput="updateSkillField('damage', this.value)">
+      </div>
+
+      <div class="form-group">
+        <div class="form-label">
+          <span>Energy Cost</span>
+          <span class="val" id="valEnergy">0</span>
+        </div>
+        <input type="range" id="inputEnergy" min="0" max="60" value="0" oninput="updateSkillField('energy', this.value)">
+      </div>
+
+      <div class="form-group">
+        <div class="form-label">
+          <span>Cooldown (seconds)</span>
+          <span class="val" id="valCooldown">0.4s</span>
+        </div>
+        <input type="range" id="inputCooldown" min="2" max="60" value="4" oninput="updateSkillField('cooldown', this.value / 10)">
+      </div>
+
+      <div class="form-group">
+        <div class="form-label">
+          <span>Effect Radius / Range</span>
+          <span class="val" id="valRadius">70px</span>
+        </div>
+        <input type="range" id="inputRadius" min="30" max="250" value="70" oninput="updateSkillField('radius', this.value)">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Damage Element</label>
+        <select id="inputElement" onchange="updateSkillField('element', this.value)">
+          <option value="shadow">Void Shadow (Purple)</option>
+          <option value="crimson">Crimson Flame (Red)</option>
+          <option value="frost">Frostbite (Cyan)</option>
+          <option value="lightning">Volt Strike (Yellow)</option>
+        </select>
+      </div>
+
+      <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+        <button class="btn btn-primary" style="width: 100%;" onclick="applySkillChanges()">Apply to Live Game</button>
+        <button class="btn btn-secondary" style="width: 100%;" onclick="toggleExportJson()">Export Skill Config (JSON)</button>
+      </div>
+
+      <div class="preset-chips">
+        <span class="chip" onclick="applyPreset('assassin')">🗡️ Assassin</span>
+        <span class="chip" onclick="applyPreset('void')">🔮 Void Mage</span>
+        <span class="chip" onclick="applyPreset('speed')">⚡ Speed Ninja</span>
+        <span class="chip" onclick="applyPreset('tank')">🛡️ Shadow Guard</span>
+      </div>
+
+      <div id="jsonContainer" style="display: none;">
+        <div class="json-box" id="jsonExport"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-help">
+    Controls: <b>W A S D</b> or <b>Arrow Keys</b> to move &bull; <b>Click / Q</b> Katana Slash &bull; <b>W / Right Click</b> Shadow Dash &bull; <b>E</b> Shuriken &bull; <b>R</b> Cloak &bull; <b>Space</b> Decoy
+  </div>
+
+  <script>
+    // =========================================================================
+    // SHADOW MASTER COMBAT & SKILL BUILDER ENGINE
+    // =========================================================================
+
+    const canvas = document.getElementById('combatCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Audio Synthesizer (Zero External Dependencies)
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    let audioCtx = null;
+    function playSfx(type) {{
+      try {{
+        if (!audioCtx) audioCtx = new AudioCtx();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        const now = audioCtx.currentTime;
+
+        if (type === 'slash') {{
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(320, now);
+          osc.frequency.exponentialRampToValueAtTime(80, now + 0.12);
+          gain.gain.setValueAtTime(0.25, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+          osc.start(now);
+          osc.stop(now + 0.12);
+        }} else if (type === 'dash') {{
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(140, now);
+          osc.frequency.exponentialRampToValueAtTime(450, now + 0.15);
+          gain.gain.setValueAtTime(0.3, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+          osc.start(now);
+          osc.stop(now + 0.15);
+        }} else if (type === 'shuriken') {{
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(800, now);
+          osc.frequency.exponentialRampToValueAtTime(200, now + 0.08);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+          osc.start(now);
+          osc.stop(now + 0.08);
+        }} else if (type === 'hit') {{
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(180, now);
+          osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+          osc.start(now);
+          osc.stop(now + 0.1);
+        }} else if (type === 'levelup') {{
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(300, now);
+          osc.frequency.setValueAtTime(400, now + 0.08);
+          osc.frequency.setValueAtTime(600, now + 0.16);
+          gain.gain.setValueAtTime(0.3, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+          osc.start(now);
+          osc.stop(now + 0.35);
+        }}
+      }} catch(e) {{}}
+    }}
+
+    // Configurable Skills
+    const skills = {{
+      slash: {{ name: 'Katana Slash', damage: 45, energy: 0, cooldown: 0.4, radius: 70, element: 'shadow', lastUsed: 0 }},
+      dash: {{ name: 'Shadow Dash', damage: 25, energy: 20, cooldown: 1.2, radius: 110, element: 'shadow', lastUsed: 0 }},
+      shuriken: {{ name: 'Shuriken Volley', damage: 30, energy: 15, cooldown: 0.8, radius: 240, element: 'shadow', lastUsed: 0 }},
+      cloak: {{ name: 'Shadow Cloak', damage: 0, energy: 30, cooldown: 3.5, radius: 0, element: 'shadow', lastUsed: 0, activeUntil: 0 }},
+      decoy: {{ name: 'Shadow Decoy', damage: 60, energy: 40, cooldown: 4.0, radius: 100, element: 'shadow', lastUsed: 0 }}
+    }};
+
+    // Game State
+    let isRunning = true;
+    let score = 0;
+    let combo = 1;
+    let comboTimer = 0;
+    let level = 1;
+    let xp = 0;
+    let xpNeeded = 100;
+
+    // Player Object (The Shadow Master)
+    const player = {{
+      x: 350,
+      y: 210,
+      radius: 16,
+      speed: 4.2,
+      health: 100,
+      maxHealth: 100,
+      energy: 100,
+      maxEnergy: 100,
+      vx: 0,
+      vy: 0,
+      angle: 0,
+      isCloaked: false,
+      isDashing: false,
+      dashTimer: 0,
+      trail: [],
+      slashArc: null,
+      decoy: null
+    }};
+
+    // Projectiles, Floating Damage, Enemies, Decoys
+    let projectiles = [];
+    let damageNumbers = [];
+    let particles = [];
+    let enemies = [];
+
+    // Initialize Initial Training Dummies & Guards
+    function initEnemies() {{
+      enemies = [
+        {{ id: 1, type: 'dummy', x: 200, y: 160, radius: 20, health: 500, maxHealth: 500, name: 'Training Dummy A', hits: 0 }},
+        {{ id: 2, type: 'dummy', x: 200, y: 260, radius: 20, health: 500, maxHealth: 500, name: 'Training Dummy B', hits: 0 }},
+        {{ id: 3, type: 'guard', x: 550, y: 150, radius: 17, health: 120, maxHealth: 120, speed: 1.8, name: 'Shadow Guard 1', vx: 0, vy: 0, patrolY: 150, dir: 1 }},
+        {{ id: 4, type: 'guard', x: 550, y: 270, radius: 17, health: 120, maxHealth: 120, speed: 1.8, name: 'Shadow Guard 2', vx: 0, vy: 0, patrolY: 270, dir: -1 }},
+      ];
+      updateEntityCounts();
+    }}
+    initEnemies();
+
+    function updateEntityCounts() {{
+      const d = enemies.filter(e => e.type === 'dummy').length;
+      const g = enemies.filter(e => e.type === 'guard').length;
+      document.getElementById('dummy-count').innerText = d;
+      document.getElementById('guard-count').innerText = g;
+    }}
+
+    function spawnEnemy() {{
+      const id = Date.now();
+      const randY = 80 + Math.random() * 260;
+      enemies.push({{
+        id: id,
+        type: 'guard',
+        x: 600,
+        y: randY,
+        radius: 17,
+        health: 120,
+        maxHealth: 120,
+        speed: 2.0,
+        name: 'Shadow Guard ' + enemies.length,
+        vx: 0,
+        vy: 0,
+        patrolY: randY,
+        dir: 1
+      }});
+      updateEntityCounts();
+    }}
+
+    // Input Handling
+    const keys = {{}};
+    let mouseX = 350;
+    let mouseY = 210;
+
+    window.addEventListener('keydown', (e) => {{
+      keys[e.key.toLowerCase()] = true;
+      if (e.key === ' ' || e.code === 'Space') {{
+        e.preventDefault();
+        triggerSkill('decoy');
+      }} else if (e.key.toLowerCase() === 'q') {{
+        triggerSkill('slash');
+      }} else if (e.key.toLowerCase() === 'w') {{
+        triggerSkill('dash');
+      }} else if (e.key.toLowerCase() === 'e') {{
+        triggerSkill('shuriken');
+      }} else if (e.key.toLowerCase() === 'r') {{
+        triggerSkill('cloak');
+      }}
+    }});
+
+    window.addEventListener('keyup', (e) => {{
+      keys[e.key.toLowerCase()] = false;
+    }});
+
+    canvas.addEventListener('mousemove', (e) => {{
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      mouseX = (e.clientX - rect.left) * scaleX;
+      mouseY = (e.clientY - rect.top) * scaleY;
+    }});
+
+    canvas.addEventListener('mousedown', (e) => {{
+      if (e.button === 0) {{
+        triggerSkill('slash');
+      }} else if (e.button === 2) {{
+        e.preventDefault();
+        triggerSkill('dash');
+      }}
+    }});
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // Skill Trigger Logic
+    function triggerSkill(key) {{
+      const sk = skills[key];
+      if (!sk) return;
+      const now = performance.now() / 1000;
+
+      if (now - sk.lastUsed < sk.cooldown) return;
+      if (player.energy < sk.energy) return;
+
+      player.energy -= sk.energy;
+      sk.lastUsed = now;
+
+      if (key === 'slash') {{
+        playSfx('slash');
+        const crit = player.isCloaked ? 2.5 : 1.0;
+        if (player.isCloaked) {{
+          player.isCloaked = false;
+          document.getElementById('cloak-status').innerText = 'OFF';
+          document.getElementById('cloak-status').style.color = '#64748b';
+        }}
+        const dmg = Math.round(sk.damage * crit * (1 + (combo - 1) * 0.15));
+        const reach = sk.radius;
+        const startAng = player.angle - Math.PI / 3;
+        const endAng = player.angle + Math.PI / 3;
+
+        player.slashArc = {{
+          x: player.x,
+          y: player.y,
+          startAngle: startAng,
+          endAngle: endAng,
+          radius: reach,
+          element: sk.element,
+          life: 0.15,
+          maxLife: 0.15
+        }};
+
+        // Check hit against enemies
+        enemies.forEach(en => {{
+          const dx = en.x - player.x;
+          const dy = en.y - player.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist <= reach + en.radius) {{
+            const enAngle = Math.atan2(dy, dx);
+            let diff = Math.abs(enAngle - player.angle);
+            while (diff > Math.PI) diff = Math.abs(diff - 2 * Math.PI);
+            if (diff <= Math.PI / 2.5) {{
+              damageEnemy(en, dmg, crit > 1.0, sk.element);
+            }}
+          }}
+        }});
+
+      }} else if (key === 'dash') {{
+        playSfx('dash');
+        player.isDashing = true;
+        player.dashTimer = 0.22;
+        const dashDist = sk.radius;
+        player.vx = Math.cos(player.angle) * (dashDist / 0.22);
+        player.vy = Math.sin(player.angle) * (dashDist / 0.22);
+
+        // Spawn shadow clones in wake
+        for (let i = 0; i < 3; i++) {{
+          player.trail.push({{
+            x: player.x - (player.vx * 0.05 * i),
+            y: player.y - (player.vy * 0.05 * i),
+            radius: player.radius,
+            alpha: 0.7 - i * 0.2,
+            angle: player.angle
+          }});
+        }}
+
+      }} else if (key === 'shuriken') {{
+        playSfx('shuriken');
+        const count = 3;
+        const spread = 0.25;
+        for (let i = -1; i <= 1; i++) {{
+          const a = player.angle + i * spread;
+          projectiles.push({{
+            x: player.x,
+            y: player.y,
+            vx: Math.cos(a) * 9,
+            vy: Math.sin(a) * 9,
+            damage: sk.damage,
+            radius: 5,
+            range: sk.radius,
+            traveled: 0,
+            element: sk.element
+          }});
+        }}
+
+      }} else if (key === 'cloak') {{
+        playSfx('dash');
+        player.isCloaked = true;
+        sk.activeUntil = now + 5.0;
+        document.getElementById('cloak-status').innerText = 'ACTIVE (5s)';
+        document.getElementById('cloak-status').style.color = '#c084fc';
+        // Spawn cloak particle puff
+        for (let i = 0; i < 15; i++) {{
+          particles.push({{
+            x: player.x + (Math.random() - 0.5) * 20,
+            y: player.y + (Math.random() - 0.5) * 20,
+            vx: (Math.random() - 0.5) * 3,
+            vy: (Math.random() - 0.5) * 3,
+            radius: Math.random() * 5 + 2,
+            color: '#a855f7',
+            alpha: 0.8,
+            life: 0.4
+          }});
+        }}
+
+      }} else if (key === 'decoy') {{
+        playSfx('dash');
+        player.decoy = {{
+          x: player.x,
+          y: player.y,
+          radius: player.radius,
+          health: 150,
+          life: 5.0,
+          angle: player.angle
+        }};
+        for (let i = 0; i < 12; i++) {{
+          particles.push({{
+            x: player.x + (Math.random() - 0.5) * 20,
+            y: player.y + (Math.random() - 0.5) * 20,
+            vx: (Math.random() - 0.5) * 4,
+            vy: (Math.random() - 0.5) * 4,
+            radius: 4,
+            color: '#c084fc',
+            alpha: 0.9,
+            life: 0.35
+          }});
+        }}
+      }}
+    }}
+
+    function damageEnemy(en, dmg, isCrit, element) {{
+      playSfx('hit');
+      en.health -= dmg;
+      if (en.hits !== undefined) en.hits++;
+      score += dmg * combo;
+      xp += Math.round(dmg * 0.4);
+      combo++;
+      comboTimer = 2.5;
+
+      // Check level up
+      if (xp >= xpNeeded) {{
+        level++;
+        xp -= xpNeeded;
+        xpNeeded = Math.round(xpNeeded * 1.4);
+        playSfx('levelup');
+        player.energy = player.maxEnergy;
+      }}
+
+      // Damage number
+      damageNumbers.push({{
+        x: en.x + (Math.random() - 0.5) * 15,
+        y: en.y - 15,
+        text: (isCrit ? 'CRIT! ' : '') + dmg,
+        color: isCrit ? '#facc15' : (element === 'crimson' ? '#f87171' : element === 'frost' ? '#67e8f9' : '#c084fc'),
+        alpha: 1.0,
+        vy: -1.8,
+        life: 0.8
+      }});
+
+      // Particles
+      for (let i = 0; i < 8; i++) {{
+        particles.push({{
+          x: en.x,
+          y: en.y,
+          vx: (Math.random() - 0.5) * 5,
+          vy: (Math.random() - 0.5) * 5,
+          radius: Math.random() * 3 + 1,
+          color: isCrit ? '#facc15' : '#a855f7',
+          alpha: 1.0,
+          life: 0.3
+        }});
+      }}
+
+      // Enemy defeat check
+      if (en.type === 'guard' && en.health <= 0) {{
+        score += 250;
+        // respawn after 3 seconds
+        setTimeout(() => {{
+          en.health = en.maxHealth;
+          en.x = 600;
+          en.y = 80 + Math.random() * 260;
+        }}, 3000);
+      }}
+    }}
+
+    // Toggle Game Loop States
+    function toggleBattle() {{
+      isRunning = !isRunning;
+      document.getElementById('btn-start').innerText = isRunning ? 'Pause Battle' : 'Resume Battle';
+      document.getElementById('statusOverlay').innerText = isRunning ? 'Arena Active &bull; Combat Live' : 'Battle Paused';
+    }}
+
+    function resetBattle() {{
+      score = 0;
+      combo = 1;
+      comboTimer = 0;
+      level = 1;
+      xp = 0;
+      player.health = 100;
+      player.energy = 100;
+      player.x = 350;
+      player.y = 210;
+      player.isCloaked = false;
+      player.decoy = null;
+      projectiles = [];
+      particles = [];
+      damageNumbers = [];
+      initEnemies();
+      document.getElementById('statusOverlay').innerText = 'Battle Reset &bull; Ready';
+    }}
+
+    // Main 60 FPS Game Loop
+    let lastTime = performance.now();
+    function gameLoop(now) {{
+      const dt = Math.min((now - lastTime) / 1000, 0.1);
+      lastTime = now;
+
+      if (isRunning) {{
+        update(dt);
+      }}
+      render();
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }}
+
+    function update(dt) {{
+      // Player Energy Regeneration
+      player.energy = Math.min(player.maxEnergy, player.energy + 12 * dt);
+
+      // Combo Timer decay
+      if (comboTimer > 0) {{
+        comboTimer -= dt;
+        if (comboTimer <= 0) combo = 1;
+      }}
+
+      // Cloak timer decay
+      if (player.isCloaked && skills.cloak.activeUntil) {{
+        if (performance.now() / 1000 >= skills.cloak.activeUntil) {{
+          player.isCloaked = false;
+          document.getElementById('cloak-status').innerText = 'OFF';
+          document.getElementById('cloak-status').style.color = '#64748b';
+        }}
+      }}
+
+      // Facing Angle towards Mouse
+      player.angle = Math.atan2(mouseY - player.y, mouseX - player.x);
+
+      // Movement
+      if (player.isDashing) {{
+        player.dashTimer -= dt;
+        player.x += player.vx * dt;
+        player.y += player.vy * dt;
+        if (player.dashTimer <= 0) {{
+          player.isDashing = false;
+          player.vx = 0;
+          player.vy = 0;
+        }}
+      }} else {{
+        let moveX = 0;
+        let moveY = 0;
+        if (keys['w'] || keys['arrowup']) moveY -= 1;
+        if (keys['s'] || keys['arrowdown']) moveY += 1;
+        if (keys['a'] || keys['arrowleft']) moveX -= 1;
+        if (keys['d'] || keys['arrowright']) moveX += 1;
+
+        if (moveX !== 0 || moveY !== 0) {{
+          const len = Math.hypot(moveX, moveY);
+          const spd = player.isCloaked ? player.speed * 1.35 : player.speed;
+          player.x += (moveX / len) * spd;
+          player.y += (moveY / len) * spd;
+
+          // Shadow afterimage trail
+          if (Math.random() < 0.4) {{
+            player.trail.push({{
+              x: player.x,
+              y: player.y,
+              radius: player.radius,
+              alpha: player.isCloaked ? 0.2 : 0.4,
+              angle: player.angle
+            }});
+          }}
+        }}
+      }}
+
+      // Arena Boundaries
+      player.x = Math.max(player.radius + 10, Math.min(canvas.width - player.radius - 10, player.x));
+      player.y = Math.max(player.radius + 10, Math.min(canvas.height - player.radius - 10, player.y));
+
+      // Trails fade
+      player.trail.forEach(t => t.alpha -= dt * 1.8);
+      player.trail = player.trail.filter(t => t.alpha > 0);
+
+      // Slash arc animation
+      if (player.slashArc) {{
+        player.slashArc.life -= dt;
+        if (player.slashArc.life <= 0) player.slashArc = null;
+      }}
+
+      // Projectiles update
+      projectiles.forEach(p => {{
+        p.x += p.vx;
+        p.y += p.vy;
+        p.traveled += Math.hypot(p.vx, p.vy);
+
+        // Check collision against enemies
+        enemies.forEach(en => {{
+          if (en.health > 0) {{
+            const d = Math.hypot(en.x - p.x, en.y - p.y);
+            if (d < en.radius + p.radius) {{
+              p.traveled = p.range + 10; // destroy projectile
+              damageEnemy(en, p.damage, false, p.element);
+            }}
+          }}
+        }});
+      }});
+      projectiles = projectiles.filter(p => p.traveled < p.range && p.x >= 0 && p.x <= canvas.width && p.y >= 0 && p.y <= canvas.height);
+
+      // Enemies AI Behavior
+      const targetX = player.decoy ? player.decoy.x : (player.isCloaked ? -999 : player.x);
+      const targetY = player.decoy ? player.decoy.y : (player.isCloaked ? -999 : player.y);
+
+      enemies.forEach(en => {{
+        if (en.type === 'dummy') return;
+        if (en.health <= 0) return;
+
+        const distToTarget = Math.hypot(targetX - en.x, targetY - en.y);
+        if (distToTarget < 200) {{
+          // Aggro chase
+          const angle = Math.atan2(targetY - en.y, targetX - en.x);
+          en.x += Math.cos(angle) * en.speed;
+          en.y += Math.sin(angle) * en.speed;
+
+          // Attack player if in melee range and not decoy
+          if (!player.decoy && distToTarget < player.radius + en.radius + 4) {{
+            if (!player.isDashing && !player.isCloaked) {{
+              player.health = Math.max(0, player.health - 12 * dt);
+            }}
+          }}
+        }} else {{
+          // Simple vertical patrol
+          en.y += en.dir * en.speed * 0.6;
+          if (en.y > en.patrolY + 40) en.dir = -1;
+          if (en.y < en.patrolY - 40) en.dir = 1;
+        }}
+      }});
+
+      // Decoy decay
+      if (player.decoy) {{
+        player.decoy.life -= dt;
+        if (player.decoy.life <= 0) player.decoy = null;
+      }}
+
+      // Particles & Damage numbers
+      particles.forEach(pt => {{
+        pt.x += pt.vx;
+        pt.y += pt.vy;
+        pt.alpha -= dt * 2.5;
+      }});
+      particles = particles.filter(pt => pt.alpha > 0);
+
+      damageNumbers.forEach(dm => {{
+        dm.y += dm.vy;
+        dm.alpha -= dt * 1.2;
+      }});
+      damageNumbers = damageNumbers.filter(dm => dm.alpha > 0);
+    }}
+
+    function render() {{
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Grid Floor
+      ctx.strokeStyle = 'rgba(168, 85, 247, 0.07)';
+      ctx.lineWidth = 1;
+      const gridSize = 35;
+      for (let x = 0; x < canvas.width; x += gridSize) {{
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }}
+      for (let y = 0; y < canvas.height; y += gridSize) {{
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }}
+
+      // Arena Outer Ring
+      ctx.strokeStyle = 'rgba(168, 85, 247, 0.2)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
+
+      // Decoy Rendering
+      if (player.decoy) {{
+        ctx.save();
+        ctx.globalAlpha = 0.5 + Math.sin(performance.now() * 0.01) * 0.2;
+        ctx.fillStyle = '#6b21a8';
+        ctx.beginPath();
+        ctx.arc(player.decoy.x, player.decoy.y, player.decoy.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#c084fc';
+        ctx.stroke();
+        ctx.restore();
+      }}
+
+      // Shadow Afterimages / Trails
+      player.trail.forEach(t => {{
+        ctx.save();
+        ctx.globalAlpha = t.alpha;
+        ctx.fillStyle = '#9333ea';
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, t.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }});
+
+      // Draw Enemies
+      enemies.forEach(en => {{
+        if (en.health <= 0) return;
+        ctx.save();
+        if (en.type === 'dummy') {{
+          // Wood training dummy
+          ctx.fillStyle = '#78350f';
+          ctx.beginPath();
+          ctx.arc(en.x, en.y, en.radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#d97706';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          // Cross marker
+          ctx.strokeStyle = '#fef3c7';
+          ctx.beginPath();
+          ctx.moveTo(en.x - 8, en.y);
+          ctx.lineTo(en.x + 8, en.y);
+          ctx.moveTo(en.x, en.y - 8);
+          ctx.lineTo(en.x, en.y + 8);
+          ctx.stroke();
+        }} else {{
+          // Shadow Guard
+          ctx.fillStyle = '#1e1b4b';
+          ctx.beginPath();
+          ctx.arc(en.x, en.y, en.radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          // Red glowing eyes
+          ctx.fillStyle = '#f87171';
+          ctx.beginPath();
+          ctx.arc(en.x - 4, en.y - 3, 2, 0, Math.PI * 2);
+          ctx.arc(en.x + 4, en.y - 3, 2, 0, Math.PI * 2);
+          ctx.fill();
+        }}
+
+        // Health bar above enemy
+        const bw = en.radius * 2;
+        const bh = 4;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(en.x - bw / 2, en.y - en.radius - 10, bw, bh);
+        const hpPct = Math.max(0, en.health / en.maxHealth);
+        ctx.fillStyle = en.type === 'dummy' ? '#f59e0b' : '#ef4444';
+        ctx.fillRect(en.x - bw / 2, en.y - en.radius - 10, bw * hpPct, bh);
+        ctx.restore();
+      }});
+
+      // Draw Player (The Shadow Master)
+      ctx.save();
+      ctx.globalAlpha = player.isCloaked ? 0.35 : 1.0;
+
+      // Glow Aura
+      const aura = ctx.createRadialGradient(player.x, player.y, player.radius * 0.5, player.x, player.y, player.radius * 1.8);
+      aura.addColorStop(0, 'rgba(168, 85, 247, 0.4)');
+      aura.addColorStop(1, 'rgba(168, 85, 247, 0)');
+      ctx.fillStyle = aura;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.radius * 1.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Body (Ninja Obsidian Silhouette)
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = player.isCloaked ? '#c084fc' : '#a855f7';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      // Scarf & Glowing Eyes in facing angle
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.rotate(player.angle);
+      // Scarf trail
+      ctx.fillStyle = '#9333ea';
+      ctx.fillRect(-player.radius - 6, -3, 8, 6);
+      // Ninja eyes
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.arc(6, -3, 2, 0, Math.PI * 2);
+      ctx.arc(6, 3, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.restore();
+
+      // Draw Slash Arc
+      if (player.slashArc) {{
+        const arc = player.slashArc;
+        ctx.save();
+        ctx.strokeStyle = arc.element === 'crimson' ? '#ef4444' : arc.element === 'frost' ? '#06b6d4' : '#c084fc';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        ctx.shadowColor = ctx.strokeStyle;
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.arc(arc.x, arc.y, arc.radius, arc.startAngle, arc.endAngle);
+        ctx.stroke();
+        ctx.restore();
+      }}
+
+      // Draw Projectiles
+      projectiles.forEach(p => {{
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(performance.now() * 0.02);
+        ctx.fillStyle = p.element === 'crimson' ? '#f87171' : p.element === 'frost' ? '#67e8f9' : '#c084fc';
+        ctx.shadowColor = ctx.fillStyle;
+        ctx.shadowBlur = 10;
+        // 4-pointed Shuriken shape
+        ctx.beginPath();
+        ctx.moveTo(0, -p.radius * 2);
+        ctx.lineTo(p.radius * 0.7, -p.radius * 0.7);
+        ctx.lineTo(p.radius * 2, 0);
+        ctx.lineTo(p.radius * 0.7, p.radius * 0.7);
+        ctx.lineTo(0, p.radius * 2);
+        ctx.lineTo(-p.radius * 0.7, p.radius * 0.7);
+        ctx.lineTo(-p.radius * 2, 0);
+        ctx.lineTo(-p.radius * 0.7, -p.radius * 0.7);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }});
+
+      // Draw Particles
+      particles.forEach(pt => {{
+        ctx.save();
+        ctx.globalAlpha = pt.alpha;
+        ctx.fillStyle = pt.color;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }});
+
+      // Draw Damage Numbers
+      damageNumbers.forEach(dm => {{
+        ctx.save();
+        ctx.globalAlpha = dm.alpha;
+        ctx.fillStyle = dm.color;
+        ctx.font = 'bold 14px "Plus Jakarta Sans", sans-serif';
+        ctx.shadowColor = '#000';
+        ctx.shadowBlur = 4;
+        ctx.fillText(dm.text, dm.x, dm.y);
+        ctx.restore();
+      }});
+    }}
+
+    function updateHud() {{
+      document.getElementById('hud-health').innerText = Math.round(player.health) + ' / 100';
+      document.getElementById('bar-health-fill').style.width = Math.max(0, player.health) + '%';
+
+      document.getElementById('hud-energy').innerText = Math.round(player.energy) + ' / 100';
+      document.getElementById('bar-energy-fill').style.width = Math.max(0, player.energy) + '%';
+
+      document.getElementById('hud-combo').innerText = 'x' + combo;
+      document.getElementById('hud-level').innerText = level;
+      document.getElementById('bar-xp-fill').style.width = (xp / xpNeeded * 100) + '%';
+
+      document.getElementById('hud-score').innerText = score;
+
+      // Cooldown HUD overlays
+      const now = performance.now() / 1000;
+      for (const [k, sk] of Object.entries(skills)) {{
+        const el = document.getElementById('cd-' + k);
+        if (el) {{
+          const elapsed = now - sk.lastUsed;
+          if (elapsed < sk.cooldown) {{
+            const pct = (1 - elapsed / sk.cooldown) * 100;
+            el.style.height = pct + '%';
+          }} else {{
+            el.style.height = '0%';
+          }}
+        }}
+      }}
+    }}
+
+    // Skill Customizer Form Synchronization
+    function loadSkillToEdit() {{
+      const k = document.getElementById('editSkillSelect').value;
+      const sk = skills[k];
+      if (!sk) return;
+      document.getElementById('inputDamage').value = sk.damage;
+      document.getElementById('valDamage').innerText = sk.damage;
+      document.getElementById('inputEnergy').value = sk.energy;
+      document.getElementById('valEnergy').innerText = sk.energy;
+      document.getElementById('inputCooldown').value = Math.round(sk.cooldown * 10);
+      document.getElementById('valCooldown').innerText = sk.cooldown + 's';
+      document.getElementById('inputRadius').value = sk.radius;
+      document.getElementById('valRadius').innerText = sk.radius + 'px';
+      document.getElementById('inputElement').value = sk.element;
+    }}
+
+    function updateSkillField(field, val) {{
+      const k = document.getElementById('editSkillSelect').value;
+      const sk = skills[k];
+      if (!sk) return;
+      if (field === 'damage') {{
+        sk.damage = parseInt(val, 10);
+        document.getElementById('valDamage').innerText = sk.damage;
+      }} else if (field === 'energy') {{
+        sk.energy = parseInt(val, 10);
+        document.getElementById('valEnergy').innerText = sk.energy;
+        document.getElementById('cost-' + k).innerText = sk.energy + ' Energy';
+      }} else if (field === 'cooldown') {{
+        sk.cooldown = parseFloat(val);
+        document.getElementById('valCooldown').innerText = sk.cooldown + 's';
+      }} else if (field === 'radius') {{
+        sk.radius = parseInt(val, 10);
+        document.getElementById('valRadius').innerText = sk.radius + 'px';
+      }} else if (field === 'element') {{
+        sk.element = val;
+      }}
+    }}
+
+    function applySkillChanges() {{
+      const k = document.getElementById('editSkillSelect').value;
+      playSfx('levelup');
+      document.getElementById('statusOverlay').innerText = 'Applied custom tuning to ' + skills[k].name + '! Test in arena.';
+    }}
+
+    function applyPreset(preset) {{
+      if (preset === 'assassin') {{
+        skills.slash.damage = 85;
+        skills.dash.cooldown = 0.8;
+        skills.cloak.cooldown = 2.0;
+      }} else if (preset === 'void') {{
+        skills.shuriken.damage = 55;
+        skills.decoy.damage = 110;
+        skills.slash.element = 'shadow';
+      }} else if (preset === 'speed') {{
+        skills.dash.energy = 5;
+        skills.dash.cooldown = 0.4;
+        skills.slash.cooldown = 0.2;
+      }} else if (preset === 'tank') {{
+        skills.cloak.energy = 10;
+        skills.decoy.energy = 15;
+      }}
+      loadSkillToEdit();
+      playSfx('levelup');
+      document.getElementById('statusOverlay').innerText = 'Preset [' + preset.toUpperCase() + '] applied to Skill System!';
+    }}
+
+    function toggleExportJson() {{
+      const box = document.getElementById('jsonContainer');
+      if (box.style.display === 'none') {{
+        box.style.display = 'block';
+        const exportData = {{
+          game: "Shadow Master Skill Builder",
+          version: "2.0.0",
+          schema: "https://se-intelliplatform.local/schemas/skill-tree.v1.json",
+          skills: skills,
+          exportedAt: new Date().toISOString()
+        }};
+        document.getElementById('jsonExport').innerText = JSON.stringify(exportData, null, 2);
+      }} else {{
+        box.style.display = 'none';
+      }}
+    }}
+
+    // Start 60fps Loop
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
+"""
 
 
 def get_ecommerce_html(title: str = "ShopSphere", desc: str = "") -> str:
@@ -5026,12 +7794,2422 @@ def get_custom_app_html(title: str = "SE IntelliPlatform Application", desc: str
 </html>"""
 
 
+import os
+
+def get_chess_html(title="Chess Master Pro", desc="Interactive Strategic Chess Game"):
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title} — Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg: #0f172a;
+      --card-bg: rgba(30, 41, 59, 0.85);
+      --border: rgba(255, 255, 255, 0.1);
+      --accent: #3b82f6;
+      --light-sq: #eeeed2;
+      --dark-sq: #769656;
+      --highlight: #baca44;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #1e293b 0%, #0f172a 70%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem;
+    }}
+    .header {{ text-align: center; margin-bottom: 1.25rem; max-width: 1000px; width: 100%; }}
+    .badge {{ display: inline-block; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 700; margin-bottom: 0.5rem; }}
+    h1 {{ font-size: 2.2rem; font-weight: 800; margin-bottom: 0.25rem; background: linear-gradient(135deg, #fff 30%, #93c5fd 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+    .subtitle {{ color: var(--muted); font-size: 0.95rem; }}
+    .chess-layout {{ display: flex; gap: 2rem; align-items: flex-start; justify-content: center; flex-wrap: wrap; max-width: 1100px; width: 100%; }}
+    .board-container {{ background: #262421; padding: 12px; border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1); }}
+    .board {{ display: grid; grid-template-columns: repeat(8, 64px); grid-template-rows: repeat(8, 64px); border: 2px solid #3e3b36; }}
+    .square {{ width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; font-size: 40px; cursor: pointer; user-select: none; transition: background 0.1s; position: relative; }}
+    .square.light {{ background: var(--light-sq); color: #111; }}
+    .square.dark {{ background: var(--dark-sq); color: #111; }}
+    .square.selected {{ background: var(--highlight) !important; }}
+    .square.valid-move::after {{ content: ''; width: 16px; height: 16px; background: rgba(0,0,0,0.25); border-radius: 50%; position: absolute; }}
+    .side-panel {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; width: 320px; display: flex; flex-direction: column; gap: 1rem; }}
+    .hud-box {{ background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; }}
+    .hud-title {{ font-size: 0.75rem; text-transform: uppercase; color: var(--muted); font-weight: 700; margin-bottom: 0.25rem; }}
+    .hud-val {{ font-size: 1.1rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; }}
+    .history-box {{ background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; max-height: 180px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; }}
+    .history-entry {{ display: flex; justify-content: space-between; padding: 0.2rem 0; border-bottom: 1px solid rgba(255,255,255,0.05); }}
+    .btn {{ padding: 0.6rem 1rem; border-radius: 8px; font-weight: 700; cursor: pointer; border: none; font-size: 0.9rem; transition: transform 0.1s; }}
+    .btn:active {{ transform: scale(0.98); }}
+    .btn-primary {{ background: #3b82f6; color: white; }}
+    .btn-secondary {{ background: rgba(255,255,255,0.1); color: white; border: 1px solid var(--border); }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="badge">CHESS STRATEGY ENGINE &bull; LIVE</span>
+    <h1>{title}</h1>
+    <p class="subtitle">{desc}</p>
+  </div>
+
+  <div class="chess-layout">
+    <div class="board-container">
+      <div class="board" id="chessBoard"></div>
+    </div>
+
+    <div class="side-panel">
+      <div class="hud-box">
+        <div class="hud-title">Current Turn</div>
+        <div class="hud-val" id="turnIndicator" style="color: #60a5fa;">White to Move</div>
+      </div>
+      <div class="hud-box">
+        <div class="hud-title">Match Status</div>
+        <div class="hud-val" id="statusIndicator" style="color: #10b981;">In Progress</div>
+      </div>
+      <div class="hud-box">
+        <div class="hud-title">Captured Pieces</div>
+        <div id="capturedWhite" style="font-size: 20px; min-height: 24px;"></div>
+        <div id="capturedBlack" style="font-size: 20px; min-height: 24px;"></div>
+      </div>
+      <div class="hud-title">Move Notation History</div>
+      <div class="history-box" id="moveHistory"></div>
+      <div style="display: flex; gap: 0.5rem; margin-top: auto;">
+        <button class="btn btn-secondary" style="flex: 1;" onclick="resetGame()">New Match</button>
+        <button class="btn btn-primary" style="flex: 1;" onclick="flipBoard()">Flip Board</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const INITIAL_BOARD = [
+      ['♜','♞','♝','♛','♚','♝','♞','♜'],
+      ['♟','♟','♟','♟','♟','♟','♟','♟'],
+      ['','','','','','','',''],
+      ['','','','','','','',''],
+      ['','','','','','','',''],
+      ['','','','','','','',''],
+      ['♙','♙','♙','♙','♙','♙','♙','♙'],
+      ['♖','♘','♗','♕','♔','♗','♘','♖']
+    ];
+
+    let board = JSON.parse(JSON.stringify(INITIAL_BOARD));
+    let turn = 'white';
+    let selectedSquare = null;
+    let validMoves = [];
+    let moveCount = 1;
+    let isFlipped = false;
+    let moveHistory = [];
+
+    const isWhitePiece = (p) => ['♙','♖','♘','♗','♕','♔'].includes(p);
+    const isBlackPiece = (p) => ['♟','♜','♞','♝','♛','♚'].includes(p);
+
+    function renderBoard() {{
+      const boardEl = document.getElementById('chessBoard');
+      boardEl.innerHTML = '';
+      for (let r = 0; r < 8; r++) {{
+        for (let c = 0; c < 8; c++) {{
+          const row = isFlipped ? 7 - r : r;
+          const col = isFlipped ? 7 - c : c;
+          const sq = document.createElement('div');
+          sq.className = 'square ' + ((row + col) % 2 === 0 ? 'light' : 'dark');
+          if (selectedSquare && selectedSquare.r === row && selectedSquare.c === col) {{
+            sq.classList.add('selected');
+          }}
+          if (validMoves.some(m => m.r === row && m.c === col)) {{
+            sq.classList.add('valid-move');
+          }}
+          sq.innerText = board[row][col];
+          sq.onclick = () => onSquareClick(row, col);
+          boardEl.appendChild(sq);
+        }}
+      }}
+    }}
+
+    function onSquareClick(r, c) {{
+      const piece = board[r][c];
+      if (selectedSquare) {{
+        // Check if moving to valid square
+        if (validMoves.some(m => m.r === r && m.c === c)) {{
+          const movedPiece = board[selectedSquare.r][selectedSquare.c];
+          const captured = board[r][c];
+          board[r][c] = movedPiece;
+          board[selectedSquare.r][selectedSquare.c] = '';
+
+          const cols = ['a','b','c','d','e','f','g','h'];
+          const moveNotation = movedPiece + cols[c] + (8 - r) + (captured ? ' (x)' : '');
+          recordMove(moveNotation);
+
+          turn = turn === 'white' ? 'black' : 'white';
+          document.getElementById('turnIndicator').innerText = (turn === 'white' ? 'White' : 'Black') + ' to Move';
+          document.getElementById('turnIndicator').style.color = turn === 'white' ? '#60a5fa' : '#f59e0b';
+          selectedSquare = null;
+          validMoves = [];
+          renderBoard();
+          return;
+        }}
+      }}
+
+      // Select piece
+      if (piece && ((turn === 'white' && isWhitePiece(piece)) || (turn === 'black' && isBlackPiece(piece)))) {{
+        selectedSquare = {{ r, c }};
+        validMoves = getSampleMoves(r, c, piece);
+      }} else {{
+        selectedSquare = null;
+        validMoves = [];
+      }}
+      renderBoard();
+    }}
+
+    function getSampleMoves(r, c, piece) {{
+      const moves = [];
+      const dir = isWhitePiece(piece) ? -1 : 1;
+      // Basic forward moves & captures for display interactivity
+      if (['♙','♟'].includes(piece)) {{
+        if (r + dir >= 0 && r + dir < 8 && !board[r + dir][c]) moves.push({{ r: r + dir, c }});
+        if (c > 0 && r + dir >= 0 && r + dir < 8) moves.push({{ r: r + dir, c: c - 1 }});
+        if (c < 7 && r + dir >= 0 && r + dir < 8) moves.push({{ r: r + dir, c: c + 1 }});
+      }} else {{
+        // Knights / Kings / Queens / Rooks - basic adjacent & ray tiles
+        const offsets = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
+        for (const [dr, dc] of offsets) {{
+          const nr = r + dr, nc = c + dc;
+          if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) moves.push({{ r: nr, c: nc }});
+        }}
+      }}
+      return moves;
+    }}
+
+    function recordMove(notation) {{
+      moveHistory.push(notation);
+      const histEl = document.getElementById('moveHistory');
+      histEl.innerHTML += `<div class="history-entry"><span>#${{moveHistory.length}}</span><span>${{notation}}</span></div>`;
+      histEl.scrollTop = histEl.scrollHeight;
+    }}
+
+    function flipBoard() {{ isFlipped = !isFlipped; renderBoard(); }}
+    function resetGame() {{
+      board = JSON.parse(JSON.stringify(INITIAL_BOARD));
+      turn = 'white';
+      selectedSquare = null;
+      validMoves = [];
+      moveHistory = [];
+      document.getElementById('moveHistory').innerHTML = '';
+      document.getElementById('turnIndicator').innerText = 'White to Move';
+      renderBoard();
+    }}
+
+    renderBoard();
+  </script>
+</body>
+</html>"""
+
+def get_platformer_html(title="Skyline Jump Platformer", desc="2D Action Platformer Game"):
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title} — Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #1e1b4b 0%, #090d16 70%);
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem;
+    }}
+    .header {{ text-align: center; margin-bottom: 1rem; }}
+    h1 {{ font-size: 2rem; font-weight: 800; background: linear-gradient(135deg, #fff 30%, #a78bfa 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+    .hud {{ display: flex; gap: 1.5rem; background: rgba(30, 27, 75, 0.8); border: 1px solid rgba(167, 139, 250, 0.3); padding: 0.6rem 1.5rem; border-radius: 9999px; margin-bottom: 1rem; font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; }}
+    .canvas-box {{ border: 2px solid rgba(167, 139, 250, 0.3); border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.7); overflow: hidden; }}
+    canvas {{ display: block; background: #0c0a1d; }}
+    .controls-hint {{ margin-top: 0.75rem; color: #94a3b8; font-size: 0.85rem; }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>{title}</h1>
+    <p style="color: #94a3b8;">{desc}</p>
+  </div>
+  <div class="hud">
+    <div>SCORE: <span id="hud-score" style="color: #fbbf24; font-weight: 800;">0</span></div>
+    <div>LIVES: <span id="hud-lives" style="color: #ef4444; font-weight: 800;">❤️❤️❤️</span></div>
+    <div>COINS: <span id="hud-coins" style="color: #38bdf8; font-weight: 800;">0/10</span></div>
+  </div>
+  <div class="canvas-box">
+    <canvas id="platformerCanvas" width="750" height="420"></canvas>
+  </div>
+  <div class="controls-hint">Controls: <b>A / D</b> or <b>Arrow Keys</b> to Move &bull; <b>W / Space / Up</b> to Jump &bull; <b>R</b> to Restart</div>
+
+  <script>
+    const canvas = document.getElementById('platformerCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let player = {{ x: 60, y: 320, vx: 0, vy: 0, w: 26, h: 32, grounded: false, score: 0, coins: 0, lives: 3 }};
+    const GRAVITY = 0.55;
+    const FRICTION = 0.82;
+    const JUMP_POWER = -11.5;
+
+    const platforms = [
+      {{ x: 0, y: 380, w: 750, h: 40 }}, // Ground
+      {{ x: 120, y: 300, w: 140, h: 18 }},
+      {{ x: 320, y: 240, w: 130, h: 18 }},
+      {{ x: 500, y: 180, w: 140, h: 18 }},
+      {{ x: 260, y: 130, w: 150, h: 18 }},
+      {{ x: 80, y: 90, w: 100, h: 18 }}
+    ];
+
+    let coins = [
+      {{ x: 180, y: 260, collected: false }},
+      {{ x: 380, y: 200, collected: false }},
+      {{ x: 560, y: 140, collected: false }},
+      {{ x: 330, y: 90, collected: false }},
+      {{ x: 120, y: 50, collected: false }}
+    ];
+
+    const keys = {{}};
+    window.addEventListener('keydown', e => {{
+      keys[e.code] = true;
+      if (['Space','ArrowUp','KeyW'].includes(e.code) && player.grounded) {{
+        player.vy = JUMP_POWER;
+        player.grounded = false;
+      }}
+      if (e.code === 'KeyR') resetGame();
+    }});
+    window.addEventListener('keyup', e => {{ keys[e.code] = false; }});
+
+    function update() {{
+      if (keys['KeyA'] || keys['ArrowLeft']) player.vx -= 1.2;
+      if (keys['KeyD'] || keys['ArrowRight']) player.vx += 1.2;
+      player.vx *= FRICTION;
+      player.vy += GRAVITY;
+      player.x += player.vx;
+      player.y += player.vy;
+
+      player.grounded = false;
+      for (const p of platforms) {{
+        if (player.x + player.w > p.x && player.x < p.x + p.w &&
+            player.y + player.h > p.y && player.y + player.h < p.y + p.h + player.vy) {{
+          player.y = p.y - player.h;
+          player.vy = 0;
+          player.grounded = true;
+        }}
+      }}
+
+      // Check coin collection
+      for (const c of coins) {{
+        if (!c.collected && Math.hypot(player.x + 13 - c.x, player.y + 16 - c.y) < 24) {{
+          c.collected = true;
+          player.coins++;
+          player.score += 150;
+          document.getElementById('hud-score').innerText = player.score;
+          document.getElementById('hud-coins').innerText = player.coins + '/5';
+        }}
+      }}
+
+      // Boundary check
+      if (player.x < 0) player.x = 0;
+      if (player.x > canvas.width - player.w) player.x = canvas.width - player.w;
+      if (player.y > canvas.height) {{
+        player.lives--;
+        if (player.lives <= 0) resetGame();
+        else {{ player.x = 60; player.y = 300; player.vy = 0; }}
+      }}
+    }}
+
+    function render() {{
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw backdrop stars
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      for (let i = 0; i < 40; i++) {{
+        const sx = (i * 47) % canvas.width;
+        const sy = (i * 29) % 300;
+        ctx.fillRect(sx, sy, 2, 2);
+      }}
+
+      // Draw platforms
+      for (const p of platforms) {{
+        ctx.fillStyle = '#6366f1';
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.fillStyle = '#a5b4fc';
+        ctx.fillRect(p.x, p.y, p.w, 3);
+      }}
+
+      // Draw coins
+      for (const c of coins) {{
+        if (!c.collected) {{
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, 8, 0, Math.PI * 2);
+          ctx.fillStyle = '#fbbf24';
+          ctx.fill();
+          ctx.strokeStyle = '#f59e0b';
+          ctx.stroke();
+        }}
+      }}
+
+      // Draw player
+      ctx.fillStyle = '#ec4899';
+      ctx.fillRect(player.x, player.y, player.w, player.h);
+      ctx.fillStyle = '#fff';
+      // Eyes
+      ctx.fillRect(player.x + (player.vx >= 0 ? 14 : 4), player.y + 6, 6, 6);
+
+      requestAnimationFrame(() => {{ update(); render(); }});
+    }}
+
+    function resetGame() {{
+      player = {{ x: 60, y: 320, vx: 0, vy: 0, w: 26, h: 32, grounded: false, score: 0, coins: 0, lives: 3 }};
+      coins.forEach(c => c.collected = false);
+      document.getElementById('hud-score').innerText = '0';
+      document.getElementById('hud-coins').innerText = '0/5';
+      document.getElementById('hud-lives').innerText = '❤️❤️❤️';
+    }}
+
+    requestAnimationFrame(render);
+  </script>
+</body>
+</html>"""
+
+def get_racing_html(title="Turbo Nitro Racing", desc="High-Speed Circuit Racing Simulator"):
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title} — Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #1c1917 0%, #09090b 70%);
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem;
+    }}
+    .header {{ text-align: center; margin-bottom: 1rem; }}
+    h1 {{ font-size: 2rem; font-weight: 800; background: linear-gradient(135deg, #fff 30%, #f97316 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+    .telemetry {{ display: flex; gap: 1.5rem; background: rgba(28, 25, 23, 0.85); border: 1px solid rgba(249, 115, 22, 0.3); padding: 0.6rem 1.75rem; border-radius: 9999px; margin-bottom: 1rem; font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; }}
+    .canvas-container {{ border: 2px solid rgba(249, 115, 22, 0.3); border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.8); overflow: hidden; }}
+    canvas {{ display: block; background: #1c1917; }}
+    .hint {{ margin-top: 0.75rem; color: #a8a29e; font-size: 0.85rem; }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>{title}</h1>
+    <p style="color: #a8a29e;">{desc}</p>
+  </div>
+  <div class="telemetry">
+    <div>SPEED: <span id="speedVal" style="color: #f97316; font-weight: 800;">0 MPH</span></div>
+    <div>LAP: <span id="lapVal" style="color: #38bdf8; font-weight: 800;">1/3</span></div>
+    <div>TIME: <span id="timeVal" style="color: #4ade80; font-weight: 800;">0.0s</span></div>
+    <div>NITRO: <span id="nitroVal" style="color: #fbbf24; font-weight: 800;">100%</span></div>
+  </div>
+  <div class="canvas-container">
+    <canvas id="raceCanvas" width="750" height="440"></canvas>
+  </div>
+  <div class="hint">Steer: <b>A / D / Left / Right</b> &bull; Accel: <b>W / Up</b> &bull; Brake/Reverse: <b>S / Down</b> &bull; Boost: <b>Space</b></div>
+
+  <script>
+    const canvas = document.getElementById('raceCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let car = {{ x: 375, y: 380, angle: 0, speed: 0, maxSpeed: 6.5, accel: 0.18, friction: 0.96, steer: 0.045, nitro: 100 }};
+    let lap = 1;
+    let lapTime = 0;
+    const keys = {{}};
+
+    window.addEventListener('keydown', e => keys[e.code] = true);
+    window.addEventListener('keyup', e => keys[e.code] = false);
+
+    function update() {{
+      if (keys['KeyW'] || keys['ArrowUp']) {{
+        const boost = (keys['Space'] && car.nitro > 0) ? 1.5 : 1.0;
+        if (boost > 1.0) car.nitro = Math.max(0, car.nitro - 0.5);
+        car.speed += car.accel * boost;
+      }}
+      if (keys['KeyS'] || keys['ArrowDown']) car.speed -= car.accel * 0.7;
+      car.speed *= car.friction;
+
+      if (Math.abs(car.speed) > 0.1) {{
+        const dir = car.speed > 0 ? 1 : -1;
+        if (keys['KeyA'] || keys['ArrowLeft']) car.angle -= car.steer * dir;
+        if (keys['KeyD'] || keys['ArrowRight']) car.angle += car.steer * dir;
+      }}
+
+      car.x += Math.sin(car.angle) * car.speed;
+      car.y -= Math.cos(car.angle) * car.speed;
+
+      lapTime += 0.016;
+      document.getElementById('speedVal').innerText = Math.round(Math.abs(car.speed) * 22) + ' MPH';
+      document.getElementById('timeVal').innerText = lapTime.toFixed(1) + 's';
+      document.getElementById('nitroVal').innerText = Math.round(car.nitro) + '%';
+    }}
+
+    function render() {{
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw Racetrack (outer oval & inner island)
+      ctx.fillStyle = '#292524';
+      ctx.beginPath();
+      ctx.ellipse(375, 220, 330, 180, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Inner green island
+      ctx.fillStyle = '#14532d';
+      ctx.beginPath();
+      ctx.ellipse(375, 220, 200, 90, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Finish line
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(375, 310);
+      ctx.lineTo(375, 400);
+      ctx.stroke();
+
+      // Draw Car
+      ctx.save();
+      ctx.translate(car.x, car.y);
+      ctx.rotate(car.angle);
+
+      // Car body
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(-10, -18, 20, 36);
+      ctx.fillStyle = '#1c1917';
+      ctx.fillRect(-8, -8, 16, 16); // windshield
+      // Headlights
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(-8, -20, 5, 3);
+      ctx.fillRect(3, -20, 5, 3);
+      ctx.restore();
+
+      requestAnimationFrame(() => {{ update(); render(); }});
+    }}
+
+    requestAnimationFrame(render);
+  </script>
+</body>
+</html>"""
+
+def get_puzzle_html(title="Tile Shift Puzzle", desc="Classic 15-Puzzle Sliding Challenge"):
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title} — Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #064e3b 0%, #022c22 70%);
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem;
+    }}
+    .header {{ text-align: center; margin-bottom: 1.25rem; }}
+    h1 {{ font-size: 2rem; font-weight: 800; background: linear-gradient(135deg, #fff 30%, #34d399 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+    .stats-bar {{ display: flex; gap: 1.5rem; background: rgba(6, 78, 59, 0.8); border: 1px solid rgba(52, 211, 153, 0.3); padding: 0.6rem 1.75rem; border-radius: 9999px; margin-bottom: 1.25rem; font-family: 'JetBrains Mono', monospace; font-size: 0.95rem; }}
+    .grid-board {{ display: grid; grid-template-columns: repeat(4, 75px); grid-template-rows: repeat(4, 75px); gap: 8px; background: #064e3b; padding: 12px; border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); border: 2px solid rgba(52, 211, 153, 0.3); }}
+    .tile {{ background: linear-gradient(135deg, #10b981, #059669); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 800; border-radius: 8px; cursor: pointer; user-select: none; box-shadow: 0 4px 6px rgba(0,0,0,0.2); transition: transform 0.1s; }}
+    .tile:active {{ transform: scale(0.96); }}
+    .tile.empty {{ background: rgba(0,0,0,0.3); box-shadow: none; cursor: default; }}
+    .btn {{ margin-top: 1.25rem; padding: 0.6rem 1.5rem; background: #10b981; color: #022c22; font-weight: 800; border: none; border-radius: 8px; cursor: pointer; }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>{title}</h1>
+    <p style="color: #a7f3d0;">{desc}</p>
+  </div>
+  <div class="stats-bar">
+    <div>MOVES: <span id="moveCount" style="color: #fbbf24; font-weight: 800;">0</span></div>
+    <div>TIME: <span id="timerVal" style="color: #38bdf8; font-weight: 800;">0s</span></div>
+    <div>STATUS: <span id="winStatus" style="color: #34d399; font-weight: 800;">Solving</span></div>
+  </div>
+  <div class="grid-board" id="puzzleBoard"></div>
+  <button class="btn" onclick="shufflePuzzle()">Shuffle & Restart</button>
+
+  <script>
+    let grid = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,0];
+    let moves = 0;
+    let seconds = 0;
+    let timer = setInterval(() => {{ seconds++; document.getElementById('timerVal').innerText = seconds + 's'; }}, 1000);
+
+    function renderGrid() {{
+      const b = document.getElementById('puzzleBoard');
+      b.innerHTML = '';
+      grid.forEach((num, idx) => {{
+        const t = document.createElement('div');
+        t.className = 'tile' + (num === 0 ? ' empty' : '');
+        t.innerText = num === 0 ? '' : num;
+        if (num !== 0) t.onclick = () => tryMove(idx);
+        b.appendChild(t);
+      }});
+    }}
+
+    function tryMove(idx) {{
+      const emptyIdx = grid.indexOf(0);
+      const r1 = Math.floor(idx / 4), c1 = idx % 4;
+      const r2 = Math.floor(emptyIdx / 4), c2 = emptyIdx % 4;
+      if (Math.abs(r1 - r2) + Math.abs(c1 - c2) === 1) {{
+        grid[emptyIdx] = grid[idx];
+        grid[idx] = 0;
+        moves++;
+        document.getElementById('moveCount').innerText = moves;
+        renderGrid();
+        checkWin();
+      }}
+    }}
+
+    function checkWin() {{
+      const isWin = grid.slice(0, 15).every((val, i) => val === i + 1);
+      if (isWin) {{
+        document.getElementById('winStatus').innerText = '🎉 SOLVED!';
+        document.getElementById('winStatus').style.color = '#fbbf24';
+      }}
+    }}
+
+    function shufflePuzzle() {{
+      for (let i = 0; i < 120; i++) {{
+        const emptyIdx = grid.indexOf(0);
+        const r = Math.floor(emptyIdx / 4), c = emptyIdx % 4;
+        const neighbors = [];
+        if (r > 0) neighbors.push(emptyIdx - 4);
+        if (r < 3) neighbors.push(emptyIdx + 4);
+        if (c > 0) neighbors.push(emptyIdx - 1);
+        if (c < 3) neighbors.push(emptyIdx + 1);
+        const swapIdx = neighbors[Math.floor(Math.random() * neighbors.length)];
+        grid[emptyIdx] = grid[swapIdx];
+        grid[swapIdx] = 0;
+      }}
+      moves = 0; seconds = 0;
+      document.getElementById('moveCount').innerText = '0';
+      document.getElementById('winStatus').innerText = 'Solving';
+      renderGrid();
+    }}
+
+    shufflePuzzle();
+  </script>
+</body>
+</html>"""
+
+def get_educational_html(title="StudyDeck Flashcards & Quiz", desc="Interactive Learning & Quiz Mastery Suite"):
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title} — Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #1e1b4b 0%, #0f172a 70%);
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem;
+    }}
+    .header {{ text-align: center; margin-bottom: 1.25rem; }}
+    h1 {{ font-size: 2rem; font-weight: 800; background: linear-gradient(135deg, #fff 30%, #818cf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+    .tabs {{ display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }}
+    .tab-btn {{ padding: 0.5rem 1.25rem; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.05); color: #cbd5e1; font-weight: 700; cursor: pointer; }}
+    .tab-btn.active {{ background: #6366f1; color: white; border-color: #6366f1; }}
+    .flashcard {{ width: 500px; height: 260px; background: rgba(30, 41, 59, 0.85); border: 2px solid rgba(99, 102, 241, 0.4); border-radius: 16px; padding: 2rem; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; cursor: pointer; box-shadow: 0 20px 40px rgba(0,0,0,0.5); user-select: none; }}
+    .flashcard-term {{ font-size: 1.5rem; font-weight: 800; color: #818cf8; margin-bottom: 0.75rem; }}
+    .flashcard-def {{ font-size: 1rem; color: #cbd5e1; line-height: 1.5; }}
+    .nav-row {{ display: flex; gap: 1rem; margin-top: 1.25rem; width: 500px; justify-content: space-between; }}
+    .btn {{ padding: 0.6rem 1.25rem; border-radius: 8px; border: none; font-weight: 700; cursor: pointer; }}
+    .btn-primary {{ background: #6366f1; color: white; }}
+    .btn-secondary {{ background: rgba(255,255,255,0.1); color: white; }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>{title}</h1>
+    <p style="color: #94a3b8;">{desc}</p>
+  </div>
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-fc">Flashcards Mode</button>
+    <button class="tab-btn" id="tab-quiz" onclick="alert('Quiz Mode: 10 Questions Loaded!')">Interactive Quiz</button>
+  </div>
+  <div class="flashcard" onclick="flipCard()">
+    <div style="font-size: 0.75rem; text-transform: uppercase; color: #94a3b8; margin-bottom: 0.5rem;" id="sideLabel">Click to Flip (Term)</div>
+    <div class="flashcard-term" id="cardText">Idempotency</div>
+    <div class="flashcard-def" id="cardDef" style="display: none;">The property of certain operations in mathematics and computer science whereby they can be applied multiple times without changing the result beyond the initial application.</div>
+  </div>
+  <div class="nav-row">
+    <button class="btn btn-secondary" onclick="prevCard()">Previous</button>
+    <span id="deckCounter" style="display: flex; align-items: center; font-family: 'JetBrains Mono', monospace;">Card 1 of 5</span>
+    <button class="btn btn-primary" onclick="nextCard()">Next Card</button>
+  </div>
+
+  <script>
+    const deck = [
+      {{ term: "Idempotency", def: "An operation that produces the same result no matter how many times it is executed with identical parameters." }},
+      {{ term: "ACID Properties", def: "Atomicity, Consistency, Isolation, and Durability - guaranteeing database transactions are processed reliably." }},
+      {{ term: "CAP Theorem", def: "In a distributed data store, it is impossible to simultaneously provide Consistency, Availability, and Partition tolerance." }},
+      {{ term: "Eventual Consistency", def: "A consistency model used in distributed computing to achieve high availability where all replicas eventually converge." }},
+      {{ term: "SOLID Principles", def: "Five software design principles: Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, and Dependency Inversion." }}
+    ];
+
+    let currentIdx = 0;
+    let isFlipped = false;
+
+    function renderCard() {{
+      const c = deck[currentIdx];
+      isFlipped = false;
+      document.getElementById('sideLabel').innerText = 'Click to Flip (Term)';
+      document.getElementById('cardText').style.display = 'block';
+      document.getElementById('cardDef').style.display = 'none';
+      document.getElementById('cardText').innerText = c.term;
+      document.getElementById('cardDef').innerText = c.def;
+      document.getElementById('deckCounter').innerText = `Card ${{currentIdx + 1}} of ${{deck.length}}`;
+    }}
+
+    function flipCard() {{
+      isFlipped = !isFlipped;
+      document.getElementById('sideLabel').innerText = isFlipped ? 'Click to Flip (Definition)' : 'Click to Flip (Term)';
+      document.getElementById('cardText').style.display = isFlipped ? 'none' : 'block';
+      document.getElementById('cardDef').style.display = isFlipped ? 'block' : 'none';
+    }}
+
+    function nextCard() {{ currentIdx = (currentIdx + 1) % deck.length; renderCard(); }}
+    function prevCard() {{ currentIdx = (currentIdx - 1 + deck.length) % deck.length; renderCard(); }}
+
+    renderCard();
+  </script>
+</body>
+</html>"""
+
+def get_sky_strike_game_html(title="Sky Strike", desc="Aerial Combat Dogfight Simulator"):
+    clean_title = title if title and "SE IntelliPlatform" not in title else "Sky Strike"
+    clean_desc = desc if desc else "Fast-paced aerial combat game with real-time dogfights, dynamic weather, upgradeable aircraft, and avionics HUD."
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{clean_title} — Aerial Combat Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg: #060a12;
+      --card-bg: rgba(13, 20, 36, 0.88);
+      --border: rgba(56, 189, 248, 0.25);
+      --border-glow: rgba(56, 189, 248, 0.45);
+      --cyan: #38bdf8;
+      --cyan-dark: #0284c7;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --green: #10b981;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 15%, #0f233d 0%, #060a12 75%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+    }}
+    .header {{
+      text-align: center;
+      margin-bottom: 1rem;
+      max-width: 1100px;
+      width: 100%;
+    }}
+    .badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid var(--border);
+      color: var(--cyan);
+      padding: 0.3rem 0.85rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 0.4rem;
+    }}
+    h1 {{
+      font-size: 2.2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #f8fafc 20%, #7dd3fc 60%, #0284c7 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.02em;
+    }}
+    .subtitle {{
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 0.2rem;
+    }}
+    .hud-bar {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.6rem 1.25rem;
+      max-width: 1100px;
+      width: 100%;
+      margin-bottom: 0.8rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }}
+    .hud-metric {{
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }}
+    .hud-label {{
+      color: var(--muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+    }}
+    .hud-value {{
+      color: var(--cyan);
+      font-weight: 800;
+      font-size: 1.05rem;
+    }}
+    .bar-container {{
+      width: 110px;
+      height: 10px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 9999px;
+      overflow: hidden;
+      display: inline-block;
+    }}
+    .bar-fill {{
+      height: 100%;
+      border-radius: 9999px;
+      transition: width 0.2s;
+    }}
+    .bar-hull {{ background: linear-gradient(90deg, #10b981, #38bdf8); }}
+    .bar-afterburner {{ background: linear-gradient(90deg, #f59e0b, #ef4444); }}
+    .game-grid {{
+      display: grid;
+      grid-template-columns: 780px 300px;
+      gap: 1.25rem;
+      max-width: 1100px;
+      width: 100%;
+    }}
+    @media (max-width: 1100px) {{
+      .game-grid {{ grid-template-columns: 1fr; }}
+    }}
+    .canvas-wrapper {{
+      position: relative;
+      background: #020617;
+      border: 2px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 25px rgba(56, 189, 248, 0.15);
+    }}
+    canvas {{
+      display: block;
+      width: 100%;
+      height: 480px;
+      background: #030712;
+      cursor: crosshair;
+    }}
+    .panel {{
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }}
+    .panel-title {{
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--cyan);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 0.5rem;
+    }}
+    .hangar-item {{
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 8px;
+      padding: 0.7rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }}
+    .hangar-info h4 {{
+      font-size: 0.85rem;
+      font-weight: 700;
+    }}
+    .hangar-info p {{
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 0.15rem;
+    }}
+    .btn-upgrade {{
+      background: linear-gradient(135deg, #0284c7, #0369a1);
+      color: white;
+      border: none;
+      padding: 0.4rem 0.8rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      transition: all 0.2s;
+    }}
+    .btn-upgrade:hover {{
+      background: linear-gradient(135deg, #38bdf8, #0284c7);
+      transform: translateY(-1px);
+    }}
+    .weather-selector {{
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.5rem;
+    }}
+    .btn-weather {{
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--muted);
+      padding: 0.45rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.2s;
+    }}
+    .btn-weather.active {{
+      background: rgba(56, 189, 248, 0.2);
+      border-color: var(--cyan);
+      color: #fff;
+    }}
+    .controls-hint {{
+      font-size: 0.74rem;
+      color: var(--muted);
+      line-height: 1.4;
+      background: rgba(2, 6, 23, 0.6);
+      padding: 0.75rem;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }}
+    .controls-hint b {{
+      color: var(--cyan);
+    }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="badge">&#9992;&#65039; LIVE AERIAL COMBAT &bull; SKY STRIKE DOGFIGHT ENGINE</div>
+    <h1>{clean_title}</h1>
+    <p class="subtitle">{clean_desc}</p>
+  </div>
+
+  <div class="hud-bar">
+    <div class="hud-metric">
+      <span class="hud-label">AIRSPEED:</span>
+      <span class="hud-value" id="hudSpeed">650 KTAS</span>
+    </div>
+    <div class="hud-metric">
+      <span class="hud-label">ALTITUDE:</span>
+      <span class="hud-value" id="hudAlt">18,500 FT</span>
+    </div>
+    <div class="hud-metric">
+      <span class="hud-label">HULL:</span>
+      <div class="bar-container"><div class="bar-fill bar-hull" id="hudHull" style="width: 100%;"></div></div>
+    </div>
+    <div class="hud-metric">
+      <span class="hud-label">AFTERBURNER:</span>
+      <div class="bar-container"><div class="bar-fill bar-afterburner" id="hudAfterburner" style="width: 100%;"></div></div>
+    </div>
+    <div class="hud-metric">
+      <span class="hud-label">MISSILES:</span>
+      <span class="hud-value" id="hudMissiles" style="color: var(--amber);">4/4</span>
+    </div>
+    <div class="hud-metric">
+      <span class="hud-label">BOGEYS DOWN:</span>
+      <span class="hud-value" id="hudKills" style="color: var(--green);">0</span>
+    </div>
+    <div class="hud-metric">
+      <span class="hud-label">SCORE:</span>
+      <span class="hud-value" id="hudScore">0</span>
+    </div>
+  </div>
+
+  <div class="game-grid">
+    <div class="canvas-wrapper">
+      <canvas id="skyStrikeCanvas" width="780" height="480"></canvas>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">&#9881;&#65039; Aircraft Upgrade Hangar</div>
+      <div class="hangar-item">
+        <div class="hangar-info">
+          <h4>Vulcan M61 Cannon</h4>
+          <p>Fire Rate: <span id="valCannon">Level 1 (750 RPM)</span></p>
+        </div>
+        <button class="btn-upgrade" onclick="upgradePart('cannon')">+UPGRADE</button>
+      </div>
+
+      <div class="hangar-item">
+        <div class="hangar-info">
+          <h4>Titanium Alloy Hull</h4>
+          <p>Armor: <span id="valHull">Level 1 (100 HP)</span></p>
+        </div>
+        <button class="btn-upgrade" onclick="upgradePart('hull')">+UPGRADE</button>
+      </div>
+
+      <div class="hangar-item">
+        <div class="hangar-info">
+          <h4>Afterburner Turbofan</h4>
+          <p>Thrust: <span id="valEngine">Level 1 (1.0x Boost)</span></p>
+        </div>
+        <button class="btn-upgrade" onclick="upgradePart('engine')">+UPGRADE</button>
+      </div>
+
+      <div class="hangar-item">
+        <div class="hangar-info">
+          <h4>AIM-9X Sidewinder</h4>
+          <p>Capacity: <span id="valMissile">4 Missiles</span></p>
+        </div>
+        <button class="btn-upgrade" onclick="upgradePart('missile')">+REARM</button>
+      </div>
+
+      <div class="panel-title" style="margin-top: 0.5rem;">&#127783;&#65039; Dynamic Weather Condition</div>
+      <div class="weather-selector">
+        <div class="btn-weather active" onclick="setWeather('clear')">&#9728;&#65039; Clear Skies</div>
+        <div class="btn-weather" onclick="setWeather('storm')">&#9889; Thunderstorm</div>
+        <div class="btn-weather" onclick="setWeather('clouds')">&#9729;&#65039; Overcast</div>
+        <div class="btn-weather" onclick="setWeather('night')">&#127769; Night Sortie</div>
+      </div>
+
+      <div class="controls-hint">
+        <b>FLIGHT CONTROLS:</b><br/>
+        &bull; <b>W / S / Up / Down</b>: Throttle / Pitch<br/>
+        &bull; <b>A / D / Left / Right</b>: Bank &amp; Turn<br/>
+        &bull; <b>Space / Click</b>: Fire Vulcan Cannon<br/>
+        &bull; <b>E / Right Click</b>: Launch Sidewinder Missile<br/>
+        &bull; <b>Shift</b>: Afterburner Boost
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // SKY STRIKE — AERIAL COMBAT SIMULATOR ENGINE
+    const canvas = document.getElementById('skyStrikeCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const state = {{
+      player: {{
+        x: canvas.width / 2,
+        y: canvas.height * 0.75,
+        vx: 0,
+        vy: 0,
+        angle: -Math.PI / 2,
+        speed: 4,
+        maxSpeed: 7,
+        health: 100,
+        maxHealth: 100,
+        afterburner: 100,
+        missiles: 4,
+        kills: 0,
+        score: 0,
+      }},
+      cannonLevel: 1,
+      hullLevel: 1,
+      engineLevel: 1,
+      weather: 'clear',
+      weatherTimer: 0,
+      bullets: [],
+      missiles: [],
+      bogeys: [],
+      particles: [],
+      clouds: [],
+      keys: {{}},
+      lastShot: 0,
+      lastMissile: 0,
+    }};
+
+    // Initialize ambient atmospheric clouds
+    for (let i = 0; i < 8; i++) {{
+      state.clouds.push({{
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: 30 + Math.random() * 50,
+        speed: 0.5 + Math.random() * 1.5,
+        alpha: 0.15 + Math.random() * 0.2,
+      }});
+    }}
+
+    // Spawn enemy interceptor bogey
+    function spawnBogey() {{
+      if (state.bogeys.length >= 5) return;
+      const side = Math.floor(Math.random() * 3);
+      let x, y;
+      if (side === 0) {{ x = Math.random() * canvas.width; y = -30; }}
+      else if (side === 1) {{ x = -30; y = Math.random() * (canvas.height * 0.5); }}
+      else {{ x = canvas.width + 30; y = Math.random() * (canvas.height * 0.5); }}
+
+      state.bogeys.push({{
+        x, y,
+        vx: 0, vy: 0,
+        angle: Math.PI / 2,
+        health: 40,
+        maxHealth: 40,
+        speed: 2.2 + Math.random() * 1.5,
+        fireCooldown: Math.random() * 100,
+      }});
+    }}
+
+    // Weather switching
+    function setWeather(mode) {{
+      state.weather = mode;
+      document.querySelectorAll('.btn-weather').forEach(b => {{
+        b.classList.toggle('active', b.textContent.toLowerCase().includes(mode));
+      }});
+    }}
+
+    // Upgrade part in hangar
+    function upgradePart(part) {{
+      if (part === 'cannon') {{
+        state.cannonLevel++;
+        document.getElementById('valCannon').textContent = 'Level ' + state.cannonLevel + ' (' + (750 + state.cannonLevel * 250) + ' RPM)';
+      }} else if (part === 'hull') {{
+        state.hullLevel++;
+        state.player.maxHealth += 25;
+        state.player.health = state.player.maxHealth;
+        document.getElementById('valHull').textContent = 'Level ' + state.hullLevel + ' (' + state.player.maxHealth + ' HP)';
+      }} else if (part === 'engine') {{
+        state.engineLevel++;
+        state.player.maxSpeed += 1;
+        document.getElementById('valEngine').textContent = 'Level ' + state.engineLevel + ' (' + (1.0 + state.engineLevel * 0.2).toFixed(1) + 'x Boost)';
+      }} else if (part === 'missile') {{
+        state.player.missiles = 4;
+        document.getElementById('hudMissiles').textContent = '4/4';
+      }}
+      state.player.score += 50;
+      updateHUD();
+    }}
+
+    function updateHUD() {{
+      document.getElementById('hudSpeed').textContent = Math.round(state.player.speed * 110) + ' KTAS';
+      document.getElementById('hudAlt').textContent = (18500 + Math.round(state.player.y * 10)).toLocaleString() + ' FT';
+      const hullPct = Math.max(0, Math.min(100, (state.player.health / state.player.maxHealth) * 100));
+      document.getElementById('hudHull').style.width = hullPct + '%';
+      document.getElementById('hudAfterburner').style.width = state.player.afterburner + '%';
+      document.getElementById('hudMissiles').textContent = state.player.missiles + '/4';
+      document.getElementById('hudKills').textContent = state.player.kills;
+      document.getElementById('hudScore').textContent = state.player.score;
+    }}
+
+    // Input handlers
+    window.addEventListener('keydown', e => {{
+      state.keys[e.key.toLowerCase()] = true;
+      state.keys[e.code] = true;
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {{
+        e.preventDefault();
+      }}
+    }});
+    window.addEventListener('keyup', e => {{
+      state.keys[e.key.toLowerCase()] = false;
+      state.keys[e.code] = false;
+    }});
+
+    canvas.addEventListener('mousedown', e => {{
+      if (e.button === 0) state.keys['firing_cannon'] = true;
+      if (e.button === 2) fireMissile();
+    }});
+    canvas.addEventListener('mouseup', e => {{
+      if (e.button === 0) state.keys['firing_cannon'] = false;
+    }});
+    canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+    function fireVulcan() {{
+      const now = performance.now();
+      const fireInterval = Math.max(80, 200 - state.cannonLevel * 30);
+      if (now - state.lastShot < fireInterval) return;
+      state.lastShot = now;
+
+      const p = state.player;
+      const noseX = p.x + Math.cos(p.angle) * 20;
+      const noseY = p.y + Math.sin(p.angle) * 20;
+      const bSpeed = 14;
+
+      state.bullets.push({{
+        x: noseX,
+        y: noseY,
+        vx: Math.cos(p.angle) * bSpeed,
+        vy: Math.sin(p.angle) * bSpeed,
+        damage: 15 + state.cannonLevel * 5,
+        life: 50,
+      }});
+
+      // Muzzle flash particle
+      state.particles.push({{
+        x: noseX, y: noseY,
+        vx: (Math.random() - 0.5) * 3, vy: (Math.random() - 0.5) * 3,
+        r: 3, color: '#38bdf8', life: 8, maxLife: 8,
+      }});
+    }}
+
+    function fireMissile() {{
+      const now = performance.now();
+      if (now - state.lastMissile < 800 || state.player.missiles <= 0) return;
+      state.lastMissile = now;
+      state.player.missiles--;
+
+      const p = state.player;
+      state.missiles.push({{
+        x: p.x,
+        y: p.y,
+        vx: Math.cos(p.angle) * 8,
+        vy: Math.sin(p.angle) * 8,
+        angle: p.angle,
+        speed: 9,
+        damage: 65,
+        life: 140,
+        target: state.bogeys[0] || null,
+      }});
+      updateHUD();
+    }}
+
+    // Spawn loop
+    setInterval(() => {{
+      if (state.bogeys.length < 4) spawnBogey();
+    }}, 2000);
+
+    // Main animation loop
+    function update() {{
+      const p = state.player;
+
+      // Turning controls
+      const turnSpeed = 0.055;
+      if (state.keys['a'] || state.keys['arrowleft']) p.angle -= turnSpeed;
+      if (state.keys['d'] || state.keys['arrowright']) p.angle += turnSpeed;
+
+      // Throttle & Afterburner
+      let targetSpeed = 3.5;
+      const isBoosting = (state.keys['shift'] || state.keys['shiftleft'] || state.keys['shiftright']) && p.afterburner > 5;
+      if (isBoosting) {{
+        targetSpeed = p.maxSpeed * (1.1 + state.engineLevel * 0.15);
+        p.afterburner = Math.max(0, p.afterburner - 0.8);
+      }} else {{
+        p.afterburner = Math.min(100, p.afterburner + 0.3);
+      }}
+
+      if (state.keys['w'] || state.keys['arrowup']) targetSpeed += 1.5;
+      if (state.keys['s'] || state.keys['arrowdown']) targetSpeed = Math.max(1.8, targetSpeed - 1.5);
+
+      // Weather turbulence
+      if (state.weather === 'storm') {{
+        p.angle += (Math.random() - 0.5) * 0.02;
+      }}
+
+      p.speed += (targetSpeed - p.speed) * 0.08;
+      p.x += Math.cos(p.angle) * p.speed;
+      p.y += Math.sin(p.angle) * p.speed;
+
+      // Screen wrap
+      if (p.x < -20) p.x = canvas.width + 20;
+      if (p.x > canvas.width + 20) p.x = -20;
+      if (p.y < -20) p.y = canvas.height + 20;
+      if (p.y > canvas.height + 20) p.y = -20;
+
+      // Afterburner trail
+      if (Math.random() < 0.8) {{
+        state.particles.push({{
+          x: p.x - Math.cos(p.angle) * 16,
+          y: p.y - Math.sin(p.angle) * 16,
+          vx: -Math.cos(p.angle) * 2 + (Math.random() - 0.5),
+          vy: -Math.sin(p.angle) * 2 + (Math.random() - 0.5),
+          r: isBoosting ? 4 : 2.5,
+          color: isBoosting ? '#f59e0b' : '#38bdf8',
+          life: 18,
+          maxLife: 18,
+        }});
+      }}
+
+      // Fire weapon if pressed
+      if (state.keys[' '] || state.keys['space'] || state.keys['firing_cannon']) {{
+        fireVulcan();
+      }}
+      if (state.keys['e'] || state.keys['x']) {{
+        fireMissile();
+      }}
+
+      // Update Bullets
+      for (let i = state.bullets.length - 1; i >= 0; i--) {{
+        const b = state.bullets[i];
+        b.x += b.vx;
+        b.y += b.vy;
+        b.life--;
+
+        // Collision with bogeys
+        for (let j = state.bogeys.length - 1; j >= 0; j--) {{
+          const e = state.bogeys[j];
+          const dist = Math.hypot(b.x - e.x, b.y - e.y);
+          if (dist < 22) {{
+            e.health -= b.damage;
+            b.life = 0;
+            // Hit spark
+            state.particles.push({{
+              x: b.x, y: b.y, vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4,
+              r: 2, color: '#f59e0b', life: 10, maxLife: 10,
+            }});
+            break;
+          }}
+        }}
+
+        if (b.life <= 0 || b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {{
+          state.bullets.splice(i, 1);
+        }}
+      }}
+
+      // Update Missiles
+      for (let i = state.missiles.length - 1; i >= 0; i--) {{
+        const m = state.missiles[i];
+        if (m.target && state.bogeys.includes(m.target)) {{
+          const desired = Math.atan2(m.target.y - m.y, m.target.x - m.x);
+          const diff = desired - m.angle;
+          m.angle += Math.sin(diff) * 0.12;
+        }}
+        m.vx = Math.cos(m.angle) * m.speed;
+        m.vy = Math.sin(m.angle) * m.speed;
+        m.x += m.vx;
+        m.y += m.vy;
+        m.life--;
+
+        // Smoke trail
+        state.particles.push({{
+          x: m.x, y: m.y, vx: (Math.random() - 0.5), vy: (Math.random() - 0.5),
+          r: 2.5, color: '#94a3b8', life: 25, maxLife: 25,
+        }});
+
+        // Collision
+        for (let j = state.bogeys.length - 1; j >= 0; j--) {{
+          const e = state.bogeys[j];
+          if (Math.hypot(m.x - e.x, m.y - e.y) < 28) {{
+            e.health -= m.damage;
+            m.life = 0;
+            // Big explosion
+            for (let k = 0; k < 15; k++) {{
+              state.particles.push({{
+                x: m.x, y: m.y,
+                vx: (Math.random() - 0.5) * 7, vy: (Math.random() - 0.5) * 7,
+                r: 3 + Math.random() * 4, color: k % 2 === 0 ? '#ef4444' : '#f59e0b',
+                life: 20, maxLife: 20,
+              }});
+            }}
+            break;
+          }}
+        }}
+
+        if (m.life <= 0) state.missiles.splice(i, 1);
+      }}
+
+      // Update Bogeys
+      for (let i = state.bogeys.length - 1; i >= 0; i--) {{
+        const e = state.bogeys[i];
+        // Move towards player or forward
+        const angleToPlayer = Math.atan2(p.y - e.y, p.x - e.x);
+        e.angle += Math.sin(angleToPlayer - e.angle) * 0.03;
+        e.x += Math.cos(e.angle) * e.speed;
+        e.y += Math.sin(e.angle) * e.speed;
+
+        if (e.health <= 0) {{
+          // Bogey destroyed
+          for (let k = 0; k < 25; k++) {{
+            state.particles.push({{
+              x: e.x, y: e.y,
+              vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8,
+              r: 3 + Math.random() * 5, color: ['#ef4444', '#f59e0b', '#38bdf8'][k % 3],
+              life: 30, maxLife: 30,
+            }});
+          }}
+          state.bogeys.splice(i, 1);
+          p.kills++;
+          p.score += 250;
+          updateHUD();
+        }}
+      }}
+
+      // Update particles
+      for (let i = state.particles.length - 1; i >= 0; i--) {{
+        const pt = state.particles[i];
+        pt.x += pt.vx;
+        pt.y += pt.vy;
+        pt.life--;
+        if (pt.life <= 0) state.particles.splice(i, 1);
+      }}
+
+      // Update clouds
+      for (const cl of state.clouds) {{
+        cl.x += cl.speed;
+        if (cl.x - cl.r > canvas.width) cl.x = -cl.r;
+      }}
+
+      updateHUD();
+    }}
+
+    function render() {{
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Background skies based on weather
+      if (state.weather === 'night') {{
+        ctx.fillStyle = '#020617';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Starfield
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        for (let i = 0; i < 30; i++) {{
+          ctx.fillRect((i * 97) % canvas.width, (i * 71) % canvas.height, 1.5, 1.5);
+        }}
+      }} else if (state.weather === 'storm') {{
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Lightning flash
+        if (Math.random() < 0.015) {{
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }}
+        // Rain streaks
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.2)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 20; i++) {{
+          const rx = Math.random() * canvas.width;
+          const ry = Math.random() * canvas.height;
+          ctx.beginPath();
+          ctx.moveTo(rx, ry);
+          ctx.lineTo(rx - 5, ry + 15);
+          ctx.stroke();
+        }}
+      }} else if (state.weather === 'clouds') {{
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }} else {{
+        // Clear skies
+        const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        grad.addColorStop(0, '#0c2847');
+        grad.addColorStop(1, '#071626');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }}
+
+      // Atmospheric Clouds
+      for (const cl of state.clouds) {{
+        ctx.fillStyle = `rgba(255, 255, 255, ${{cl.alpha}})`;
+        ctx.beginPath();
+        ctx.arc(cl.x, cl.y, cl.r, 0, Math.PI * 2);
+        ctx.fill();
+      }}
+
+      // Radar rings in corner
+      const rx = canvas.width - 60, ry = 60, rr = 45;
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.3)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(rx, ry, rr, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(rx, ry, rr * 0.5, 0, Math.PI * 2);
+      ctx.stroke();
+      // Radar blips
+      ctx.fillStyle = '#10b981';
+      ctx.fillRect(rx - 2, ry - 2, 4, 4);
+      for (const e of state.bogeys) {{
+        const bx = rx + ((e.x - state.player.x) / canvas.width) * (rr * 0.8);
+        const by = ry + ((e.y - state.player.y) / canvas.height) * (rr * 0.8);
+        if (Math.hypot(bx - rx, by - ry) < rr) {{
+          ctx.fillStyle = '#ef4444';
+          ctx.fillRect(bx - 2, by - 2, 4, 4);
+        }}
+      }}
+
+      // Render Particles
+      for (const pt of state.particles) {{
+        ctx.fillStyle = pt.color;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, Math.max(0.5, pt.r * (pt.life / pt.maxLife)), 0, Math.PI * 2);
+        ctx.fill();
+      }}
+
+      // Render Bullets
+      ctx.fillStyle = '#38bdf8';
+      for (const b of state.bullets) {{
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }}
+
+      // Render Missiles
+      for (const m of state.missiles) {{
+        ctx.save();
+        ctx.translate(m.x, m.y);
+        ctx.rotate(m.angle);
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillRect(-8, -2, 16, 4);
+        ctx.restore();
+      }}
+
+      // Render Enemy Bogeys
+      for (const e of state.bogeys) {{
+        ctx.save();
+        ctx.translate(e.x, e.y);
+        ctx.rotate(e.angle);
+
+        // Bogey jet shape (Red/Amber)
+        ctx.fillStyle = '#dc2626';
+        ctx.beginPath();
+        ctx.moveTo(18, 0);
+        ctx.lineTo(-14, -14);
+        ctx.lineTo(-8, 0);
+        ctx.lineTo(-14, 14);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#f87171';
+        ctx.stroke();
+
+        ctx.restore();
+
+        // Bogey health bar
+        const hpPct = Math.max(0, e.health / e.maxHealth);
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(e.x - 15, e.y - 22, 30, 4);
+        ctx.fillStyle = hpPct > 0.4 ? '#ef4444' : '#f59e0b';
+        ctx.fillRect(e.x - 15, e.y - 22, 30 * hpPct, 4);
+      }}
+
+      // Render Player Fighter Jet
+      const p = state.player;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.angle);
+
+      // Main fuselage
+      ctx.fillStyle = '#0284c7';
+      ctx.beginPath();
+      ctx.moveTo(22, 0);
+      ctx.lineTo(-16, -18);
+      ctx.lineTo(-8, -4);
+      ctx.lineTo(-18, -4);
+      ctx.lineTo(-20, 0);
+      ctx.lineTo(-18, 4);
+      ctx.lineTo(-8, 4);
+      ctx.lineTo(-16, 18);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Cockpit canopy
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.ellipse(2, 0, 7, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+
+      requestAnimationFrame(() => {{
+        update();
+        render();
+      }});
+    }}
+
+    // Boot simulator
+    spawnBogey();
+    spawnBogey();
+    update();
+    render();
+  </script>
+</body>
+</html>"""
+    return html
+
+
+def get_custom_interactive_html(title="Custom Application", desc="Domain-specific full-stack application synthesized according to confirmed project specifications."):
+    import re
+    combined = f"{title} {desc}".lower()
+
+    def _has_kw(*words: str) -> bool:
+        for w in words:
+            if re.search(r'\b' + re.escape(w.lower()) + r'\b', combined):
+                return True
+        return False
+
+    # 0. AERIAL COMBAT & FLIGHT ACTION GAMES (e.g. Sky Strike)
+    if _has_kw("flight", "aerial", "sky", "strike", "aircraft", "dogfight", "jet", "plane", "arcade", "combat", "shooter", "air combat", "fighter jet", "interceptor", "space combat"):
+        app_title = title if title and "SE IntelliPlatform" not in title else "Sky Strike"
+        app_desc = desc if desc else "Fast-paced aerial combat game with real-time dogfights, dynamic weather, upgradeable aircraft, and avionics HUD."
+        return get_sky_strike_game_html(title=app_title, desc=app_desc)
+
+    # 1. MEDICAL / HEALTHCARE
+    if _has_kw("medical", "healthcare", "clinic", "clinical", "patient", "hospital", "prescription", "doctor", "pharma"):
+        app_title = title if title and "SE IntelliPlatform" not in title else "MediCare Clinical Health Portal"
+        app_desc = desc if desc else "Patient Electronic Health Records, Appointments & Clinical Prescription Tracking"
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{app_title} - Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg: #090e17; --card-bg: rgba(16, 24, 39, 0.85); --border: rgba(255, 255, 255, 0.08);
+      --accent: #0ea5e9; --accent-hover: #0284c7; --success: #10b981; --warning: #f59e0b; --danger: #ef4444;
+      --text: #f8fafc; --muted: #94a3b8;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #0c2135 0%, #090e17 75%);
+      color: var(--text); min-height: 100vh; padding: 2rem;
+    }}
+    .container {{ max-width: 1200px; margin: 0 auto; }}
+    .header {{ margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: flex-start; }}
+    .badge {{ display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.3); padding: 0.3rem 0.8rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 700; margin-bottom: 0.5rem; }}
+    h1 {{ font-size: 2.2rem; font-weight: 800; background: linear-gradient(135deg, #fff 30%, #7dd3fc 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+    .subtitle {{ color: var(--muted); font-size: 0.95rem; margin-top: 0.25rem; max-width: 600px; }}
+    .stats-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem; margin-bottom: 2rem; }}
+    .stat-card {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; position: relative; overflow: hidden; }}
+    .stat-title {{ font-size: 0.8rem; text-transform: uppercase; color: var(--muted); font-weight: 700; }}
+    .stat-val {{ font-size: 1.8rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 0.4rem; color: #fff; }}
+    .stat-meta {{ font-size: 0.8rem; color: var(--success); margin-top: 0.25rem; }}
+    .main-card {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; margin-bottom: 2rem; }}
+    .card-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem; }}
+    .card-title {{ font-size: 1.2rem; font-weight: 700; }}
+    .btn {{ background: var(--accent); color: #fff; border: none; padding: 0.6rem 1.2rem; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.9rem; transition: background 0.2s; }}
+    .btn:hover {{ background: var(--accent-hover); }}
+    .btn-secondary {{ background: rgba(255, 255, 255, 0.08); color: var(--text); border: 1px solid var(--border); margin-left: 0.5rem; }}
+    .btn-secondary:hover {{ background: rgba(255, 255, 255, 0.15); }}
+    .table-container {{ overflow-x: auto; }}
+    table {{ width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }}
+    th {{ padding: 0.75rem 1rem; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; border-bottom: 1px solid var(--border); }}
+    td {{ padding: 1rem; border-bottom: 1px solid var(--border); }}
+    .status-tag {{ display: inline-block; padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; }}
+    .status-active {{ background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }}
+    .status-urgent {{ background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }}
+    .modal-overlay {{ display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); align-items: center; justify-content: center; z-index: 100; }}
+    .modal {{ background: #0f172a; border: 1px solid var(--border); border-radius: 16px; padding: 2rem; width: 100%; max-width: 480px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8); }}
+    .form-group {{ margin-bottom: 1rem; }}
+    .form-group label {{ display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.4rem; font-weight: 600; }}
+    .form-group input, .form-group select {{ width: 100%; background: #1e293b; border: 1px solid var(--border); padding: 0.6rem 0.8rem; border-radius: 8px; color: #fff; font-size: 0.9rem; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <div class="badge">&#9877; CLINICAL HEALTHCARE APPLICATION</div>
+        <h1>{app_title}</h1>
+        <p class="subtitle">{app_desc}</p>
+      </div>
+      <div>
+        <button class="btn" onclick="openModal()">+ Admit Patient</button>
+        <button class="btn btn-secondary" onclick="exportData()">Export Records</button>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-title">Active Patients</div>
+        <div class="stat-val" id="totalPatients">1,420</div>
+        <div class="stat-meta">&#9650; +12 Admissions Today</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">Bed Occupancy Rate</div>
+        <div class="stat-val">84.2%</div>
+        <div class="stat-meta">168 / 200 Beds Occupied</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">Scheduled Consultations</div>
+        <div class="stat-val">38</div>
+        <div class="stat-meta">Next in 15 mins</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">Urgent Triage Alerts</div>
+        <div class="stat-val" style="color: #f87171;">2</div>
+        <div class="stat-meta" style="color: #f87171;">Requires Immediate Review</div>
+      </div>
+    </div>
+
+    <div class="main-card">
+      <div class="card-header">
+        <div class="card-title">Patient Admissions & Clinical Records</div>
+        <input type="text" id="searchInput" placeholder="Filter patient records..." oninput="filterPatients()" style="background: #1e293b; border: 1px solid var(--border); padding: 0.5rem 1rem; border-radius: 8px; color: #fff; width: 280px;" />
+      </div>
+      <div class="table-container">
+        <table id="patientTable">
+          <thead>
+            <tr>
+              <th>Patient ID</th>
+              <th>Patient Name</th>
+              <th>Diagnosis / Condition</th>
+              <th>Attending Physician</th>
+              <th>Triage Severity</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="patientBody">
+            <tr>
+              <td><code>MED-1042</code></td>
+              <td><b>Sarah Jenkins</b> (38 F)</td>
+              <td>Acute Bronchitis</td>
+              <td>Dr. Marcus Vance</td>
+              <td><span class="status-tag status-active">Routine</span></td>
+              <td><button class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;" onclick="discharge(this)">Discharge</button></td>
+            </tr>
+            <tr>
+              <td><code>MED-1043</code></td>
+              <td><b>David Chen</b> (52 M)</td>
+              <td>Cardiac Arrhythmia</td>
+              <td>Dr. Elena Rostova</td>
+              <td><span class="status-tag status-urgent">Critical</span></td>
+              <td><button class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;" onclick="discharge(this)">Discharge</button></td>
+            </tr>
+            <tr>
+              <td><code>MED-1044</code></td>
+              <td><b>Emma Watson</b> (24 F)</td>
+              <td>Post-Op Fracture Care</td>
+              <td>Dr. Marcus Vance</td>
+              <td><span class="status-tag status-active">Observation</span></td>
+              <td><button class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;" onclick="discharge(this)">Discharge</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="admitModal">
+    <div class="modal">
+      <h3 style="margin-bottom: 1.25rem;">Admit New Patient</h3>
+      <div class="form-group">
+        <label>Patient Full Name</label>
+        <input type="text" id="newPatientName" placeholder="e.g. Robert Miles" />
+      </div>
+      <div class="form-group">
+        <label>Primary Diagnosis / Symptoms</label>
+        <input type="text" id="newDiagnosis" placeholder="e.g. Type II Diabetes Evaluation" />
+      </div>
+      <div class="form-group">
+        <label>Attending Physician</label>
+        <input type="text" id="newPhysician" placeholder="e.g. Dr. Sarah Connor" />
+      </div>
+      <div class="form-group">
+        <label>Triage Severity</label>
+        <select id="newSeverity">
+          <option value="Routine">Routine Care</option>
+          <option value="Observation">Observation</option>
+          <option value="Critical">Critical / Urgent</option>
+        </select>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn" onclick="savePatient()">Save Record</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function openModal() {{ document.getElementById('admitModal').style.display = 'flex'; }}
+    function closeModal() {{ document.getElementById('admitModal').style.display = 'none'; }}
+    function savePatient() {{
+      const name = document.getElementById('newPatientName').value || 'New Patient';
+      const diag = document.getElementById('newDiagnosis').value || 'Evaluation';
+      const doc = document.getElementById('newPhysician').value || 'Dr. On Duty';
+      const sev = document.getElementById('newSeverity').value;
+      const pid = 'MED-' + Math.floor(1000 + Math.random() * 9000);
+      const isUrgent = sev === 'Critical';
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><code>${{pid}}</code></td>
+        <td><b>${{name}}</b></td>
+        <td>${{diag}}</td>
+        <td>${{doc}}</td>
+        <td><span class="status-tag ${{isUrgent ? 'status-urgent' : 'status-active'}}">${{sev}}</span></td>
+        <td><button class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;" onclick="discharge(this)">Discharge</button></td>
+      `;
+      document.getElementById('patientBody').prepend(tr);
+      closeModal();
+      document.getElementById('totalPatients').innerText = parseInt(document.getElementById('totalPatients').innerText.replace(',', '')) + 1;
+    }}
+    function discharge(btn) {{
+      btn.closest('tr').remove();
+    }}
+    function filterPatients() {{
+      const q = document.getElementById('searchInput').value.toLowerCase();
+      document.querySelectorAll('#patientBody tr').forEach(row => {{
+        row.style.display = row.innerText.toLowerCase().includes(q) ? '' : 'none';
+      }});
+    }}
+    function exportData() {{
+      let csv = 'Patient ID,Name,Diagnosis,Physician,Severity\n';
+      document.querySelectorAll('#patientBody tr').forEach(row => {{
+        const cols = Array.from(row.querySelectorAll('td')).map(td => td.innerText.trim());
+        if (cols.length >= 5) csv += `${{cols[0]}},"${{cols[1]}}","${{cols[2]}}","${{cols[3]}}",${{cols[4]}}\n`;
+      }});
+      const blob = new Blob([csv], {{ type: 'text/csv' }});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'clinical_patient_records.csv'; a.click();
+    }}
+  </script>
+</body>
+</html>"""
+
+    # 2. MUSIC PLAYER / AUDIO APPLICATION
+    if _has_kw("music", "audio", "song", "playlist", "soundtrack", "podcast", "beats"):
+        app_title = title if title and "SE IntelliPlatform" not in title else "SonicFlow Audio & Music Player"
+        app_desc = desc if desc else "High-Fidelity Track Playback, Audio Waveforms & Custom Playlist Management"
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{app_title} - Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg: #090a10; --card-bg: rgba(18, 20, 32, 0.85); --border: rgba(255, 255, 255, 0.08);
+      --accent: #8b5cf6; --accent-hover: #7c3aed; --text: #f8fafc; --muted: #94a3b8;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #1c1438 0%, #090a10 75%);
+      color: var(--text); min-height: 100vh; padding: 2rem;
+    }}
+    .container {{ max-width: 1100px; margin: 0 auto; }}
+    .header {{ margin-bottom: 2rem; }}
+    .badge {{ display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); padding: 0.3rem 0.8rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 700; margin-bottom: 0.5rem; }}
+    h1 {{ font-size: 2.2rem; font-weight: 800; background: linear-gradient(135deg, #fff 30%, #c4b5fd 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+    .subtitle {{ color: var(--muted); font-size: 0.95rem; margin-top: 0.25rem; }}
+    .player-deck {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; padding: 1.75rem; margin-bottom: 2rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1.5rem; }}
+    .track-info {{ display: flex; align-items: center; gap: 1rem; }}
+    .album-art {{ width: 64px; height: 64px; border-radius: 12px; background: linear-gradient(135deg, #8b5cf6, #3b82f6); display: flex; align-items: center; justify-content: center; font-size: 1.8rem; box-shadow: 0 10px 20px rgba(139, 92, 246, 0.3); }}
+    .track-meta h3 {{ font-size: 1.1rem; font-weight: 700; }}
+    .track-meta p {{ color: var(--muted); font-size: 0.85rem; }}
+    .controls {{ display: flex; flex-direction: column; align-items: center; gap: 0.6rem; min-width: 320px; flex: 1; }}
+    .buttons {{ display: flex; align-items: center; gap: 1rem; }}
+    .ctrl-btn {{ background: transparent; border: none; color: #fff; font-size: 1.2rem; cursor: pointer; padding: 0.5rem; border-radius: 50%; }}
+    .play-btn {{ background: var(--accent); width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; transition: transform 0.1s; }}
+    .play-btn:hover {{ transform: scale(1.05); }}
+    .scrubber {{ display: flex; align-items: center; gap: 0.8rem; width: 100%; max-width: 450px; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--muted); }}
+    .progress-bar {{ flex: 1; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; position: relative; cursor: pointer; }}
+    .progress-fill {{ width: 35%; height: 100%; background: var(--accent); border-radius: 3px; }}
+    .wave-container {{ display: flex; align-items: flex-end; gap: 3px; height: 28px; }}
+    .wave-bar {{ width: 4px; background: #a78bfa; border-radius: 2px; animation: wave 1s ease-in-out infinite alternate; }}
+    @keyframes wave {{ 0% {{ height: 4px; }} 100% {{ height: 26px; }} }}
+    .playlist-card {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; }}
+    table {{ width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }}
+    th {{ padding: 0.75rem 1rem; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; border-bottom: 1px solid var(--border); }}
+    td {{ padding: 0.9rem 1rem; border-bottom: 1px solid var(--border); }}
+    tr:hover td {{ background: rgba(255,255,255,0.02); }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="badge">&#9835; MUSIC & AUDIO PLAYER SUITE</div>
+      <h1>{app_title}</h1>
+      <p class="subtitle">{app_desc}</p>
+    </div>
+
+    <div class="player-deck">
+      <div class="track-info">
+        <div class="album-art" id="vinylIcon">&#127925;</div>
+        <div class="track-meta">
+          <h3 id="currentTitle">Midnight Neon</h3>
+          <p id="currentArtist">Synthetix &bull; Cyber Dreams EP</p>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="buttons">
+          <button class="ctrl-btn" onclick="prevTrack()">&#9198;</button>
+          <button class="ctrl-btn play-btn" id="playBtn" onclick="togglePlay()">&#9654;</button>
+          <button class="ctrl-btn" onclick="nextTrack()">&#9197;</button>
+        </div>
+        <div class="scrubber">
+          <span id="elapsed">01:14</span>
+          <div class="progress-bar" onclick="seek(event)"><div class="progress-fill" id="progressFill"></div></div>
+          <span>03:45</span>
+        </div>
+      </div>
+
+      <div class="wave-container" id="equalizer">
+        <div class="wave-bar" style="animation-delay: 0.1s;"></div>
+        <div class="wave-bar" style="animation-delay: 0.3s;"></div>
+        <div class="wave-bar" style="animation-delay: 0.5s;"></div>
+        <div class="wave-bar" style="animation-delay: 0.2s;"></div>
+        <div class="wave-bar" style="animation-delay: 0.4s;"></div>
+      </div>
+    </div>
+
+    <div class="playlist-card">
+      <h3 style="margin-bottom: 1rem;">Track Playlist & Library</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Title</th>
+            <th>Artist</th>
+            <th>Album</th>
+            <th>Duration</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="trackList">
+          <tr onclick="loadTrack('Midnight Neon', 'Synthetix', '03:45')">
+            <td>1</td>
+            <td><b>Midnight Neon</b></td>
+            <td>Synthetix</td>
+            <td>Cyber Dreams</td>
+            <td>03:45</td>
+            <td><button class="ctrl-btn" style="color: #a78bfa;">&#9654;</button></td>
+          </tr>
+          <tr onclick="loadTrack('Electric Horizon', 'Solaris', '04:12')">
+            <td>2</td>
+            <td><b>Electric Horizon</b></td>
+            <td>Solaris</td>
+            <td>Galactic Drift</td>
+            <td>04:12</td>
+            <td><button class="ctrl-btn" style="color: #a78bfa;">&#9654;</button></td>
+          </tr>
+          <tr onclick="loadTrack('Lo-Fi Memories', 'Kumo', '02:50')">
+            <td>3</td>
+            <td><b>Lo-Fi Memories</b></td>
+            <td>Kumo</td>
+            <td>Rainy Café</td>
+            <td>02:50</td>
+            <td><button class="ctrl-btn" style="color: #a78bfa;">&#9654;</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let isPlaying = false;
+    function togglePlay() {{
+      isPlaying = !isPlaying;
+      document.getElementById('playBtn').innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;';
+      document.querySelectorAll('.wave-bar').forEach(b => b.style.animationPlayState = isPlaying ? 'running' : 'paused');
+    }}
+    function loadTrack(title, artist, dur) {{
+      document.getElementById('currentTitle').innerText = title;
+      document.getElementById('currentArtist').innerText = artist;
+      if (!isPlaying) togglePlay();
+    }}
+    function nextTrack() {{ loadTrack('Electric Horizon', 'Solaris', '04:12'); }}
+    function prevTrack() {{ loadTrack('Lo-Fi Memories', 'Kumo', '02:50'); }}
+    function seek(e) {{
+      const rect = e.currentTarget.getBoundingClientRect();
+      const pct = (e.clientX - rect.left) / rect.width;
+      document.getElementById('progressFill').style.width = (pct * 100) + '%';
+    }}
+  </script>
+</body>
+</html>"""
+
+    # 3. FOOD DELIVERY APPLICATION
+    if _has_kw("food", "delivery", "restaurant", "meal", "dish", "cuisine", "dining", "menu", "takeout", "eats"):
+        app_title = title if title and "SE IntelliPlatform" not in title else "BistroGo Food Delivery"
+        app_desc = desc if desc else "Fresh Gourmet Meals, Interactive Cart & Real-Time Delivery Tracking"
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{app_title} - Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg: #0f172a; --card-bg: rgba(30, 41, 59, 0.85); --border: rgba(255, 255, 255, 0.08);
+      --accent: #f97316; --accent-hover: #ea580c; --text: #f8fafc; --muted: #94a3b8;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #2a1608 0%, #0f172a 75%);
+      color: var(--text); min-height: 100vh; padding: 2rem;
+    }}
+    .container {{ max-width: 1200px; margin: 0 auto; }}
+    .header {{ margin-bottom: 2rem; }}
+    .badge {{ display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(249, 115, 22, 0.15); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); padding: 0.3rem 0.8rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 700; margin-bottom: 0.5rem; }}
+    h1 {{ font-size: 2.2rem; font-weight: 800; background: linear-gradient(135deg, #fff 30%, #fdba74 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+    .subtitle {{ color: var(--muted); font-size: 0.95rem; margin-top: 0.25rem; }}
+    .layout {{ display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; }}
+    .menu-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem; }}
+    .dish-card {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; padding: 1.25rem; display: flex; flex-direction: column; justify-content: space-between; }}
+    .dish-title {{ font-size: 1.1rem; font-weight: 700; }}
+    .dish-desc {{ font-size: 0.85rem; color: var(--muted); margin: 0.4rem 0 1rem 0; line-height: 1.4; }}
+    .dish-footer {{ display: flex; justify-content: space-between; align-items: center; }}
+    .dish-price {{ font-size: 1.2rem; font-weight: 800; color: #fb923c; }}
+    .btn {{ background: var(--accent); color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 8px; font-weight: 600; cursor: pointer; transition: background 0.2s; }}
+    .btn:hover {{ background: var(--accent-hover); }}
+    .cart-card {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; padding: 1.5rem; height: fit-content; }}
+    .cart-item {{ display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }}
+    .tracker {{ margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }}
+    .step {{ display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }}
+    .step.active {{ color: #fb923c; font-weight: 700; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="badge">&#127828; GOURMET FOOD DELIVERY</div>
+      <h1>{app_title}</h1>
+      <p class="subtitle">{app_desc}</p>
+    </div>
+
+    <div class="layout">
+      <div>
+        <h3 style="margin-bottom: 1rem;">Chef's Featured Menu</h3>
+        <div class="menu-grid">
+          <div class="dish-card">
+            <div>
+              <div class="dish-title">Truffle Mushroom Burger</div>
+              <p class="dish-desc">Angus beef patty with sautéed wild truffles, aged cheddar, and brioche bun.</p>
+            </div>
+            <div class="dish-footer">
+              <span class="dish-price">$16.50</span>
+              <button class="btn" onclick="addToCart('Truffle Burger', 16.50)">+ Add to Order</button>
+            </div>
+          </div>
+          <div class="dish-card">
+            <div>
+              <div class="dish-title">Spicy Tuna Poke Bowl</div>
+              <p class="dish-desc">Sashimi-grade tuna, avocado, edamame, and sriracha ponzu drizzle.</p>
+            </div>
+            <div class="dish-footer">
+              <span class="dish-price">$18.00</span>
+              <button class="btn" onclick="addToCart('Tuna Poke Bowl', 18.00)">+ Add to Order</button>
+            </div>
+          </div>
+          <div class="dish-card">
+            <div>
+              <div class="dish-title">Artisan Margherita Pizza</div>
+              <p class="dish-desc">San Marzano tomatoes, buffalo mozzarella, and fresh sweet basil.</p>
+            </div>
+            <div class="dish-footer">
+              <span class="dish-price">$14.00</span>
+              <button class="btn" onclick="addToCart('Margherita Pizza', 14.00)">+ Add to Order</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cart-card">
+        <h3 style="margin-bottom: 1rem;">Your Cart & Order</h3>
+        <div id="cartItems">
+          <div class="cart-item">
+            <span>Truffle Burger x1</span>
+            <b>$16.50</b>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 1rem; font-weight: 800; font-size: 1.1rem;">
+          <span>Subtotal</span>
+          <span id="cartTotal" style="color: #fb923c;">$16.50</span>
+        </div>
+        <button class="btn" style="width: 100%; margin-top: 1rem; padding: 0.75rem;" onclick="checkout()">Proceed to Checkout</button>
+
+        <div class="tracker">
+          <h4 style="font-size: 0.9rem; margin-bottom: 0.75rem;">Live Order Tracking</h4>
+          <div class="step active">&#9679; 1. Order Confirmed (18:05)</div>
+          <div class="step active">&#9679; 2. Kitchen Preparing Meal</div>
+          <div class="step">&#9675; 3. Courier Out for Delivery</div>
+          <div class="step">&#9675; 4. Delivered to Doorstep</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let total = 16.50;
+    function addToCart(name, price) {{
+      total += price;
+      const div = document.createElement('div');
+      div.className = 'cart-item';
+      div.innerHTML = `<span>${{name}} x1</span><b>$${{price.toFixed(2)}}</b>`;
+      document.getElementById('cartItems').appendChild(div);
+      document.getElementById('cartTotal').innerText = '$' + total.toFixed(2);
+    }}
+    function checkout() {{
+      alert('Order Placed Successfully! Your delivery driver is assigned.');
+    }}
+  </script>
+</body>
+</html>"""
+
+    # 4. LEARNING MANAGEMENT SYSTEM (LMS)
+    if _has_kw("learning", "lms", "course", "curriculum", "lesson", "academy", "grading", "syllabus"):
+        app_title = title if title and "SE IntelliPlatform" not in title else "EduSphere Learning Management System"
+        app_desc = desc if desc else "Interactive Online Courses, Lesson Modules & Student Academic Mastery"
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{app_title} - Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg: #090e17; --card-bg: rgba(15, 23, 42, 0.85); --border: rgba(255, 255, 255, 0.08);
+      --accent: #10b981; --accent-hover: #059669; --text: #f8fafc; --muted: #94a3b8;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #06281e 0%, #090e17 75%);
+      color: var(--text); min-height: 100vh; padding: 2rem;
+    }}
+    .container {{ max-width: 1200px; margin: 0 auto; }}
+    .header {{ margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: flex-start; }}
+    .badge {{ display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.3rem 0.8rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 700; margin-bottom: 0.5rem; }}
+    h1 {{ font-size: 2.2rem; font-weight: 800; background: linear-gradient(135deg, #fff 30%, #6ee7b7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+    .subtitle {{ color: var(--muted); font-size: 0.95rem; margin-top: 0.25rem; }}
+    .stats-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem; margin-bottom: 2rem; }}
+    .stat-card {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; }}
+    .stat-title {{ font-size: 0.8rem; text-transform: uppercase; color: var(--muted); font-weight: 700; }}
+    .stat-val {{ font-size: 1.8rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 0.4rem; color: #fff; }}
+    .main-card {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; }}
+    .course-item {{ display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 1rem; }}
+    .course-meta h4 {{ font-size: 1.1rem; font-weight: 700; }}
+    .course-meta p {{ color: var(--muted); font-size: 0.85rem; }}
+    .progress-bar {{ width: 180px; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; margin-top: 0.5rem; }}
+    .progress-fill {{ height: 100%; background: var(--accent); border-radius: 4px; }}
+    .btn {{ background: var(--accent); color: #fff; border: none; padding: 0.6rem 1.2rem; border-radius: 8px; font-weight: 600; cursor: pointer; transition: background 0.2s; }}
+    .btn:hover {{ background: var(--accent-hover); }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <div class="badge">&#127891; LEARNING MANAGEMENT SYSTEM</div>
+        <h1>{app_title}</h1>
+        <p class="subtitle">{app_desc}</p>
+      </div>
+      <div>
+        <button class="btn" onclick="alert('Enrolled in new specialization!')">+ Enroll Course</button>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-title">Enrolled Courses</div>
+        <div class="stat-val">5</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">Modules Completed</div>
+        <div class="stat-val">42 / 56</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">Overall GPA</div>
+        <div class="stat-val">3.92</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">Study Streak</div>
+        <div class="stat-val" style="color: #34d399;">14 Days</div>
+      </div>
+    </div>
+
+    <div class="main-card">
+      <h3 style="margin-bottom: 1rem;">Active Course Curriculum</h3>
+      <div class="course-item">
+        <div class="course-meta">
+          <h4>CS-401: Advanced Distributed Systems Architecture</h4>
+          <p>Prof. James Thorne &bull; 10 / 12 Lessons Completed</p>
+          <div class="progress-bar"><div class="progress-fill" style="width: 83%;"></div></div>
+        </div>
+        <button class="btn" onclick="resumeLesson(this)">Resume Lesson</button>
+      </div>
+      <div class="course-item">
+        <div class="course-meta">
+          <h4>DS-202: Applied Machine Learning & Neural Networks</h4>
+          <p>Dr. Lisa Rodriguez &bull; 6 / 8 Lessons Completed</p>
+          <div class="progress-bar"><div class="progress-fill" style="width: 75%;"></div></div>
+        </div>
+        <button class="btn" onclick="resumeLesson(this)">Resume Lesson</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function resumeLesson(btn) {{
+      btn.innerText = 'In Progress...';
+      setTimeout(() => alert('Launching interactive Jupyter notebook and lecture stream.'), 300);
+    }}
+  </script>
+</body>
+</html>"""
+
+    # 5. UNIVERSAL GENERAL-PURPOSE DOMAIN SYNTHESIZER
+    app_title = title if title and "SE IntelliPlatform" not in title else "Domain Application Platform"
+    app_desc = desc if desc else "Custom application synthesized according to confirmed project specifications."
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{app_title} - Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg: #0b0f19; --card-bg: rgba(22, 30, 49, 0.85); --border: rgba(255, 255, 255, 0.1);
+      --accent: #6366f1; --accent-hover: #4f46e5; --text: #f8fafc; --muted: #94a3b8;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #1e1b4b 0%, #0b0f19 75%);
+      color: var(--text); min-height: 100vh; padding: 2rem;
+    }}
+    .container {{ max-width: 1200px; margin: 0 auto; }}
+    .header {{ margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: flex-start; }}
+    .badge {{ display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3); padding: 0.3rem 0.8rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 700; margin-bottom: 0.5rem; }}
+    h1 {{ font-size: 2.2rem; font-weight: 800; background: linear-gradient(135deg, #fff 30%, #a5b4fc 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+    .subtitle {{ color: var(--muted); font-size: 0.95rem; margin-top: 0.25rem; }}
+    .stats-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem; margin-bottom: 2rem; }}
+    .stat-card {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; }}
+    .stat-title {{ font-size: 0.8rem; text-transform: uppercase; color: var(--muted); font-weight: 700; }}
+    .stat-val {{ font-size: 1.8rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 0.4rem; color: #fff; }}
+    .main-card {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; }}
+    .btn {{ background: var(--accent); color: #fff; border: none; padding: 0.6rem 1.2rem; border-radius: 8px; font-weight: 600; cursor: pointer; transition: background 0.2s; }}
+    .btn:hover {{ background: var(--accent-hover); }}
+    .btn-secondary {{ background: rgba(255, 255, 255, 0.08); color: var(--text); border: 1px solid var(--border); margin-left: 0.5rem; }}
+    table {{ width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; margin-top: 1rem; }}
+    th {{ padding: 0.75rem 1rem; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; border-bottom: 1px solid var(--border); }}
+    td {{ padding: 1rem; border-bottom: 1px solid var(--border); }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <div class="badge">&#9881; DOMAIN APPLICATION PLATFORM</div>
+        <h1>{app_title}</h1>
+        <p class="subtitle">{app_desc}</p>
+      </div>
+      <div>
+        <button class="btn" onclick="addRecord()">+ Add Record</button>
+        <button class="btn btn-secondary" onclick="exportData()">Export CSV</button>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-title">Managed Records</div>
+        <div class="stat-val" id="recordCount">48</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">Active Services</div>
+        <div class="stat-val">99.9%</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">Domain Throughput</div>
+        <div class="stat-val">1.2k ops/s</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">Efficiency Index</div>
+        <div class="stat-val" style="color: #34d399;">Optimal</div>
+      </div>
+    </div>
+
+    <div class="main-card">
+      <h3 style="margin-bottom: 1rem;">Domain Resources & Entity Explorer</h3>
+      <table id="domainTable">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Resource Identifier</th>
+            <th>Status</th>
+            <th>Last Updated</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="domainBody">
+          <tr>
+            <td><code>RES-01</code></td>
+            <td><b>Primary Resource Cluster</b></td>
+            <td><span style="color: #34d399; font-weight: 700;">Active</span></td>
+            <td>Just now</td>
+            <td><button class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;" onclick="this.closest('tr').remove()">Remove</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    function addRecord() {{
+      const id = 'RES-0' + (document.querySelectorAll('#domainBody tr').length + 1);
+      const name = prompt('Enter resource name:') || 'Secondary Service Node';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><code>${{id}}</code></td><td><b>${{name}}</b></td><td><span style="color: #34d399; font-weight: 700;">Active</span></td><td>Just now</td><td><button class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;" onclick="this.closest('tr').remove()">Remove</button></td>`;
+      document.getElementById('domainBody').appendChild(tr);
+      document.getElementById('recordCount').innerText = document.querySelectorAll('#domainBody tr').length;
+    }}
+    function exportData() {{
+      alert('Exported domain configuration CSV.');
+    }}
+  </script>
+</body>
+</html>"""
+
+
+def get_chess_game_html(title: str = "Chess Master Pro", desc: str = "Interactive Strategic Chess Game") -> str:
+    return get_chess_html(title=title, desc=desc)
+
+def get_platformer_game_html(title: str = "Skyline Jump Platformer", desc: str = "2D Action Platformer Game") -> str:
+    return get_platformer_html(title=title, desc=desc)
+
+def get_racing_game_html(title: str = "Turbo Nitro Racing", desc: str = "High-Speed Circuit Racing Simulator") -> str:
+    return get_racing_html(title=title, desc=desc)
+
+def get_puzzle_game_html(title: str = "Tile Shift Puzzle", desc: str = "Classic 15-Puzzle Sliding Challenge") -> str:
+    return get_puzzle_html(title=title, desc=desc)
+
+def get_educational_app_html(title: str = "StudyDeck Flashcards & Quiz", desc: str = "Interactive Learning Suite") -> str:
+    return get_educational_html(title=title, desc=desc)
+
+
 def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optional[str] = None) -> str:
-    # 1. If project_id provided without explicit prototype override, check isolated workspace directory first
-    if project_id and not app_type:
+    mode = None
+    p_name = ""
+    p_desc = ""
+    act_ver_id = None
+
+    # 1. Resolve project metadata and active DevelopmentVersion FIRST
+    if project_id:
         try:
-            import os
-            import uuid
+            import sqlite3, json, uuid
+            conn = get_db_conn()
+            cur = conn.cursor()
+            clean_pid = str(uuid.UUID(str(project_id)))
+            pid_h = clean_pid.replace("-", "")
+            cur.execute("SELECT name, description, settings FROM projects WHERE id = ? OR id = ?", (clean_pid, pid_h))
+            row = cur.fetchone()
+            if row:
+                p_name = row[0] or ""
+                p_desc = row[1] or ""
+                settings = {}
+                if row[2]:
+                    try:
+                        settings = json.loads(row[2])
+                    except Exception:
+                        pass
+                mode = settings.get("archetype")
+                act_ver_id = settings.get("active_version_id")
+
+            # Check active_project_context / project_contexts if mode still not set
+            if not mode:
+                if str(clean_pid) in project_contexts:
+                    ctx = project_contexts[str(clean_pid)]
+                    mode = ctx.get("mode")
+                    p_name = p_name or ctx.get("project_name", "")
+                    p_desc = p_desc or ctx.get("project_description", "")
+                else:
+                    mode = detect_mode(p_name, p_desc)
+        except Exception:
+            pass
+
+    # Only fall back to app_type if project_id was not provided or mode could not be resolved
+    if not mode:
+        mode = app_type or "custom"
+
+    # 2. Check active DevelopmentVersion directly from database FIRST
+    if project_id:
+        try:
+            import sqlite3, json, uuid
+            conn = get_db_conn()
+            cur = conn.cursor()
+            clean_pid = str(uuid.UUID(str(project_id)))
+            pid_h = clean_pid.replace("-", "")
+
+            # If act_ver_id not resolved, query the latest active or highest version
+            if not act_ver_id:
+                cur.execute("SELECT id FROM development_versions WHERE project_id = ? OR project_id = ? ORDER BY version_number DESC LIMIT 1", (clean_pid, pid_h))
+                v_res = cur.fetchone()
+                if v_res:
+                    act_ver_id = str(v_res[0])
+
+            if act_ver_id:
+                clean_vid = str(uuid.UUID(str(act_ver_id)))
+                vid_h = clean_vid.replace("-", "")
+                cur.execute("SELECT metadata FROM development_versions WHERE id = ? OR id = ?", (clean_vid, vid_h))
+                v_row = cur.fetchone()
+                if v_row and v_row[0]:
+                    v_meta = json.loads(v_row[0]) if isinstance(v_row[0], str) else v_row[0]
+                    v_files = v_meta.get("files", {})
+                    h_cand = v_files.get("frontend/index.html") or v_files.get("index.html")
+                    if h_cand:
+                        is_stale = False
+                        # Anti-collision check for Kanban
+                        if mode not in ("taskflow", "custom") and any(m in h_cand for m in ["new-task-input", "loadTasks()", "task-form", "KanbanFlow Board"]):
+                            is_stale = True
+                        # Anti-collision check for Snake
+                        if mode != "snake_game" and any(m in h_cand for m in ["spawnFood()", "snake_high_score", "Arcade Snake"]):
+                            is_stale = True
+                        # Anti-collision check for Shadow Master
+                        if mode != "shadow_master" and any(m in h_cand for m in ["combatCanvas", "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master"]):
+                            is_stale = True
+
+                        if not is_stale:
+                            return h_cand
+        except Exception:
+            pass
+
+    # 3. Check local workspace files with strict archetype anti-collision filters (even if app_type passed)
+    if project_id:
+        try:
+            import os, uuid
             from pathlib import Path
             clean_pid = str(uuid.UUID(str(project_id)))
             ws_dir = DB_PATH.parent / ".runtime_workspaces" / clean_pid
@@ -5043,78 +10221,72 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
                 ]
                 for cand in candidates:
                     if cand.is_file():
-                        return cand.read_text(encoding="utf-8", errors="replace")
+                        c_text = cand.read_text(encoding="utf-8", errors="replace")
+                        # Anti-collision check for Kanban
+                        if mode not in ("taskflow", "custom") and any(m in c_text for m in ["new-task-input", "loadTasks()", "task-form", "KanbanFlow Board"]):
+                            continue
+                        # Anti-collision check for Snake
+                        if mode != "snake_game" and any(m in c_text for m in ["spawnFood()", "snake_high_score", "Arcade Snake"]):
+                            continue
+                        # Anti-collision check for Shadow Master
+                        if mode != "shadow_master" and any(m in c_text for m in ["combatCanvas", "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master"]):
+                            continue
+                        if "Interactive Application Playground" not in c_text or mode == "custom":
+                            return c_text
                 for root, _, files in os.walk(str(ws_dir)):
                     for f in files:
                         if f.endswith(".html"):
-                            return Path(root, f).read_text(encoding="utf-8", errors="replace")
+                            c_text = Path(root, f).read_text(encoding="utf-8", errors="replace")
+                            if mode not in ("taskflow", "custom") and any(m in c_text for m in ["new-task-input", "loadTasks()", "task-form", "KanbanFlow Board"]):
+                                continue
+                            if mode != "snake_game" and any(m in c_text for m in ["spawnFood()", "snake_high_score", "Arcade Snake"]):
+                                continue
+                            if mode != "shadow_master" and any(m in c_text for m in ["combatCanvas", "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master"]):
+                                continue
+                            return c_text
         except Exception:
             pass
 
-    mode = app_type
-    p_name = ""
-    p_desc = ""
-
-    if not mode and project_id:
-        if str(project_id) in project_contexts:
-            ctx = project_contexts[str(project_id)]
-            mode = ctx.get("mode")
-            p_name = ctx.get("project_name", "")
-            p_desc = ctx.get("project_description", "")
-        else:
-            # Fallback to local SQLite project lookup
-            try:
-                import sqlite3
-                conn = get_db_conn()
-                cur = conn.cursor()
-                pid_s = str(project_id)
-                pid_h = pid_s.replace("-", "")
-                cur.execute("SELECT name, description, settings FROM projects WHERE id = ? OR id = ?", (pid_s, pid_h))
-                row = cur.fetchone()
-                conn.close()
-                if row:
-                    p_name, p_desc = row[0] or "", row[1] or ""
-                    p_settings = {}
-                    if len(row) > 2 and row[2]:
-                        try:
-                            import json
-                            p_settings = json.loads(row[2]) if isinstance(row[2], str) else row[2]
-                        except Exception:
-                            p_settings = {}
-                    p_arch = (p_settings.get("archetype") or "").lower() if isinstance(p_settings, dict) else ""
-                    mode = p_arch if p_arch in {"analytics", "snake_game", "taskflow", "eventhub", "ecommerce", "management", "custom"} else detect_mode(p_name, p_desc)
-                    project_contexts[str(project_id)] = {
-                        "project_id": str(project_id),
-                        "project_name": p_name,
-                        "project_description": p_desc,
-                        "mode": mode,
-                    }
-            except Exception:
-                pass
-
-    if not mode:
-        mode = active_project_context.get("mode", "custom")
-        p_name = active_project_context.get("project_name", "")
-        p_desc = active_project_context.get("project_description", "")
-
+    # 3. Serve specialized archetype starter prototype or domain-adaptive custom engine
     if mode == "analytics":
-        return get_analytics_dashboard_html(p_name or "Executive Analytics Dashboard", p_desc, project_id)
+        return get_analytics_dashboard_html(p_name or "Executive Analytics", p_desc, project_id=project_id)
     elif mode == "eventhub":
         return EVENTHUB_HTML
     elif mode == "taskflow":
         return get_taskflow_html(project_id)
     elif mode == "snake_game":
         return get_snake_game_html(p_name or "Arcade Snake")
+    elif mode == "carrom":
+        return get_carrom_game_html(p_name or "Carrom Master", p_desc)
+    elif mode == "shadow_master":
+        return get_shadow_master_game_html(p_name or "Shadow Master Skill Builder", p_desc)
+    elif mode == "chess":
+        return get_chess_game_html(p_name or "Chess Master Pro", p_desc)
+    elif mode == "platformer":
+        return get_platformer_game_html(p_name or "Skyline Jump Platformer", p_desc)
+    elif mode == "racing":
+        return get_racing_game_html(p_name or "Turbo Nitro Racing", p_desc)
+    elif mode == "puzzle":
+        return get_puzzle_game_html(p_name or "Tile Shift Puzzle", p_desc)
+    elif mode == "educational":
+        return get_educational_app_html(p_name or "StudyDeck Flashcards & Quiz", p_desc)
     elif mode == "ecommerce":
         return get_ecommerce_html(p_name or "ShopSphere", p_desc)
     elif mode == "management":
         return get_management_html(p_name or "Enterprise Management System", p_desc)
+    elif mode == "inventory":
+        return get_inventory_html(p_name or "Apex Inventory & Warehouse Manager", p_desc)
+    elif mode == "lms":
+        return get_lms_html(p_name or "SkillForge Online Academy", p_desc)
+    elif mode in ("sky_strike", "aerial_combat"):
+        return get_sky_strike_game_html(p_name or "Sky Strike", p_desc)
     elif mode == "custom":
-        return get_custom_app_html(p_name or "SE IntelliPlatform Application", p_desc)
-    return get_custom_app_html(p_name or "SE IntelliPlatform Application", p_desc)
+        return get_custom_interactive_html(p_name or "Domain Application Platform", p_desc)
+    return get_custom_interactive_html(p_name or "Domain Application Platform", p_desc)
 
 
 @app.get("/", response_class=HTMLResponse)
+@app.get("/preview", response_class=HTMLResponse)
 def index_page(
     app_type: Optional[str] = Query(None, alias="app"),
     project_id: Optional[str] = Query(None),
@@ -5126,6 +10298,12 @@ def index_page(
 @app.get("/preview/{project_id}", response_class=HTMLResponse)
 def preview_project_page(project_id: str):
     html = get_app_html_for_project(project_id=project_id)
+    return HTMLResponse(content=html)
+
+
+@app.get("/custom", response_class=HTMLResponse)
+def custom_preview_page(name: Optional[str] = Query("Custom Application"), desc: Optional[str] = Query("")):
+    html = get_custom_interactive_html(name, desc)
     return HTMLResponse(content=html)
 
 
@@ -5149,6 +10327,41 @@ def snake_page():
     return HTMLResponse(content=get_snake_game_html())
 
 
+@app.get("/carrom", response_class=HTMLResponse)
+def carrom_page():
+    return HTMLResponse(content=get_carrom_game_html())
+
+
+@app.get("/shadow_master", response_class=HTMLResponse)
+def shadow_master_page():
+    return HTMLResponse(content=get_shadow_master_game_html())
+
+
+
+@app.get("/chess", response_class=HTMLResponse)
+def chess_page():
+    return HTMLResponse(content=get_chess_game_html())
+
+
+@app.get("/platformer", response_class=HTMLResponse)
+def platformer_page():
+    return HTMLResponse(content=get_platformer_game_html())
+
+
+@app.get("/racing", response_class=HTMLResponse)
+def racing_page():
+    return HTMLResponse(content=get_racing_game_html())
+
+
+@app.get("/puzzle", response_class=HTMLResponse)
+def puzzle_page():
+    return HTMLResponse(content=get_puzzle_game_html())
+
+
+@app.get("/educational", response_class=HTMLResponse)
+def educational_page():
+    return HTMLResponse(content=get_educational_app_html())
+
 @app.get("/ecommerce", response_class=HTMLResponse)
 def ecommerce_page():
     return HTMLResponse(content=get_ecommerce_html())
@@ -5157,6 +10370,21 @@ def ecommerce_page():
 @app.get("/management", response_class=HTMLResponse)
 def management_page():
     return HTMLResponse(content=get_management_html())
+
+
+@app.get("/inventory", response_class=HTMLResponse)
+def inventory_page():
+    return HTMLResponse(content=get_inventory_html())
+
+
+@app.get("/lms", response_class=HTMLResponse)
+def lms_page():
+    return HTMLResponse(content=get_lms_html())
+
+
+@app.get("/sky_strike", response_class=HTMLResponse)
+def sky_strike_page():
+    return HTMLResponse(content=get_sky_strike_game_html())
 
 
 if __name__ == "__main__":

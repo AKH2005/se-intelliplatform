@@ -312,12 +312,14 @@ class PreviewRuntimeManager:
         project_id: Optional[str] = None,
         project_name: Optional[str] = None,
         project_description: Optional[str] = None,
+        mode: Optional[str] = None,
     ) -> None:
         """Inform the preview server of the currently active project context."""
         payload = {
             "project_id": str(project_id) if project_id else None,
             "project_name": project_name or "",
             "project_description": project_description or "",
+            "mode": mode,
         }
         await asyncio.to_thread(self._sync_http_post, f"{self.base_url}/api/runtime/context", payload, 1.0)
 

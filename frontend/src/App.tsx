@@ -195,14 +195,76 @@ export const App: React.FC = () => {
   // Helper to extract realistic starter requirements from natural language description
   const extractStarterRequirements = (desc: string) => {
     const text = desc.toLowerCase();
-    const isAnalyticsApp = text.includes('analytics') || text.includes('dashboard') || text.includes('kpi') || text.includes('metric') || text.includes('revenue');
-    const isGameApp = text.includes('game') || text.includes('snake') || text.includes('arcade');
-    const isEventApp = text.includes('event');
-    const isTaskApp = text.includes('task');
-    const isShopApp = text.includes('shop') || text.includes('store') || text.includes('commerce') || text.includes('product') || text.includes('cart');
-    const isManageApp = text.includes('student') || text.includes('employee') || text.includes('manage') || text.includes('admin') || text.includes('record');
+    const hasWord = (w: string) => new RegExp(`\\b${w}\\b`, 'i').test(text);
 
-    if (isAnalyticsApp) {
+    const isShadowMasterApp = text.includes('shadow') || text.includes('ninja') || text.includes('stealth') || text.includes('skill builder');
+    const isCarromApp = text.includes('carrom') || text.includes('striker');
+    const isChessApp = text.includes('chess') || text.includes('checkmate') || text.includes('chessboard');
+    const isPlatformerApp = text.includes('platformer') || text.includes('side-scroller') || (text.includes('jump') && text.includes('run'));
+    const isRacingApp = text.includes('racing') || text.includes('racer') || text.includes('circuit') || text.includes('speedway') || text.includes('nitro');
+    const isPuzzleApp = text.includes('puzzle') || text.includes('sliding tile') || text.includes('15-puzzle') || text.includes('sudoku');
+    const isEducationalApp = text.includes('flashcard') || text.includes('studydeck') || text.includes('quiz') || text.includes('trivia') || text.includes('vocab');
+    const isAnalyticsApp = text.includes('analytics') || text.includes('dashboard') || text.includes('kpi') || text.includes('metric') || text.includes('revenue') || text.includes('bi ');
+    const isSnakeGameApp = text.includes('snake') || text.includes('slither') || text.includes('nibbles');
+    const isGameApp = text.includes('arcade') || text.includes('game');
+    const isEventApp = text.includes('event') || text.includes('conference') || text.includes('summit');
+    const isTaskApp = text.includes('kanban') || text.includes('taskflow') || text.includes('todo') || text.includes('backlog') || (text.includes('task') && !text.includes('management'));
+    const isShopApp = text.includes('shop') || text.includes('store') || text.includes('ecommerce') || text.includes('cart') || hasWord('merchandise') || hasWord('catalog');
+    const isManageApp = text.includes('student') || text.includes('employee') || text.includes('directory') || text.includes('roster') || text.includes('management') || text.includes('admin') || text.includes('record');
+
+    if (isShadowMasterApp) {
+      return [
+        { title: 'HTML5 Canvas 2D Shadow Master combat arena.', description: 'Smooth 60fps rendering with player shadow physics, directional movement (WASD/Arrow keys), and mouse aim.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Full combat ability suite with active hotbar.', description: 'Katana Slash (Q), Shadow Dash (W), Shuriken Volley (E), Shadow Cloak (R), and Shadow Decoy (Space).', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Dynamic enemy training dummies and patrolling shadow guards.', description: 'Real-time collision detection, enemy health bars, floating combat text, and XP rewards.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Real-time Skill Builder and Parameter Customizer.', description: 'Live tuning panel for skill damage, energy cost, cooldown, radius, element type, and preset loader.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Player combat HUD with stats, combo multiplier, and score.', description: 'Dynamic Health bar, Shadow Energy meter, level progression, combo multiplier, and total score.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Skill Tree JSON export and backend synchronization.', description: 'One-click validated JSON export for game engine consumption and REST API combat score persistence.', type: 'NON_FUNCTIONAL' as const, priority: 'HIGH' as const },
+      ];
+    } else if (isCarromApp) {
+      return [
+        { title: 'HTML5 Canvas 2D Carrom board physics engine.', description: 'Smooth 60fps simulation of striker and carrom pieces with realistic 2D circular collision, rebound restitution, and surface friction.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Interactive striker placement and aiming controls.', description: 'Baseline position slider and intuitive pull-back drag aiming with dynamic power gauge and trajectory guidance.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Full 19-piece carrom set and pocket detection.', description: 'Nine white pieces, nine black pieces, and one red Queen with corner pocket hole detection and automated piece collection.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Live match scoreboard and turn tracking.', description: 'Player 1 (White) and Player 2 (Black) score tally, active turn indicator, Queen cover state, and remaining coin count.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Solo practice mode and match reset.', description: 'Toggle between two-player turn-based match and solo practice drill with board reset.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Interactive Live Preview prototype.', description: 'Direct browser carrom game prototype on SE IntelliPlatform preview runtime.', type: 'NON_FUNCTIONAL' as const, priority: 'HIGH' as const },
+      ];
+    } else if (isChessApp) {
+      return [
+        { title: 'Interactive 8x8 Chessboard with standard rules.', description: 'Turn-based move evaluation, legal move indicators, and piece selection.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Live move history algebraic notation logger.', description: 'Records standard algebraic moves and turn sequencing dynamically.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Captured pieces tray and material advantage score.', description: 'Visual tray tallying captured pawns, knights, bishops, rooks, and queens.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Match timer, restart, and side-switch controls.', description: 'Full match lifecycle control with turn timers and clean reset.', type: 'FUNCTIONAL' as const, priority: 'MEDIUM' as const },
+        { title: 'Interactive Live Preview prototype.', description: 'Direct browser strategic chess prototype on SE IntelliPlatform preview runtime.', type: 'NON_FUNCTIONAL' as const, priority: 'HIGH' as const },
+      ];
+    } else if (isPlatformerApp) {
+      return [
+        { title: '60 FPS 2D physics engine with gravity and momentum.', description: 'Smooth player velocity, jumping mechanics, platform collisions, and inertia.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Multi-tiered floating platforms and collectible coins.', description: 'Level terrain with collectible gold coins and scoring incentives.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Dynamic hazard obstacles and life loss penalties.', description: 'Spikes and boundary fall hazards with health/lives management.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Live game HUD with score, coins, and lives counter.', description: 'Real-time performance indicators and game-over state restart.', type: 'FUNCTIONAL' as const, priority: 'MEDIUM' as const },
+      ];
+    } else if (isRacingApp) {
+      return [
+        { title: 'Top-down 2D racing circuit with continuous asphalt track.', description: 'Smooth 60fps canvas rendering of circuit curves and track barriers.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Realistic vehicle steering physics with drift and brake.', description: 'Acceleration curves, friction braking, steering angles, and drift smoke.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Telemetry HUD displaying speedometer, tachometer, and lap timer.', description: 'Real-time vehicle telemetry with current, best, and total lap times.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Interactive Live Preview prototype.', description: 'Direct browser circuit racing prototype on SE IntelliPlatform preview runtime.', type: 'NON_FUNCTIONAL' as const, priority: 'HIGH' as const },
+      ];
+    } else if (isPuzzleApp) {
+      return [
+        { title: 'Interactive sliding tile puzzle grid with smooth animation.', description: 'Dynamic grid layout with empty slot swapping mechanics.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Solvable shuffle algorithm and move counter.', description: 'Mathematically guaranteed solvable permutations with move counter.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Live timer, victory detection banner, and difficulty presets.', description: 'Elapsed time tracker and instant win state verification.', type: 'FUNCTIONAL' as const, priority: 'MEDIUM' as const },
+      ];
+    } else if (isEducationalApp) {
+      return [
+        { title: 'Interactive 3D flip study flashcards with mastery marking.', description: 'Smooth CSS 3D card flips between question and answer with Know/Need Review buttons.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Timed multiple-choice quiz engine with instant score tally.', description: 'Randomized questions, immediate feedback, and score calculation.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
+        { title: 'Deck category switcher and performance analytics summary.', description: 'Study subject switching and completion percentage tracking.', type: 'FUNCTIONAL' as const, priority: 'MEDIUM' as const },
+      ];
+    } else if (isAnalyticsApp) {
       return [
         { title: 'Executive KPI summary cards for revenue, retention, and conversion.', description: 'Real-time performance cards with formatted currency and trend indicators.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
         { title: 'Interactive revenue trajectory chart and multi-stage funnel visualization.', description: 'Dynamic SVG trend line with hoverable data points and funnel drop-off metrics.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
@@ -211,7 +273,7 @@ export const App: React.FC = () => {
         { title: 'Responsive grid adapting seamlessly from desktop to tablet and mobile.', description: 'Fluid layout adjusting from 4-column KPI cards to 2-column tablet and stacked mobile.', type: 'NON_FUNCTIONAL' as const, priority: 'HIGH' as const },
         { title: 'Interactive Live Preview prototype.', description: 'Direct browser executive analytics prototype on SE IntelliPlatform preview runtime.', type: 'NON_FUNCTIONAL' as const, priority: 'HIGH' as const },
       ];
-    } else if (isGameApp) {
+    } else if (isSnakeGameApp || isGameApp) {
       return [
         { title: 'HTML5 Canvas 2D game rendering engine.', description: 'Smooth 60fps rendering with coordinate grid calculation.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },
         { title: 'Responsive directional controls (Keyboard Arrow/WASD & Touch D-Pad).', description: 'Real-time steering with prevent-reverse safeguards.', type: 'FUNCTIONAL' as const, priority: 'HIGH' as const },

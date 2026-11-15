@@ -3,6 +3,7 @@
 from typing import Any
 from app.agents.architecture_recommendation.contracts import ArchitectureRecommendationOutput
 from app.agents.code_generation.contracts import CodeGenerationPlan, is_fullstack_project
+from app.agents.code_generation.specification import extract_application_specification
 from app.agents.database_design.contracts import DatabaseDesignOutput
 from app.agents.requirement_analysis.contracts import RequirementAnalysisOutput
 from app.schemas.context import ProjectContextResponse
@@ -13,43 +14,47 @@ from app.schemas.context import ProjectContextResponse
 # ==============================================================================
 
 PLANNING_SYSTEM_PROMPT = """You are the Senior Software Architect and Code Generation Planner for SE IntelliPlatform.
-Your role is to propose a minimal, robust, modular project scaffold plan for a production application.
+Your role is to propose a robust, modular, domain-tailored project scaffold plan for a production web application.
+
+APPLICATION COMPLEXITY TARGETS:
+1. Level 1: Basic (Utility apps, simple single-view calculators, basic portfolios).
+2. Level 2: Medium (PRIMARY TARGET: E-commerce, Inventory Management, Learning Management System, Event Management, Full-Featured Games, Task Platforms).
+   - Complete connected multi-page workflows.
+   - Genuine database entity models and persistence.
+   - Domain-tailored UI/UX design systems.
+   - Input validation and proper error handling.
+3. Level 3: Advanced (Enterprise distributed systems, real-time multiplayer).
+   - Explicit scope assessments and feature boundaries.
 
 SUPPORTED TARGET STACKS:
 1. Backend Service (when no web UI or frontend is requested):
    - Language: python | Framework: fastapi | Database: postgresql/sqlite | Package Manager: pip
    - Files: app/main.py, app/config.py, app/models.py, app/api.py, app/persistence.py, requirements.txt, README.md
-2. Full-Stack Application (when React, web interface, frontend, or dashboard is requested):
+2. Full-Stack Application (when React, web interface, frontend, dashboard, or game is requested):
    - Language: polyglot | Framework: react+fastapi | Package Manager: npm+pip
    - Frontend files:
-     - `frontend/package.json`: Dependencies for Vite, React, TypeScript.
-     - `frontend/index.html`: Web entry HTML.
+     - `frontend/package.json`: Dependencies for Vite, React, TypeScript, and Lucide icons.
+     - `frontend/index.html`: Web entry HTML with domain-specific title and mounting container.
      - `frontend/src/main.tsx`: React mounting entrypoint.
-     - `frontend/src/App.tsx`: Main React application component with task list, create, complete, and delete.
-     - `frontend/src/components/TaskCard.tsx`: Task card component.
-     - `frontend/src/components/TaskForm.tsx`: Task form component.
+     - `frontend/src/App.tsx`: Main React application coordinating navigation and views.
+     - Domain feature components tailored to the application's actual workflows (e.g. Catalog, Cart, Checkout, CoursePlayer, InventoryTable, BookingModal).
      - `frontend/src/services/api.ts`: API client connecting to FastAPI backend with env URL fallback.
-     - `frontend/src/styles/App.css`: Modern styling.
+     - `frontend/src/styles/App.css`: Professional domain design system styling.
    - Backend files:
      - `backend/requirements.txt`: Python package dependencies (fastapi, uvicorn, pydantic).
-     - `backend/app/main.py`: FastAPI application entrypoint with CORS middleware.
+     - `backend/app/main.py`: FastAPI application entrypoint with CORS middleware and preview serving.
      - `backend/app/config.py`: Environment configuration and allowed origins.
-     - `backend/app/models.py`: Database models and Pydantic schemas.
+     - `backend/app/models.py`: Database models and Pydantic schemas reflecting domain entities.
      - `backend/app/api.py`: REST endpoint router handling domain operations.
-     - `backend/app/persistence.py`: Thread-safe persistence repository.
+     - `backend/app/persistence.py`: Thread-safe database persistence repository.
    - Root documentation:
      - `README.md`: Architecture overview and setup guides for frontend and backend.
 
 ARCHITECTURAL PRINCIPLES:
-1. Full-Stack Invariant: If the project context, requirements, or architecture components specify a frontend (e.g. React, web UI, dashboard), you MUST propose the complete full-stack structure with both frontend/ and backend/ directories. Never generate a backend-only scaffold for a project that requires a React frontend.
-2. Path Safety: Every file path MUST be relative, using forward slashes (e.g., 'frontend/src/App.tsx', 'backend/app/main.py'). NEVER use absolute paths, Windows drive letters, or '..' path traversals.
-3. Traceability:
-   - Map each file's `requirement_ids` to the exact UUIDs of the canonical requirements it addresses.
-   - Map `architecture_component` to the exact name of an upstream architecture component.
-     * Backend source and dependency files (e.g., `backend/requirements.txt`, `backend/app/main.py`) MUST map to the declared backend component (e.g., 'CoreService', 'Backend API', or similar). Never assign `requirements.txt` to 'Documentation'.
-     * Frontend files (e.g., `frontend/src/App.tsx`, `frontend/package.json`) MUST map to the declared frontend component (e.g., 'Frontend', 'React UI', or similar).
-     * Root documentation files (e.g., `README.md`) may have `architecture_component` set to null or match a declared component.
-4. Completeness: Every planned file must have a clear, descriptive `purpose` (at least 5 characters).
+1. Domain Tailoring: Propose components and routes that directly address the specific domain (Hospital, E-commerce, Inventory, LMS, EventHub, or Game). Never force unrelated applications into a generic task manager or placeholder dashboard.
+2. Full-Stack Invariant: If the project requires a frontend, propose the complete full-stack structure with both frontend/ and backend/ directories.
+3. Path Safety: Every file path MUST be relative, using forward slashes (e.g., 'frontend/src/App.tsx', 'backend/app/main.py'). NEVER use absolute paths, Windows drive letters, or '..' path traversals.
+4. Traceability: Map each file's `requirement_ids` to canonical requirements and `architecture_component` to declared components.
 5. Output: Return structured JSON matching the CodeGenerationPlan schema.
 """
 
@@ -64,12 +69,26 @@ def build_code_generation_plan_prompt(
     project = context.project
     requirements = context.requirements
 
+    # Extract internal application specification
+    app_spec = extract_application_specification(
+        name=project.name,
+        desc=project.description or "",
+        requirements=requirements,
+    )
+
     # Requirements block
     req_lines = [
         f"Requirement ID: {r.id} | Title: {r.title} | Priority: {r.priority.value}\n    Description: {r.description.strip()}"
         for r in requirements
     ]
     req_block = "\n".join(req_lines) if req_lines else "None recorded."
+
+    # Domain workflows block
+    wf_lines = [
+        f"Workflow '{wf.workflow_name}': {' -> '.join(wf.steps)} (Data: {wf.data_flow})"
+        for wf in app_spec.user_workflows
+    ]
+    wf_block = "\n".join(wf_lines) if wf_lines else "Standard domain navigation."
 
     # Architecture block
     arch_block = "None provided."
@@ -130,22 +149,32 @@ def build_code_generation_plan_prompt(
 
     fullstack = is_fullstack_project(context, architecture_recommendation)
     if fullstack:
+        pages_summary = ", ".join(p.title for p in app_spec.pages_and_navigation)
         plan_instruction = (
-            "The project explicitly requires a FULL-STACK application (React frontend + FastAPI backend).\n"
-            "You MUST propose a complete full-stack scaffold including both 'frontend/' (package.json, index.html, "
-            "src/main.tsx, src/App.tsx, src/components/TaskCard.tsx, src/components/TaskForm.tsx, src/services/api.ts, src/styles/App.css) and 'backend/' "
-            "(requirements.txt, app/main.py with CORS, app/config.py, app/models.py, app/api.py, app/persistence.py), and 'README.md'.\n"
-            "Set project_type='fullstack', language='polyglot', framework='react+fastapi', package_manager='npm+pip'."
+            f"The project requires a FULL-STACK {app_spec.complexity_level.value} application (React frontend + FastAPI backend).\n"
+            f"Target Domain Purpose: {app_spec.purpose}\n"
+            f"Domain Workflows:\n{wf_block}\n"
+            f"Target Views/Pages: {pages_summary}\n"
+            "Propose tailored domain components (NOT generic task cards unless task management was explicitly requested).\n"
+            "Set project_type='fullstack', language='polyglot', framework='react+fastapi', package_manager='npm+pip', "
+            f"complexity_level='{app_spec.complexity_level.value}'."
         )
     else:
         plan_instruction = (
-            "The project requires a backend service (Python/FastAPI).\n"
-            "Generate a CodeGenerationPlan proposing a concise, production-ready Python/FastAPI project scaffold.\n"
-            "Set project_type='backend-service', language='python', framework='fastapi', package_manager='pip'."
+            f"The project requires a backend service (Python/FastAPI) of complexity {app_spec.complexity_level.value}.\n"
+            "Generate a CodeGenerationPlan proposing a production-ready Python/FastAPI project scaffold.\n"
+            f"Set project_type='backend-service', language='python', framework='fastapi', package_manager='pip', complexity_level='{app_spec.complexity_level.value}'."
         )
 
     return f"""Project: {project.name} (slug: {project.slug})
 Description: {project.description or 'None provided'}
+Target Complexity Level: {app_spec.complexity_level.value}
+
+--- APPLICATION SPECIFICATION & WORKFLOWS ---
+Purpose: {app_spec.purpose}
+Workflows:
+{wf_block}
+--- END APPLICATION SPECIFICATION ---
 
 --- CANONICAL REQUIREMENTS ({len(requirements)} active) ---
 {req_block}
@@ -206,6 +235,13 @@ def build_code_generation_prompt(
 ) -> str:
     """Construct prompt for the Code Generation agent."""
     project = context.project
+    requirements = context.requirements
+
+    app_spec = extract_application_specification(
+        name=project.name,
+        desc=project.description or "",
+        requirements=requirements,
+    )
 
     # Planned files manifest
     manifest_lines = [
@@ -229,15 +265,26 @@ def build_code_generation_prompt(
         elif database_design.entities:
             db_summary = f"Entities: {', '.join(e.name for e in database_design.entities)}"
 
+    workflow_summary = "\n".join(
+        f"- {wf.workflow_name}: {' -> '.join(wf.steps)}" for wf in app_spec.user_workflows
+    ) or "Standard domain flow."
+
     return f"""Project: {project.name}
+Target Complexity: {getattr(plan, 'complexity_level', 'MEDIUM')}
+Domain Purpose: {app_spec.purpose}
 Target Stack: {plan.language} / {plan.framework} / {plan.database} ({plan.package_manager})
 Plan Rationale: {plan.rationale}
 Database Context: {db_summary}
+
+--- DOMAIN WORKFLOWS ---
+{workflow_summary}
+--- END WORKFLOWS ---
 
 --- AUTHORITATIVE FILE MANIFEST ({len(plan.files)} files planned) ---
 {manifest_block}
 --- END MANIFEST ---
 
-Generate complete, clean source code for all {len(plan.files)} planned files listed above.
+Generate complete, clean, professional source code for all {len(plan.files)} planned files listed above.
 Do not omit any planned file. Do not invent unplanned files.
+Implement actual interactive domain components and working endpoints, not generic task list placeholders.
 Do not include any secrets, passwords, or API keys."""

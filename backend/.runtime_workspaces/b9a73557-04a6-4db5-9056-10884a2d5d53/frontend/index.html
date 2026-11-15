@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shadow Master Skill Builder — Live Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #07090e;
+      --card-bg: rgba(15, 23, 42, 0.85);
+      --border: rgba(168, 85, 247, 0.25);
+      --border-glow: rgba(168, 85, 247, 0.5);
+      --purple: #a855f7;
+      --purple-light: #c084fc;
+      --purple-dark: #6b21a8;
+      --cyan: #06b6d4;
+      --red: #ef4444;
+      --yellow: #eab308;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 10%, #1e1138 0%, #07090e 70%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 1.25rem;
+      max-width: 1100px;
+      width: 100%;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(168, 85, 247, 0.15);
+      border: 1px solid var(--border);
+      color: var(--purple-light);
+      padding: 0.3rem 0.85rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: 'Cinzel', serif;
+      font-size: 2.2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #f8fafc 20%, #c084fc 60%, #a855f7 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: 0.02em;
+      margin-bottom: 0.3rem;
+    }
+    .tagline {
+      color: var(--muted);
+      font-size: 0.95rem;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 1.25rem;
+      max-width: 1150px;
+      width: 100%;
+    }
+    @media (max-width: 980px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.25rem;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 20px rgba(168, 85, 247, 0.08);
+      position: relative;
+    }
+    /* HUD Stats Bar */
+    .hud-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 0.75rem 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .hud-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .hud-label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .hud-val {
+      font-size: 1.15rem;
+      font-weight: 700;
+      font-family: 'Cinzel', serif;
+    }
+    .bar-wrap {
+      width: 120px;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 9999px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 9999px;
+      transition: width 0.2s ease;
+    }
+    .bar-health { background: linear-gradient(90deg, #ef4444, #f87171); width: 100%; }
+    .bar-energy { background: linear-gradient(90deg, #9333ea, #c084fc); width: 100%; }
+    .bar-xp { background: linear-gradient(90deg, #06b6d4, #67e8f9); width: 25%; }
+
+    /* Canvas Area */
+    .canvas-container {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      background: #030712;
+      box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.9);
+      display: flex;
+      justify-content: center;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 420px;
+      background: #05070e;
+      cursor: crosshair;
+    }
+    .canvas-overlay {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: rgba(0,0,0,0.6);
+      padding: 0.4rem 0.8rem;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      color: var(--purple-light);
+      pointer-events: none;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+    /* Hotbar */
+    .hotbar {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.5rem;
+      margin-top: 0.9rem;
+    }
+    .skill-btn {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 0.6rem 0.4rem;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.25rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .skill-btn:hover:not(:disabled) {
+      background: rgba(168, 85, 247, 0.15);
+      border-color: var(--purple);
+      transform: translateY(-2px);
+    }
+    .skill-btn.active {
+      border-color: var(--purple-light);
+      box-shadow: 0 0 12px rgba(168, 85, 247, 0.5);
+      background: rgba(168, 85, 247, 0.2);
+    }
+    .skill-key {
+      font-size: 0.7rem;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .skill-name {
+      font-size: 0.8rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .skill-cost {
+      font-size: 0.7rem;
+      color: var(--purple-light);
+    }
+    .cooldown-overlay {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(0, 0, 0, 0.75);
+      height: 0%;
+      pointer-events: none;
+      transition: height 0.1s linear;
+    }
+
+    /* Controls bar */
+    .controls-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-top: 0.9rem;
+      flex-wrap: wrap;
+    }
+    .btn {
+      padding: 0.55rem 1.1rem;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--purple-dark), var(--purple));
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, var(--purple), var(--purple-light));
+      box-shadow: 0 0 15px rgba(168, 85, 247, 0.4);
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    /* Skill Builder Sidebar */
+    .builder-panel h2 {
+      font-family: 'Cinzel', serif;
+      font-size: 1.25rem;
+      margin-bottom: 0.25rem;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .builder-panel p.sub {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+    .form-group {
+      margin-bottom: 0.9rem;
+    }
+    .form-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+      color: var(--muted);
+    }
+    .form-label span.val {
+      color: var(--purple-light);
+      font-family: monospace;
+    }
+    select, input[type="text"] {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 0.55rem 0.75rem;
+      color: var(--text);
+      font-size: 0.85rem;
+      outline: none;
+    }
+    select:focus, input[type="text"]:focus {
+      border-color: var(--purple);
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--purple);
+      cursor: pointer;
+    }
+    .preset-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-top: 0.5rem;
+    }
+    .chip {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      padding: 0.25rem 0.55rem;
+      font-size: 0.72rem;
+      cursor: pointer;
+      color: var(--muted);
+    }
+    .chip:hover {
+      background: rgba(168, 85, 247, 0.2);
+      border-color: var(--purple);
+      color: #fff;
+    }
+    .json-box {
+      background: #030712;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 0.75rem;
+      font-family: monospace;
+      font-size: 0.75rem;
+      color: #a7f3d0;
+      max-height: 140px;
+      overflow-y: auto;
+      margin-top: 0.75rem;
+      white-space: pre-wrap;
+    }
+    .footer-help {
+      margin-top: 1.5rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="badge">⚔️ Shadow Combat Ready &bull; Live Preview</div>
+    <h1 id="app-title">Shadow Master Skill Builder</h1>
+    <p class="tagline">A web-based tool that lets game designers create, preview, and export custom skills for the Shadow Master game, streamlining the development workflow and ensuring consistency across the game’s skill system.</p>
+  </div>
+
+  <div class="main-grid">
+    <!-- LEFT: COMBAT ARENA -->
+    <div class="card">
+      <!-- HUD STATS BAR -->
+      <div class="hud-bar">
+        <div class="hud-item">
+          <div class="hud-label">Health</div>
+          <div class="hud-val" id="hud-health" style="color: #f87171;">100 / 100</div>
+          <div class="bar-wrap"><div class="bar-fill bar-health" id="bar-health-fill"></div></div>
+        </div>
+        <div class="hud-item">
+          <div class="hud-label">Shadow Energy</div>
+          <div class="hud-val" id="hud-energy" style="color: #c084fc;">100 / 100</div>
+          <div class="bar-wrap"><div class="bar-fill bar-energy" id="bar-energy-fill"></div></div>
+        </div>
+        <div class="hud-item">
+          <div class="hud-label">Combo / Level</div>
+          <div class="hud-val"><span id="hud-combo" style="color: #eab308;">x1</span> &bull; Lv.<span id="hud-level">1</span></div>
+          <div class="bar-wrap"><div class="bar-fill bar-xp" id="bar-xp-fill"></div></div>
+        </div>
+        <div class="hud-item">
+          <div class="hud-label">Combat Score</div>
+          <div class="hud-val" id="hud-score" style="color: #38bdf8;">0</div>
+        </div>
+      </div>
+
+      <!-- CANVAS -->
+      <div class="canvas-container">
+        <div class="canvas-overlay" id="statusOverlay">Status: Ready &bull; Move: WASD / Arrows &bull; Click to Slash</div>
+        <canvas id="combatCanvas" width="700" height="420"></canvas>
+      </div>
+
+      <!-- HOTBAR -->
+      <div class="hotbar">
+        <button class="skill-btn active" id="btn-skill-slash" onclick="triggerSkill('slash')">
+          <span class="skill-key">Q / Click</span>
+          <span class="skill-name">Katana Slash</span>
+          <span class="skill-cost" id="cost-slash">0 Energy</span>
+          <div class="cooldown-overlay" id="cd-slash"></div>
+        </button>
+        <button class="skill-btn" id="btn-skill-dash" onclick="triggerSkill('dash')">
+          <span class="skill-key">W / R-Click</span>
+          <span class="skill-name">Shadow Dash</span>
+          <span class="skill-cost" id="cost-dash">20 Energy</span>
+          <div class="cooldown-overlay" id="cd-dash"></div>
+        </button>
+        <button class="skill-btn" id="btn-skill-shuriken" onclick="triggerSkill('shuriken')">
+          <span class="skill-key">E</span>
+          <span class="skill-name">Shuriken Volley</span>
+          <span class="skill-cost" id="cost-shuriken">15 Energy</span>
+          <div class="cooldown-overlay" id="cd-shuriken"></div>
+        </button>
+        <button class="skill-btn" id="btn-skill-cloak" onclick="triggerSkill('cloak')">
+          <span class="skill-key">R</span>
+          <span class="skill-name">Shadow Cloak</span>
+          <span class="skill-cost" id="cost-cloak">30 Energy</span>
+          <div class="cooldown-overlay" id="cd-cloak"></div>
+        </button>
+        <button class="skill-btn" id="btn-skill-decoy" onclick="triggerSkill('decoy')">
+          <span class="skill-key">Space</span>
+          <span class="skill-name">Shadow Decoy</span>
+          <span class="skill-cost" id="cost-decoy">40 Energy</span>
+          <div class="cooldown-overlay" id="cd-decoy"></div>
+        </button>
+      </div>
+
+      <!-- CONTROLS ROW -->
+      <div class="controls-row">
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn btn-primary" id="btn-start" onclick="toggleBattle()">Start Battle</button>
+          <button class="btn btn-secondary" id="btn-restart" onclick="resetBattle()">Restart</button>
+          <button class="btn btn-secondary" onclick="spawnEnemy()">+ Spawn Guard</button>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--muted);">
+          Stealth: <span id="cloak-status" style="color: #64748b; font-weight: 700;">OFF</span> &bull;
+          Dummies: <span id="dummy-count" style="color: #38bdf8;">2</span> &bull;
+          Guards: <span id="guard-count" style="color: #f87171;">2</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: SKILL BUILDER & CUSTOMIZER -->
+    <div class="card builder-panel">
+      <h2>⚡ Skill Customizer</h2>
+      <p class="sub">Tweak active abilities in real-time or export definitions.</p>
+
+      <div class="form-group">
+        <label class="form-label">Selected Ability</label>
+        <select id="editSkillSelect" onchange="loadSkillToEdit()">
+          <option value="slash">Katana Slash (Melee Strike)</option>
+          <option value="dash">Shadow Dash (Mobility)</option>
+          <option value="shuriken">Shuriken Volley (Ranged)</option>
+          <option value="cloak">Shadow Cloak (Stealth / Crit)</option>
+          <option value="decoy">Shadow Decoy (Illusion)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <div class="form-label">
+          <span>Damage Power</span>
+          <span class="val" id="valDamage">45</span>
+        </div>
+        <input type="range" id="inputDamage" min="10" max="250" value="45" oninput="updateSkillField('damage', this.value)">
+      </div>
+
+      <div class="form-group">
+        <div class="form-label">
+          <span>Energy Cost</span>
+          <span class="val" id="valEnergy">0</span>
+        </div>
+        <input type="range" id="inputEnergy" min="0" max="60" value="0" oninput="updateSkillField('energy', this.value)">
+      </div>
+
+      <div class="form-group">
+        <div class="form-label">
+          <span>Cooldown (seconds)</span>
+          <span class="val" id="valCooldown">0.4s</span>
+        </div>
+        <input type="range" id="inputCooldown" min="2" max="60" value="4" oninput="updateSkillField('cooldown', this.value / 10)">
+      </div>
+
+      <div class="form-group">
+        <div class="form-label">
+          <span>Effect Radius / Range</span>
+          <span class="val" id="valRadius">70px</span>
+        </div>
+        <input type="range" id="inputRadius" min="30" max="250" value="70" oninput="updateSkillField('radius', this.value)">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Damage Element</label>
+        <select id="inputElement" onchange="updateSkillField('element', this.value)">
+          <option value="shadow">Void Shadow (Purple)</option>
+          <option value="crimson">Crimson Flame (Red)</option>
+          <option value="frost">Frostbite (Cyan)</option>
+          <option value="lightning">Volt Strike (Yellow)</option>
+        </select>
+      </div>
+
+      <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+        <button class="btn btn-primary" style="width: 100%;" onclick="applySkillChanges()">Apply to Live Game</button>
+        <button class="btn btn-secondary" style="width: 100%;" onclick="toggleExportJson()">Export Skill Config (JSON)</button>
+      </div>
+
+      <div class="preset-chips">
+        <span class="chip" onclick="applyPreset('assassin')">🗡️ Assassin</span>
+        <span class="chip" onclick="applyPreset('void')">🔮 Void Mage</span>
+        <span class="chip" onclick="applyPreset('speed')">⚡ Speed Ninja</span>
+        <span class="chip" onclick="applyPreset('tank')">🛡️ Shadow Guard</span>
+      </div>
+
+      <div id="jsonContainer" style="display: none;">
+        <div class="json-box" id="jsonExport"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-help">
+    Controls: <b>W A S D</b> or <b>Arrow Keys</b> to move &bull; <b>Click / Q</b> Katana Slash &bull; <b>W / Right Click</b> Shadow Dash &bull; <b>E</b> Shuriken &bull; <b>R</b> Cloak &bull; <b>Space</b> Decoy
+  </div>
+
+  <script>
+    // =========================================================================
+    // SHADOW MASTER COMBAT & SKILL BUILDER ENGINE
+    // =========================================================================
+
+    const canvas = document.getElementById('combatCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Audio Synthesizer (Zero External Dependencies)
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    let audioCtx = null;
+    function playSfx(type) {
+      try {
+        if (!audioCtx) audioCtx = new AudioCtx();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        const now = audioCtx.currentTime;
+
+        if (type === 'slash') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(320, now);
+          osc.frequency.exponentialRampToValueAtTime(80, now + 0.12);
+          gain.gain.setValueAtTime(0.25, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+          osc.start(now);
+          osc.stop(now + 0.12);
+        } else if (type === 'dash') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(140, now);
+          osc.frequency.exponentialRampToValueAtTime(450, now + 0.15);
+          gain.gain.setValueAtTime(0.3, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+          osc.start(now);
+          osc.stop(now + 0.15);
+        } else if (type === 'shuriken') {
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(800, now);
+          osc.frequency.exponentialRampToValueAtTime(200, now + 0.08);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+          osc.start(now);
+          osc.stop(now + 0.08);
+        } else if (type === 'hit') {
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(180, now);
+          osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+          osc.start(now);
+          osc.stop(now + 0.1);
+        } else if (type === 'levelup') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(300, now);
+          osc.frequency.setValueAtTime(400, now + 0.08);
+          osc.frequency.setValueAtTime(600, now + 0.16);
+          gain.gain.setValueAtTime(0.3, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+          osc.start(now);
+          osc.stop(now + 0.35);
+        }
+      } catch(e) {}
+    }
+
+    // Configurable Skills
+    const skills = {
+      slash: { name: 'Katana Slash', damage: 45, energy: 0, cooldown: 0.4, radius: 70, element: 'shadow', lastUsed: 0 },
+      dash: { name: 'Shadow Dash', damage: 25, energy: 20, cooldown: 1.2, radius: 110, element: 'shadow', lastUsed: 0 },
+      shuriken: { name: 'Shuriken Volley', damage: 30, energy: 15, cooldown: 0.8, radius: 240, element: 'shadow', lastUsed: 0 },
+      cloak: { name: 'Shadow Cloak', damage: 0, energy: 30, cooldown: 3.5, radius: 0, element: 'shadow', lastUsed: 0, activeUntil: 0 },
+      decoy: { name: 'Shadow Decoy', damage: 60, energy: 40, cooldown: 4.0, radius: 100, element: 'shadow', lastUsed: 0 }
+    };
+
+    // Game State
+    let isRunning = true;
+    let score = 0;
+    let combo = 1;
+    let comboTimer = 0;
+    let level = 1;
+    let xp = 0;
+    let xpNeeded = 100;
+
+    // Player Object (The Shadow Master)
+    const player = {
+      x: 350,
+      y: 210,
+      radius: 16,
+      speed: 4.2,
+      health: 100,
+      maxHealth: 100,
+      energy: 100,
+      maxEnergy: 100,
+      vx: 0,
+      vy: 0,
+      angle: 0,
+      isCloaked: false,
+      isDashing: false,
+      dashTimer: 0,
+      trail: [],
+      slashArc: null,
+      decoy: null
+    };
+
+    // Projectiles, Floating Damage, Enemies, Decoys
+    let projectiles = [];
+    let damageNumbers = [];
+    let particles = [];
+    let enemies = [];
+
+    // Initialize Initial Training Dummies & Guards
+    function initEnemies() {
+      enemies = [
+        { id: 1, type: 'dummy', x: 200, y: 160, radius: 20, health: 500, maxHealth: 500, name: 'Training Dummy A', hits: 0 },
+        { id: 2, type: 'dummy', x: 200, y: 260, radius: 20, health: 500, maxHealth: 500, name: 'Training Dummy B', hits: 0 },
+        { id: 3, type: 'guard', x: 550, y: 150, radius: 17, health: 120, maxHealth: 120, speed: 1.8, name: 'Shadow Guard 1', vx: 0, vy: 0, patrolY: 150, dir: 1 },
+        { id: 4, type: 'guard', x: 550, y: 270, radius: 17, health: 120, maxHealth: 120, speed: 1.8, name: 'Shadow Guard 2', vx: 0, vy: 0, patrolY: 270, dir: -1 },
+      ];
+      updateEntityCounts();
+    }
+    initEnemies();
+
+    function updateEntityCounts() {
+      const d = enemies.filter(e => e.type === 'dummy').length;
+      const g = enemies.filter(e => e.type === 'guard').length;
+      document.getElementById('dummy-count').innerText = d;
+      document.getElementById('guard-count').innerText = g;
+    }
+
+    function spawnEnemy() {
+      const id = Date.now();
+      const randY = 80 + Math.random() * 260;
+      enemies.push({
+        id: id,
+        type: 'guard',
+        x: 600,
+        y: randY,
+        radius: 17,
+        health: 120,
+        maxHealth: 120,
+        speed: 2.0,
+        name: 'Shadow Guard ' + enemies.length,
+        vx: 0,
+        vy: 0,
+        patrolY: randY,
+        dir: 1
+      });
+      updateEntityCounts();
+    }
+
+    // Input Handling
+    const keys = {};
+    let mouseX = 350;
+    let mouseY = 210;
+
+    window.addEventListener('keydown', (e) => {
+      keys[e.key.toLowerCase()] = true;
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        triggerSkill('decoy');
+      } else if (e.key.toLowerCase() === 'q') {
+        triggerSkill('slash');
+      } else if (e.key.toLowerCase() === 'w') {
+        triggerSkill('dash');
+      } else if (e.key.toLowerCase() === 'e') {
+        triggerSkill('shuriken');
+      } else if (e.key.toLowerCase() === 'r') {
+        triggerSkill('cloak');
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      keys[e.key.toLowerCase()] = false;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      mouseX = (e.clientX - rect.left) * scaleX;
+      mouseY = (e.clientY - rect.top) * scaleY;
+    });
+
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 0) {
+        triggerSkill('slash');
+      } else if (e.button === 2) {
+        e.preventDefault();
+        triggerSkill('dash');
+      }
+    });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // Skill Trigger Logic
+    function triggerSkill(key) {
+      const sk = skills[key];
+      if (!sk) return;
+      const now = performance.now() / 1000;
+
+      if (now - sk.lastUsed < sk.cooldown) return;
+      if (player.energy < sk.energy) return;
+
+      player.energy -= sk.energy;
+      sk.lastUsed = now;
+
+      if (key === 'slash') {
+        playSfx('slash');
+        const crit = player.isCloaked ? 2.5 : 1.0;
+        if (player.isCloaked) {
+          player.isCloaked = false;
+          document.getElementById('cloak-status').innerText = 'OFF';
+          document.getElementById('cloak-status').style.color = '#64748b';
+        }
+        const dmg = Math.round(sk.damage * crit * (1 + (combo - 1) * 0.15));
+        const reach = sk.radius;
+        const startAng = player.angle - Math.PI / 3;
+        const endAng = player.angle + Math.PI / 3;
+
+        player.slashArc = {
+          x: player.x,
+          y: player.y,
+          startAngle: startAng,
+          endAngle: endAng,
+          radius: reach,
+          element: sk.element,
+          life: 0.15,
+          maxLife: 0.15
+        };
+
+        // Check hit against enemies
+        enemies.forEach(en => {
+          const dx = en.x - player.x;
+          const dy = en.y - player.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist <= reach + en.radius) {
+            const enAngle = Math.atan2(dy, dx);
+            let diff = Math.abs(enAngle - player.angle);
+            while (diff > Math.PI) diff = Math.abs(diff - 2 * Math.PI);
+            if (diff <= Math.PI / 2.5) {
+              damageEnemy(en, dmg, crit > 1.0, sk.element);
+            }
+          }
+        });
+
+      } else if (key === 'dash') {
+        playSfx('dash');
+        player.isDashing = true;
+        player.dashTimer = 0.22;
+        const dashDist = sk.radius;
+        player.vx = Math.cos(player.angle) * (dashDist / 0.22);
+        player.vy = Math.sin(player.angle) * (dashDist / 0.22);
+
+        // Spawn shadow clones in wake
+        for (let i = 0; i < 3; i++) {
+          player.trail.push({
+            x: player.x - (player.vx * 0.05 * i),
+            y: player.y - (player.vy * 0.05 * i),
+            radius: player.radius,
+            alpha: 0.7 - i * 0.2,
+            angle: player.angle
+          });
+        }
+
+      } else if (key === 'shuriken') {
+        playSfx('shuriken');
+        const count = 3;
+        const spread = 0.25;
+        for (let i = -1; i <= 1; i++) {
+          const a = player.angle + i * spread;
+          projectiles.push({
+            x: player.x,
+            y: player.y,
+            vx: Math.cos(a) * 9,
+            vy: Math.sin(a) * 9,
+            damage: sk.damage,
+            radius: 5,
+            range: sk.radius,
+            traveled: 0,
+            element: sk.element
+          });
+        }
+
+      } else if (key === 'cloak') {
+        playSfx('dash');
+        player.isCloaked = true;
+        sk.activeUntil = now + 5.0;
+        document.getElementById('cloak-status').innerText = 'ACTIVE (5s)';
+        document.getElementById('cloak-status').style.color = '#c084fc';
+        // Spawn cloak particle puff
+        for (let i = 0; i < 15; i++) {
+          particles.push({
+            x: player.x + (Math.random() - 0.5) * 20,
+            y: player.y + (Math.random() - 0.5) * 20,
+            vx: (Math.random() - 0.5) * 3,
+            vy: (Math.random() - 0.5) * 3,
+            radius: Math.random() * 5 + 2,
+            color: '#a855f7',
+            alpha: 0.8,
+            life: 0.4
+          });
+        }
+
+      } else if (key === 'decoy') {
+        playSfx('dash');
+        player.decoy = {
+          x: player.x,
+          y: player.y,
+          radius: player.radius,
+          health: 150,
+          life: 5.0,
+          angle: player.angle
+        };
+        for (let i = 0; i < 12; i++) {
+          particles.push({
+            x: player.x + (Math.random() - 0.5) * 20,
+            y: player.y + (Math.random() - 0.5) * 20,
+            vx: (Math.random() - 0.5) * 4,
+            vy: (Math.random() - 0.5) * 4,
+            radius: 4,
+            color: '#c084fc',
+            alpha: 0.9,
+            life: 0.35
+          });
+        }
+      }
+    }
+
+    function damageEnemy(en, dmg, isCrit, element) {
+      playSfx('hit');
+      en.health -= dmg;
+      if (en.hits !== undefined) en.hits++;
+      score += dmg * combo;
+      xp += Math.round(dmg * 0.4);
+      combo++;
+      comboTimer = 2.5;
+
+      // Check level up
+      if (xp >= xpNeeded) {
+        level++;
+        xp -= xpNeeded;
+        xpNeeded = Math.round(xpNeeded * 1.4);
+        playSfx('levelup');
+        player.energy = player.maxEnergy;
+      }
+
+      // Damage number
+      damageNumbers.push({
+        x: en.x + (Math.random() - 0.5) * 15,
+        y: en.y - 15,
+        text: (isCrit ? 'CRIT! ' : '') + dmg,
+        color: isCrit ? '#facc15' : (element === 'crimson' ? '#f87171' : element === 'frost' ? '#67e8f9' : '#c084fc'),
+        alpha: 1.0,
+        vy: -1.8,
+        life: 0.8
+      });
+
+      // Particles
+      for (let i = 0; i < 8; i++) {
+        particles.push({
+          x: en.x,
+          y: en.y,
+          vx: (Math.random() - 0.5) * 5,
+          vy: (Math.random() - 0.5) * 5,
+          radius: Math.random() * 3 + 1,
+          color: isCrit ? '#facc15' : '#a855f7',
+          alpha: 1.0,
+          life: 0.3
+        });
+      }
+
+      // Enemy defeat check
+      if (en.type === 'guard' && en.health <= 0) {
+        score += 250;
+        // respawn after 3 seconds
+        setTimeout(() => {
+          en.health = en.maxHealth;
+          en.x = 600;
+          en.y = 80 + Math.random() * 260;
+        }, 3000);
+      }
+    }
+
+    // Toggle Game Loop States
+    function toggleBattle() {
+      isRunning = !isRunning;
+      document.getElementById('btn-start').innerText = isRunning ? 'Pause Battle' : 'Resume Battle';
+      document.getElementById('statusOverlay').innerText = isRunning ? 'Arena Active &bull; Combat Live' : 'Battle Paused';
+    }
+
+    function resetBattle() {
+      score = 0;
+      combo = 1;
+      comboTimer = 0;
+      level = 1;
+      xp = 0;
+      player.health = 100;
+      player.energy = 100;
+      player.x = 350;
+      player.y = 210;
+      player.isCloaked = false;
+      player.decoy = null;
+      projectiles = [];
+      particles = [];
+      damageNumbers = [];
+      initEnemies();
+      document.getElementById('statusOverlay').innerText = 'Battle Reset &bull; Ready';
+    }
+
+    // Main 60 FPS Game Loop
+    let lastTime = performance.now();
+    function gameLoop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.1);
+      lastTime = now;
+
+      if (isRunning) {
+        update(dt);
+      }
+      render();
+      updateHud();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function update(dt) {
+      // Player Energy Regeneration
+      player.energy = Math.min(player.maxEnergy, player.energy + 12 * dt);
+
+      // Combo Timer decay
+      if (comboTimer > 0) {
+        comboTimer -= dt;
+        if (comboTimer <= 0) combo = 1;
+      }
+
+      // Cloak timer decay
+      if (player.isCloaked && skills.cloak.activeUntil) {
+        if (performance.now() / 1000 >= skills.cloak.activeUntil) {
+          player.isCloaked = false;
+          document.getElementById('cloak-status').innerText = 'OFF';
+          document.getElementById('cloak-status').style.color = '#64748b';
+        }
+      }
+
+      // Facing Angle towards Mouse
+      player.angle = Math.atan2(mouseY - player.y, mouseX - player.x);
+
+      // Movement
+      if (player.isDashing) {
+        player.dashTimer -= dt;
+        player.x += player.vx * dt;
+        player.y += player.vy * dt;
+        if (player.dashTimer <= 0) {
+          player.isDashing = false;
+          player.vx = 0;
+          player.vy = 0;
+        }
+      } else {
+        let moveX = 0;
+        let moveY = 0;
+        if (keys['w'] || keys['arrowup']) moveY -= 1;
+        if (keys['s'] || keys['arrowdown']) moveY += 1;
+        if (keys['a'] || keys['arrowleft']) moveX -= 1;
+        if (keys['d'] || keys['arrowright']) moveX += 1;
+
+        if (moveX !== 0 || moveY !== 0) {
+          const len = Math.hypot(moveX, moveY);
+          const spd = player.isCloaked ? player.speed * 1.35 : player.speed;
+          player.x += (moveX / len) * spd;
+          player.y += (moveY / len) * spd;
+
+          // Shadow afterimage trail
+          if (Math.random() < 0.4) {
+            player.trail.push({
+              x: player.x,
+              y: player.y,
+              radius: player.radius,
+              alpha: player.isCloaked ? 0.2 : 0.4,
+              angle: player.angle
+            });
+          }
+        }
+      }
+
+      // Arena Boundaries
+      player.x = Math.max(player.radius + 10, Math.min(canvas.width - player.radius - 10, player.x));
+      player.y = Math.max(player.radius + 10, Math.min(canvas.height - player.radius - 10, player.y));
+
+      // Trails fade
+      player.trail.forEach(t => t.alpha -= dt * 1.8);
+      player.trail = player.trail.filter(t => t.alpha > 0);
+
+      // Slash arc animation
+      if (player.slashArc) {
+        player.slashArc.life -= dt;
+        if (player.slashArc.life <= 0) player.slashArc = null;
+      }
+
+      // Projectiles update
+      projectiles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.traveled += Math.hypot(p.vx, p.vy);
+
+        // Check collision against enemies
+        enemies.forEach(en => {
+          if (en.health > 0) {
+            const d = Math.hypot(en.x - p.x, en.y - p.y);
+            if (d < en.radius + p.radius) {
+              p.traveled = p.range + 10; // destroy projectile
+              damageEnemy(en, p.damage, false, p.element);
+            }
+          }
+        });
+      });
+      projectiles = projectiles.filter(p => p.traveled < p.range && p.x >= 0 && p.x <= canvas.width && p.y >= 0 && p.y <= canvas.height);
+
+      // Enemies AI Behavior
+      const targetX = player.decoy ? player.decoy.x : (player.isCloaked ? -999 : player.x);
+      const targetY = player.decoy ? player.decoy.y : (player.isCloaked ? -999 : player.y);
+
+      enemies.forEach(en => {
+        if (en.type === 'dummy') return;
+        if (en.health <= 0) return;
+
+        const distToTarget = Math.hypot(targetX - en.x, targetY - en.y);
+        if (distToTarget < 200) {
+          // Aggro chase
+          const angle = Math.atan2(targetY - en.y, targetX - en.x);
+          en.x += Math.cos(angle) * en.speed;
+          en.y += Math.sin(angle) * en.speed;
+
+          // Attack player if in melee range and not decoy
+          if (!player.decoy && distToTarget < player.radius + en.radius + 4) {
+            if (!player.isDashing && !player.isCloaked) {
+              player.health = Math.max(0, player.health - 12 * dt);
+            }
+          }
+        } else {
+          // Simple vertical patrol
+          en.y += en.dir * en.speed * 0.6;
+          if (en.y > en.patrolY + 40) en.dir = -1;
+          if (en.y < en.patrolY - 40) en.dir = 1;
+        }
+      });
+
+      // Decoy decay
+      if (player.decoy) {
+        player.decoy.life -= dt;
+        if (player.decoy.life <= 0) player.decoy = null;
+      }
+
+      // Particles & Damage numbers
+      particles.forEach(pt => {
+        pt.x += pt.vx;
+        pt.y += pt.vy;
+        pt.alpha -= dt * 2.5;
+      });
+      particles = particles.filter(pt => pt.alpha > 0);
+
+      damageNumbers.forEach(dm => {
+        dm.y += dm.vy;
+        dm.alpha -= dt * 1.2;
+      });
+      damageNumbers = damageNumbers.filter(dm => dm.alpha > 0);
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Grid Floor
+      ctx.strokeStyle = 'rgba(168, 85, 247, 0.07)';
+      ctx.lineWidth = 1;
+      const gridSize = 35;
+      for (let x = 0; x < canvas.width; x += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+
+      // Arena Outer Ring
+      ctx.strokeStyle = 'rgba(168, 85, 247, 0.2)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
+
+      // Decoy Rendering
+      if (player.decoy) {
+        ctx.save();
+        ctx.globalAlpha = 0.5 + Math.sin(performance.now() * 0.01) * 0.2;
+        ctx.fillStyle = '#6b21a8';
+        ctx.beginPath();
+        ctx.arc(player.decoy.x, player.decoy.y, player.decoy.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#c084fc';
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Shadow Afterimages / Trails
+      player.trail.forEach(t => {
+        ctx.save();
+        ctx.globalAlpha = t.alpha;
+        ctx.fillStyle = '#9333ea';
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, t.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // Draw Enemies
+      enemies.forEach(en => {
+        if (en.health <= 0) return;
+        ctx.save();
+        if (en.type === 'dummy') {
+          // Wood training dummy
+          ctx.fillStyle = '#78350f';
+          ctx.beginPath();
+          ctx.arc(en.x, en.y, en.radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#d97706';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          // Cross marker
+          ctx.strokeStyle = '#fef3c7';
+          ctx.beginPath();
+          ctx.moveTo(en.x - 8, en.y);
+          ctx.lineTo(en.x + 8, en.y);
+          ctx.moveTo(en.x, en.y - 8);
+          ctx.lineTo(en.x, en.y + 8);
+          ctx.stroke();
+        } else {
+          // Shadow Guard
+          ctx.fillStyle = '#1e1b4b';
+          ctx.beginPath();
+          ctx.arc(en.x, en.y, en.radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          // Red glowing eyes
+          ctx.fillStyle = '#f87171';
+          ctx.beginPath();
+          ctx.arc(en.x - 4, en.y - 3, 2, 0, Math.PI * 2);
+          ctx.arc(en.x + 4, en.y - 3, 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Health bar above enemy
+        const bw = en.radius * 2;
+        const bh = 4;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(en.x - bw / 2, en.y - en.radius - 10, bw, bh);
+        const hpPct = Math.max(0, en.health / en.maxHealth);
+        ctx.fillStyle = en.type === 'dummy' ? '#f59e0b' : '#ef4444';
+        ctx.fillRect(en.x - bw / 2, en.y - en.radius - 10, bw * hpPct, bh);
+        ctx.restore();
+      });
+
+      // Draw Player (The Shadow Master)
+      ctx.save();
+      ctx.globalAlpha = player.isCloaked ? 0.35 : 1.0;
+
+      // Glow Aura
+      const aura = ctx.createRadialGradient(player.x, player.y, player.radius * 0.5, player.x, player.y, player.radius * 1.8);
+      aura.addColorStop(0, 'rgba(168, 85, 247, 0.4)');
+      aura.addColorStop(1, 'rgba(168, 85, 247, 0)');
+      ctx.fillStyle = aura;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.radius * 1.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Body (Ninja Obsidian Silhouette)
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = player.isCloaked ? '#c084fc' : '#a855f7';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      // Scarf & Glowing Eyes in facing angle
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.rotate(player.angle);
+      // Scarf trail
+      ctx.fillStyle = '#9333ea';
+      ctx.fillRect(-player.radius - 6, -3, 8, 6);
+      // Ninja eyes
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.arc(6, -3, 2, 0, Math.PI * 2);
+      ctx.arc(6, 3, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.restore();
+
+      // Draw Slash Arc
+      if (player.slashArc) {
+        const arc = player.slashArc;
+        ctx.save();
+        ctx.strokeStyle = arc.element === 'crimson' ? '#ef4444' : arc.element === 'frost' ? '#06b6d4' : '#c084fc';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        ctx.shadowColor = ctx.strokeStyle;
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.arc(arc.x, arc.y, arc.radius, arc.startAngle, arc.endAngle);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Draw Projectiles
+      projectiles.forEach(p => {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(performance.now() * 0.02);
+        ctx.fillStyle = p.element === 'crimson' ? '#f87171' : p.element === 'frost' ? '#67e8f9' : '#c084fc';
+        ctx.shadowColor = ctx.fillStyle;
+        ctx.shadowBlur = 10;
+        // 4-pointed Shuriken shape
+        ctx.beginPath();
+        ctx.moveTo(0, -p.radius * 2);
+        ctx.lineTo(p.radius * 0.7, -p.radius * 0.7);
+        ctx.lineTo(p.radius * 2, 0);
+        ctx.lineTo(p.radius * 0.7, p.radius * 0.7);
+        ctx.lineTo(0, p.radius * 2);
+        ctx.lineTo(-p.radius * 0.7, p.radius * 0.7);
+        ctx.lineTo(-p.radius * 2, 0);
+        ctx.lineTo(-p.radius * 0.7, -p.radius * 0.7);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // Draw Particles
+      particles.forEach(pt => {
+        ctx.save();
+        ctx.globalAlpha = pt.alpha;
+        ctx.fillStyle = pt.color;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // Draw Damage Numbers
+      damageNumbers.forEach(dm => {
+        ctx.save();
+        ctx.globalAlpha = dm.alpha;
+        ctx.fillStyle = dm.color;
+        ctx.font = 'bold 14px "Plus Jakarta Sans", sans-serif';
+        ctx.shadowColor = '#000';
+        ctx.shadowBlur = 4;
+        ctx.fillText(dm.text, dm.x, dm.y);
+        ctx.restore();
+      });
+    }
+
+    function updateHud() {
+      document.getElementById('hud-health').innerText = Math.round(player.health) + ' / 100';
+      document.getElementById('bar-health-fill').style.width = Math.max(0, player.health) + '%';
+
+      document.getElementById('hud-energy').innerText = Math.round(player.energy) + ' / 100';
+      document.getElementById('bar-energy-fill').style.width = Math.max(0, player.energy) + '%';
+
+      document.getElementById('hud-combo').innerText = 'x' + combo;
+      document.getElementById('hud-level').innerText = level;
+      document.getElementById('bar-xp-fill').style.width = (xp / xpNeeded * 100) + '%';
+
+      document.getElementById('hud-score').innerText = score;
+
+      // Cooldown HUD overlays
+      const now = performance.now() / 1000;
+      for (const [k, sk] of Object.entries(skills)) {
+        const el = document.getElementById('cd-' + k);
+        if (el) {
+          const elapsed = now - sk.lastUsed;
+          if (elapsed < sk.cooldown) {
+            const pct = (1 - elapsed / sk.cooldown) * 100;
+            el.style.height = pct + '%';
+          } else {
+            el.style.height = '0%';
+          }
+        }
+      }
+    }
+
+    // Skill Customizer Form Synchronization
+    function loadSkillToEdit() {
+      const k = document.getElementById('editSkillSelect').value;
+      const sk = skills[k];
+      if (!sk) return;
+      document.getElementById('inputDamage').value = sk.damage;
+      document.getElementById('valDamage').innerText = sk.damage;
+      document.getElementById('inputEnergy').value = sk.energy;
+      document.getElementById('valEnergy').innerText = sk.energy;
+      document.getElementById('inputCooldown').value = Math.round(sk.cooldown * 10);
+      document.getElementById('valCooldown').innerText = sk.cooldown + 's';
+      document.getElementById('inputRadius').value = sk.radius;
+      document.getElementById('valRadius').innerText = sk.radius + 'px';
+      document.getElementById('inputElement').value = sk.element;
+    }
+
+    function updateSkillField(field, val) {
+      const k = document.getElementById('editSkillSelect').value;
+      const sk = skills[k];
+      if (!sk) return;
+      if (field === 'damage') {
+        sk.damage = parseInt(val, 10);
+        document.getElementById('valDamage').innerText = sk.damage;
+      } else if (field === 'energy') {
+        sk.energy = parseInt(val, 10);
+        document.getElementById('valEnergy').innerText = sk.energy;
+        document.getElementById('cost-' + k).innerText = sk.energy + ' Energy';
+      } else if (field === 'cooldown') {
+        sk.cooldown = parseFloat(val);
+        document.getElementById('valCooldown').innerText = sk.cooldown + 's';
+      } else if (field === 'radius') {
+        sk.radius = parseInt(val, 10);
+        document.getElementById('valRadius').innerText = sk.radius + 'px';
+      } else if (field === 'element') {
+        sk.element = val;
+      }
+    }
+
+    function applySkillChanges() {
+      const k = document.getElementById('editSkillSelect').value;
+      playSfx('levelup');
+      document.getElementById('statusOverlay').innerText = 'Applied custom tuning to ' + skills[k].name + '! Test in arena.';
+    }
+
+    function applyPreset(preset) {
+      if (preset === 'assassin') {
+        skills.slash.damage = 85;
+        skills.dash.cooldown = 0.8;
+        skills.cloak.cooldown = 2.0;
+      } else if (preset === 'void') {
+        skills.shuriken.damage = 55;
+        skills.decoy.damage = 110;
+        skills.slash.element = 'shadow';
+      } else if (preset === 'speed') {
+        skills.dash.energy = 5;
+        skills.dash.cooldown = 0.4;
+        skills.slash.cooldown = 0.2;
+      } else if (preset === 'tank') {
+        skills.cloak.energy = 10;
+        skills.decoy.energy = 15;
+      }
+      loadSkillToEdit();
+      playSfx('levelup');
+      document.getElementById('statusOverlay').innerText = 'Preset [' + preset.toUpperCase() + '] applied to Skill System!';
+    }
+
+    function toggleExportJson() {
+      const box = document.getElementById('jsonContainer');
+      if (box.style.display === 'none') {
+        box.style.display = 'block';
+        const exportData = {
+          game: "Shadow Master Skill Builder",
+          version: "2.0.0",
+          schema: "https://se-intelliplatform.local/schemas/skill-tree.v1.json",
+          skills: skills,
+          exportedAt: new Date().toISOString()
+        };
+        document.getElementById('jsonExport').innerText = JSON.stringify(exportData, null, 2);
+      } else {
+        box.style.display = 'none';
+      }
+    }
+
+    // Start 60fps Loop
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>

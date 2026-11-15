@@ -15,11 +15,13 @@ from app.agents.code_generation.archetypes import (
     get_archetype_planned_files,
 )
 from app.agents.code_generation.contracts import (
+    ApplicationComplexityLevel,
     CodeGenerationPlan,
     CodeGenerationPlanCandidate,
     FileType,
     PlannedFile,
     PlannedFileCandidate,
+    classify_application_complexity,
     is_fullstack_project,
 )
 from app.agents.code_generation.prompts import (
@@ -261,12 +263,23 @@ class CodeGenerationPlanningAgent(AbstractBaseAgent[CodeGenerationPlan]):
         final_fw = default_fw if fullstack else (data.get("framework") or default_fw)
         final_pkg = default_pkg if fullstack else (data.get("package_manager") or default_pkg)
 
+        raw_c_level = data.get("complexity_level", "MEDIUM")
+        try:
+            eff_complexity = ApplicationComplexityLevel(raw_c_level)
+        except ValueError:
+            eff_complexity = classify_application_complexity(
+                name=context.project.name,
+                desc=context.project.description or "",
+                requirements=context.requirements,
+            )
+
         return CodeGenerationPlan(
             project_type=final_ptype,
             language=final_lang,
             framework=final_fw,
             database=data.get("database", "postgresql"),
             package_manager=final_pkg,
+            complexity_level=eff_complexity,
             files=planned_files,
             rationale=data.get("rationale") or default_rat,
         )
@@ -319,11 +332,17 @@ class CodeGenerationPlanningAgent(AbstractBaseAgent[CodeGenerationPlan]):
             fe_comp_name = f"{context.project.name} UI" if context.project.name else "Frontend UI"
 
         if fullstack:
-            archetype = detect_project_archetype(
-                name=context.project.name,
-                desc=context.project.description or "",
-                slug=context.project.slug or "",
+            archetype = (
+                context.project.settings.get("archetype")
+                if hasattr(context.project, "settings") and isinstance(context.project.settings, dict)
+                else None
             )
+            if not archetype:
+                archetype = detect_project_archetype(
+                    name=context.project.name,
+                    desc=context.project.description or "",
+                    slug=context.project.slug or "",
+                )
             return get_archetype_planned_files(
                 archetype=archetype,
                 fe_comp_name=fe_comp_name,

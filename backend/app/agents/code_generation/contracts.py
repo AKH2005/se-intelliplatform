@@ -70,6 +70,54 @@ def is_fullstack_project(
 # 2. Enumerations
 # ==============================================================================
 
+class ApplicationComplexityLevel(str, enum.Enum):
+    """Complexity classification for application generation."""
+
+    BASIC = "BASIC"       # Level 1: Portfolio, calculator, simple task list, informational site
+    MEDIUM = "MEDIUM"     # Level 2: Primary target - multi-view, connected workflows, db persistence
+    ADVANCED = "ADVANCED" # Level 3: Large enterprise, multiplayer, distributed systems
+
+
+def classify_application_complexity(
+    name: str = "",
+    desc: str = "",
+    requirements: list[Any] | None = None,
+) -> ApplicationComplexityLevel:
+    """Classify application scope into Basic (Level 1), Medium (Level 2), or Advanced (Level 3)."""
+    combined = f"{name} {desc}".lower()
+    req_texts = " ".join(
+        f"{getattr(r, 'title', '')} {getattr(r, 'description', '')}".lower()
+        for r in (requirements or [])
+    )
+    all_text = f"{combined} {req_texts}"
+
+    # Level 3: Advanced
+    advanced_keywords = [
+        "multiplayer", "distributed", "microservices", "blockchain", "large enterprise",
+        "federated", "real-time synchronization cluster", "streaming analytics platform",
+    ]
+    if any(k in all_text for k in advanced_keywords):
+        return ApplicationComplexityLevel.ADVANCED
+
+    # Level 1: Basic (isolated simple utility or single static page)
+    basic_keywords = [
+        "calculator", "simple portfolio", "personal portfolio", "simple counter",
+        "basic task list", "static website", "informational website", "landing page only",
+    ]
+    is_basic = any(k in all_text for k in basic_keywords)
+    has_medium_domain = any(
+        m in all_text for m in [
+            "ecommerce", "e-commerce", "inventory", "lms", "learning management",
+            "hospital", "booking", "store", "eventhub", "management system", "game", "platform"
+        ]
+    )
+    if is_basic and not has_medium_domain:
+        return ApplicationComplexityLevel.BASIC
+
+    # Default to Level 2: Medium (Primary Quality Target)
+    return ApplicationComplexityLevel.MEDIUM
+
+
 class FileType(str, enum.Enum):
     """Categorical classification of generated project files."""
 
@@ -144,6 +192,10 @@ class CodeGenerationPlan(BaseModel):
         default="pip",
         description="Dependency management tool",
     )
+    complexity_level: ApplicationComplexityLevel = Field(
+        default=ApplicationComplexityLevel.MEDIUM,
+        description="Target complexity level (BASIC, MEDIUM, ADVANCED)",
+    )
     files: list[PlannedFile] = Field(
         ...,
         min_length=1,
@@ -180,6 +232,7 @@ class CodeGenerationPlanCandidate(BaseModel):
     framework: str = Field(default="fastapi")
     database: str = Field(default="postgresql")
     package_manager: str = Field(default="pip")
+    complexity_level: str = Field(default="MEDIUM")
     files: list[PlannedFileCandidate] = Field(default_factory=list)
     rationale: str = Field(default="Code generation plan proposed.")
 
@@ -267,6 +320,10 @@ class CodeGenerationOutput(BaseModel):
     plan: CodeGenerationPlan = Field(
         ...,
         description="The authoritative generation plan used to produce these files",
+    )
+    complexity_level: ApplicationComplexityLevel = Field(
+        default=ApplicationComplexityLevel.MEDIUM,
+        description="Target complexity level of the generated implementation",
     )
     generated_files: list[GeneratedFile] = Field(
         ...,

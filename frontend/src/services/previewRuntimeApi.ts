@@ -50,8 +50,18 @@ export const previewRuntimeApi = {
       }
     }
 
+    // If projectId is present, sanitize any stale app= parameter from url
+    // to prevent cross-project archetype leakage.
+    if (projectId && url.includes('app=')) {
+      url = url.replace(/([?&])app=[^&]*(&|$)/, (_match, p1, p2) => {
+        return p2 === '&' ? p1 : '';
+      }).replace(/\?$/, '');
+    }
+
     const params: string[] = [];
-    if (app && !url.includes('app=')) {
+    // Only attach app mode query param if there is NO projectId (standalone archetype preview),
+    // to prevent URL pollution from overriding authoritative project version files.
+    if (app && !projectId && !url.includes('app=')) {
       params.push(`app=${encodeURIComponent(app)}`);
     }
 

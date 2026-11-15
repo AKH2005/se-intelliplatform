@@ -215,6 +215,58 @@ class FileValidator:
         )
 
 
+
+class ApplicationIntegrityValidator:
+    """Deterministic validation of application package integrity and archetype conformity."""
+
+    @classmethod
+    def validate_package(
+        cls,
+        files: list[Any],
+        archetype: Optional[str] = None,
+        project_name: str = "",
+    ) -> tuple[bool, list[str]]:
+        """Validate package integrity, entry points, non-stub content, and archetype anti-collision."""
+        errors: list[str] = []
+        paths = [f.path if hasattr(f, "path") else f.get("path", "") for f in files]
+
+        # 1. Entry point check: full apps should have an HTML entry point
+        has_html_entry = any(
+            p in ("frontend/index.html", "index.html", "public/index.html") or p.endswith(".html")
+            for p in paths
+        )
+        if not has_html_entry and len(files) > 1:
+            errors.append("Package is missing frontend entry point (index.html or frontend/index.html).")
+
+        # 2. Empty / stub check
+        for f in files:
+            path = f.path if hasattr(f, "path") else f.get("path", "")
+            content = f.content if hasattr(f, "content") else f.get("content", "")
+            if not path.endswith("__init__.py"):
+                stripped = (content or "").strip()
+                if len(stripped) < 15:
+                    errors.append(f"File '{path}' appears to be an empty stub ({len(stripped)} chars).")
+                elif stripped in ("def init_module(): pass", "pass", "# Stub", "// Stub"):
+                    errors.append(f"File '{path}' contains placeholder stub code.")
+
+        # 3. Archetype Anti-Collision Check
+        if archetype and archetype not in ("taskflow", "custom"):
+            for f in files:
+                content = f.content if hasattr(f, "content") else f.get("content", "")
+                if any(m in content for m in ["new-task-input", "loadTasks()", "KanbanFlow Board"]):
+                    errors.append(f"Archetype collision: File contains Kanban TaskFlow markers in non-taskflow project ({archetype}).")
+                    break
+
+        if archetype and archetype != "snake_game":
+            for f in files:
+                content = f.content if hasattr(f, "content") else f.get("content", "")
+                if any(m in content for m in ["spawnFood()", "snake_high_score", "Arcade Snake"]):
+                    errors.append(f"Archetype collision: File contains Snake markers in non-snake project ({archetype}).")
+                    break
+
+        return (len(errors) == 0, errors)
+
+
 def build_file_tree(files_dict: dict[str, Any]) -> list[FileNode]:
     """Convert flat dictionary of paths -> metadata into a nested FileNode hierarchy."""
     tree: dict[str, Any] = {"dirs": {}, "files": {}}
@@ -458,6 +510,8 @@ class DevelopmentVersionService:
             metadata_payload={
                 "summary": code_artifact.summary,
                 "files": {f.path: f.content for f in code_artifact.generated_files},
+                "archetype": (artifacts.get("archetype") or (project.settings or {}).get("archetype") or "custom"),
+                "application_id": (artifacts.get("archetype") or (project.settings or {}).get("archetype") or "custom"),
                 **({"runtime_manifest": artifacts.get("runtime_manifest")} if artifacts.get("runtime_manifest") else {}),
             },
         )
@@ -482,12 +536,15 @@ class DevelopmentVersionService:
         )
         self.session.add(change)
 
-        # 8. Set initial active pointer if no active version exists
+        # 8. Set initial active pointer if no active version exists and synchronize authoritative archetype
         proj_settings = dict(project.settings or {})
+        eff_arch = artifacts.get("archetype") or proj_settings.get("archetype")
+        if not proj_settings.get("archetype") and eff_arch:
+            proj_settings["archetype"] = eff_arch
         if not proj_settings.get("active_version_id"):
             proj_settings["active_version_id"] = str(version_id)
-            project.settings = proj_settings
-            flag_modified(project, "settings")
+        project.settings = proj_settings
+        flag_modified(project, "settings")
 
 
         await self.session.commit()
@@ -884,8 +941,11 @@ class DevelopmentVersionService:
             if prev_ver:
                 prev_ver.status = DevelopmentVersionStatus.SUPERSEDED
 
-        # Update Project Active Pointer
+        # Update Project Active Pointer and Synchronize Authoritative Archetype
         proj_settings["active_version_id"] = str(version_id)
+        v_meta = target_version.metadata_payload or {}
+        if v_meta.get("archetype"):
+            proj_settings["archetype"] = v_meta["archetype"]
         project.settings = proj_settings
         flag_modified(project, "settings")
 

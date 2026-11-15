@@ -22,6 +22,14 @@ from app.services.preview_api_service import PreviewApiService
 from app.runtime.preview_server import (
     EVENTHUB_HTML,
     get_analytics_dashboard_html,
+    get_carrom_game_html,
+    get_shadow_master_game_html,
+    get_chess_game_html,
+    get_platformer_game_html,
+    get_racing_game_html,
+    get_puzzle_game_html,
+    get_educational_app_html,
+    get_custom_interactive_html,
     get_custom_app_html,
     get_ecommerce_html,
     get_management_html,
@@ -87,38 +95,30 @@ async def _resolve_active_version_info(project: Optional[Project], session: Asyn
 
 def resolve_project_mode(project: Optional[Project], requested_mode: Optional[str] = None) -> str:
     """Determine application preview mode based on project metadata, category, and overrides."""
-    valid_modes = {"analytics", "snake_game", "taskflow", "eventhub", "ecommerce", "management", "custom"}
+    valid_modes = {
+        "analytics", "snake_game", "carrom", "shadow_master", "taskflow",
+        "eventhub", "ecommerce", "management", "chess", "platformer",
+        "racing", "puzzle", "educational", "custom",
+    }
+    # 1. Authoritative: Project canonical settings archetype takes absolute precedence
+    if project and isinstance(project.settings, dict):
+        p_arch = (project.settings.get("archetype") or "").lower()
+        if p_arch in valid_modes:
+            return p_arch
+
+    # 2. Requested mode (only for unconfigured projects)
     if requested_mode and requested_mode in valid_modes:
         return requested_mode
 
     if not project:
         return "custom"
 
-    p_name = (project.name or "").lower()
-    p_desc = (project.description or "").lower()
-    p_cat = ""
-    if isinstance(project.settings, dict):
-        p_arch = (project.settings.get("archetype") or "").lower()
-        if p_arch in valid_modes:
-            return p_arch
-        p_cat = (project.settings.get("category") or "").lower()
+    p_name = project.name or ""
+    p_desc = project.description or ""
+    p_cat = (project.settings.get("category") or "") if isinstance(project.settings, dict) else ""
 
-    combined = f"{p_name} {p_desc} {p_cat}".lower()
-    if any(k in combined for k in ["snake", "arcade", "game", "retro", "2d arcade", "canvas"]):
-        return "snake_game"
-    if any(k in combined for k in ["teamconnect", "directory", "member", "employee", "roster", "staff", "faculty", "hr"]):
-        return "management"
-    if any(k in combined for k in ["analytics", "kpi", "dashboard", "metric", "executive", "revenue", "bi ", "intelligence", "finance"]):
-        return "analytics"
-    if any(k in combined for k in ["event", "meet", "summit", "conference", "ticket", "booking"]):
-        return "eventhub"
-    if any(k in combined for k in ["shop", "store", "commerce", "cart", "product", "checkout", "market", "catalog"]):
-        return "ecommerce"
-    if any(k in combined for k in ["kanban", "taskflow", "task-manager", "task manager", "todo", "to-do", "tasks", "task", "backlog", "scrum", "sprint"]):
-        return "taskflow"
-    if any(k in combined for k in ["team", "manage", "admin", "record", "school", "portal", "profile"]):
-        return "management"
-    return "custom"
+    from app.agents.code_generation.archetypes import detect_project_archetype
+    return detect_project_archetype(p_name, p_desc, p_cat)
 
 
 def compute_preview_url(
@@ -143,10 +143,10 @@ def compute_preview_url(
         return f"{base}/?project_id={project_id}&app={active_mode}{token_suffix}", effective_port
 
     if is_healthy_port_8001 and not is_prod:
-        return f"http://127.0.0.1:8001/?project_id={project_id}&app={active_mode}{token_suffix}", 8001
+        return f"http://127.0.0.1:8001/?project_id={project_id}{token_suffix}", 8001
 
     # Default to HTTPS-compatible FastAPI route for production Render and local development
-    return f"{settings.API_V1_STR}/projects/{project_id}/runtime/preview?app={active_mode}{token_suffix}", effective_port
+    return f"{settings.API_V1_STR}/projects/{project_id}/runtime/preview?{token_suffix.lstrip('&')}", effective_port
 
 
 async def _resolve_project(
@@ -360,7 +360,43 @@ async def get_project_preview_html(
                     mode,
                 )
 
-        if not legacy_kanban_collision:
+        # Defensive anti-collision check for legacy Snake files on non-snake archetypes
+        legacy_snake_collision = False
+        if mode and mode != "snake_game" and html_content:
+            snake_collision_markers = ["spawnFood()", "snake.some", "snake_high_score", "Arcade Snake", "2D Retro Arcade"]
+            if any(marker in html_content for marker in snake_collision_markers):
+                legacy_snake_collision = True
+                logger.warning(
+                    "Legacy Snake collision detected in files_map for project %s (mode=%s); bypassing stale Snake files to serve authentic archetype prototype",
+                    project_id,
+                    mode,
+                )
+
+        # Defensive anti-collision check for generic playground files on specialized archetypes
+        generic_playground_collision = False
+        if mode and mode != "custom" and html_content:
+            playground_markers = ["Interactive Application Playground", "Trigger Primary Action", "SE IntelliPlatform Application"]
+            if any(marker in html_content for marker in playground_markers):
+                generic_playground_collision = True
+                logger.warning(
+                    "Generic playground collision detected in files_map for project %s (mode=%s); bypassing stale generic files to serve authentic archetype prototype",
+                    project_id,
+                    mode,
+                )
+
+        # Defensive anti-collision check for legacy Shadow Master files on non-shadow_master archetypes
+        legacy_shadow_collision = False
+        if mode and mode != "shadow_master" and html_content:
+            shadow_collision_markers = ["combatCanvas", "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master"]
+            if any(marker in html_content for marker in shadow_collision_markers):
+                legacy_shadow_collision = True
+                logger.warning(
+                    "Legacy Shadow Master collision detected in files_map for project %s (mode=%s); bypassing stale Shadow Master files",
+                    project_id,
+                    mode,
+                )
+
+        if not legacy_kanban_collision and not legacy_snake_collision and not generic_playground_collision and not legacy_shadow_collision:
             if not html_content:
                 html_content = (
                     f"<!DOCTYPE html><html><head><meta charset='UTF-8'><title>{p_name}</title></head>"
@@ -391,6 +427,20 @@ async def get_project_preview_html(
         html = get_analytics_dashboard_html(title=p_name, desc=p_desc, project_id=str(project_id))
     elif mode == "snake_game":
         html = get_snake_game_html(title=p_name)
+    elif mode == "carrom":
+        html = get_carrom_game_html(title=p_name, desc=p_desc)
+    elif mode == "shadow_master":
+        html = get_shadow_master_game_html(title=p_name, desc=p_desc)
+    elif mode == "chess":
+        html = get_chess_game_html(title=p_name, desc=p_desc)
+    elif mode == "platformer":
+        html = get_platformer_game_html(title=p_name, desc=p_desc)
+    elif mode == "racing":
+        html = get_racing_game_html(title=p_name, desc=p_desc)
+    elif mode == "puzzle":
+        html = get_puzzle_game_html(title=p_name, desc=p_desc)
+    elif mode == "educational":
+        html = get_educational_app_html(title=p_name, desc=p_desc)
     elif mode == "eventhub":
         html = EVENTHUB_HTML
     elif mode == "taskflow":
@@ -400,7 +450,7 @@ async def get_project_preview_html(
     elif mode == "management":
         html = get_management_html(title=p_name, desc=p_desc)
     else:
-        html = get_custom_app_html(title=p_name, desc=p_desc)
+        html = get_custom_interactive_html(title=p_name, desc=p_desc)
 
     injected_html = inject_preview_bridge(html, str(project_id), preview_token)
     return HTMLResponse(content=injected_html, headers=preview_headers)
