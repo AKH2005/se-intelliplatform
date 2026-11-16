@@ -13,7 +13,7 @@ from app.core.database import get_db
 from app.core.exceptions import ForbiddenError, NotFoundError, UnauthorizedError
 from app.core.security import decode_access_token
 from app.models.project import Project
-from app.models.user import User
+from app.models.user import User, UserRole
 
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -73,7 +73,12 @@ async def get_authorized_project(
     if not project:
         raise NotFoundError("Project", str(project_id))
     if project.owner_id is not None:
-        if current_user is None or project.owner_id != current_user.id:
+        is_owner = current_user is not None and str(project.owner_id) == str(current_user.id)
+        is_admin = current_user is not None and (
+            getattr(current_user, "role", None) == UserRole.ADMIN
+            or getattr(current_user, "role", None) == UserRole.ADMIN.value
+        )
+        if not (is_owner or is_admin):
             raise ForbiddenError("You do not have permission to access this project.")
     return project
 

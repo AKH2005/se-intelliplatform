@@ -293,19 +293,9 @@ class EngineeringActionService:
                 try:
                     active_uuid = uuid.UUID(active_id_str)
                     if version.id != active_uuid:
-                        active_stmt = select(DevelopmentVersion.version_number).where(
-                            DevelopmentVersion.id == active_uuid,
-                            DevelopmentVersion.project_id == project_id,
-                        )
-                        act_res = await self.session.execute(active_stmt)
-                        raw_act_num = act_res.scalar_one_or_none() if hasattr(act_res, "scalar_one_or_none") else None
-                        if inspect.isawaitable(raw_act_num):
-                            raw_act_num = await raw_act_num
-                        active_num = raw_act_num if isinstance(raw_act_num, (int, str)) else "?"
-                        raise ConflictError(
-                            f"Version conflict: The project has changed since this edit was prepared "
-                            f"(active version is v{active_num}, but edit was prepared against version v{version.version_number}). "
-                            f"Please refresh before retrying."
+                        raise ValidationError(
+                            f"Target version 'v{version.version_number}' is not the active version "
+                            f"(active version ID is {active_id_str}). Please refresh before editing."
                         )
                 except ValueError:
                     pass

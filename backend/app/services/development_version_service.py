@@ -610,11 +610,11 @@ class DevelopmentVersionService:
                     logger.warning(f"Failed to bootstrap initial version: {e}")
                 break
 
-        # Check project status - empty draft projects without auto_build or initialized do not get a synthetic version
+        # Check project status - projects without auto_build or initialized do not get a synthetic version
         project = await self._resolve_project(project_id, for_update=True)
         proj_settings = dict(project.settings or {})
         is_auto_build = proj_settings.get("auto_build") or proj_settings.get("initialized")
-        if project.status == ProjectStatus.DRAFT and not is_auto_build:
+        if not is_auto_build:
             return
 
         # Guarantee Version 1 baseline exists for initialized/auto_build project

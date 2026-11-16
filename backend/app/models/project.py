@@ -15,6 +15,7 @@ class ProjectStatus(str, enum.Enum):
     """Lifecycle status enum for projects."""
     DRAFT = "DRAFT"
     IN_PROGRESS = "IN_PROGRESS"
+    ACTIVE = "ACTIVE"
     ARCHIVED = "ARCHIVED"
 
 

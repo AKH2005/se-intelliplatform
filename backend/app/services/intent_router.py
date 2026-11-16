@@ -274,6 +274,7 @@ class IntentRouter:
                 confidence=0.98,
                 reasoning="Natural-language user request to modify or implement project source code.",
                 allow_actions=True,
+                is_fast_path_candidate=len(words) <= 12,
             )
 
         # 8. Code Explanation (Components, source files, state management, API routes)

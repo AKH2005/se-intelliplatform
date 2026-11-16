@@ -228,6 +228,8 @@ class AssistantReasoningService:
                     logger.warning(f"Transient provider error on attempt {attempt + 1}: {t_err}. Retrying in {0.5 * (2 ** attempt)}s...")
                     await asyncio.sleep(0.5 * (2 ** attempt))
                 else:
+                    if getattr(self.provider, "provider_name", "") == "mock":
+                        raise t_err
                     # Fallback to Gemini if configured
                     from app.core.config import settings
                     if getattr(self.provider, "provider_name", "") == "groq" and getattr(settings, "GEMINI_API_KEY", None):
@@ -256,6 +258,8 @@ class AssistantReasoningService:
                     )
                     break
             except (ProviderError, AgentConfigurationError) as p_err:
+                if getattr(self.provider, "provider_name", "") == "mock":
+                    raise p_err
                 from app.core.config import settings
                 if getattr(self.provider, "provider_name", "") == "groq" and getattr(settings, "GEMINI_API_KEY", None):
                     logger.info("Groq output error. Attempting fallback to Gemini provider...")

@@ -46,6 +46,28 @@ export class HttpClient {
     return this.baseUrl;
   }
 
+  public getAuthToken(): string | null {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem('se_auth_token');
+    }
+    return null;
+  }
+
+  public getAuthHeaders(customHeaders?: HeadersInit): Headers {
+    const finalHeaders = new Headers(customHeaders);
+    if (!finalHeaders.has('Content-Type')) {
+      finalHeaders.set('Content-Type', 'application/json');
+    }
+    if (!finalHeaders.has('X-Correlation-ID')) {
+      finalHeaders.set('X-Correlation-ID', generateCorrelationId());
+    }
+    const token = this.getAuthToken();
+    if (token && !finalHeaders.has('Authorization')) {
+      finalHeaders.set('Authorization', `Bearer ${token}`);
+    }
+    return finalHeaders;
+  }
+
   private buildUrl(path: string, params?: Record<string, string | number | boolean | undefined | null>): string {
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
     const url = new URL(`${this.baseUrl}${cleanPath}`);

@@ -64,12 +64,13 @@ export const assistantApi = {
     options?: { signal?: AbortSignal }
   ): Promise<AssistantMessage> => {
     const url = `${apiClient.getBaseUrl()}/projects/${projectId}/assistant/messages/stream`;
+    const headers = apiClient.getAuthHeaders({
+      Accept: 'text/event-stream',
+    });
+
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-      },
+      headers,
       body: JSON.stringify(payload),
       signal: options?.signal,
     });
