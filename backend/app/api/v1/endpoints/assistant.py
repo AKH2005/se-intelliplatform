@@ -6,7 +6,7 @@ import inspect
 import json
 import logging
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Path, status
 from fastapi.responses import StreamingResponse
 
