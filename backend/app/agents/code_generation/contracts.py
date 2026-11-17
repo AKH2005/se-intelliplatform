@@ -11,8 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 MAX_FILES: int = 30
 MAX_PATH_LENGTH: int = 150
-MAX_FILE_SIZE_BYTES: int = 50 * 1024  # 50 KB per file
-MAX_TOTAL_SIZE_BYTES: int = 500 * 1024  # 500 KB total project size
+MAX_FILE_SIZE_BYTES: int = 1024 * 1024  # 1 MB per file
+MAX_TOTAL_SIZE_BYTES: int = 10 * 1024 * 1024  # 10 MB total project size
 
 SUPPORTED_LANGUAGES: set[str] = {"python", "typescript", "javascript", "polyglot"}
 SUPPORTED_FRAMEWORKS: set[str] = {"fastapi", "react", "react+fastapi", "fullstack-react-fastapi"}

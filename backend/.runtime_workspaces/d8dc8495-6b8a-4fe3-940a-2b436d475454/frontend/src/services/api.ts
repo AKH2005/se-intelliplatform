@@ -1,76 +1,61 @@
-/**
- * Unified REST API client for Task Manager backend communication.
- */
-
-export interface Task {
+export interface SkillConfig {
   id: string;
-  title: string;
-  description?: string | null;
-  priority: 'LOW' | 'MEDIUM' | 'HIGH';
-  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
-  due_date?: string | null;
-  created_at?: string;
+  name: string;
+  key: string;
+  damage: number;
+  energyCost: number;
+  cooldown: number;
+  radius: number;
+  color: string;
+  element: string;
+  desc: string;
 }
 
-export interface TaskCreateInput {
-  title: string;
-  description?: string;
-  priority?: 'LOW' | 'MEDIUM' | 'HIGH';
-  due_date?: string | null;
+export interface UserAuthResponse {
+  token: string;
+  user: {
+    email: string;
+    name: string;
+    level: number;
+    role: string;
+  };
 }
 
-export interface TaskUpdateInput {
-  title?: string;
-  description?: string;
-  priority?: 'LOW' | 'MEDIUM' | 'HIGH';
-  status?: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
-  due_date?: string | null;
-}
-
-const API_BASE_URL =
-  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) ||
-  'http://localhost:8000';
-
-export const taskApi = {
-  async listTasks(): Promise<Task[]> {
-    const res = await fetch(`${API_BASE_URL}/tasks`);
-    if (!res.ok) {
-      throw new Error(`Failed to load tasks: ${res.status} ${res.statusText}`);
+export const shadowApi = {
+  async saveSkill(skill: SkillConfig): Promise<boolean> {
+    try {
+      const res = await fetch('/api/skills', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(skill),
+      });
+      return res.ok;
+    } catch {
+      return false;
     }
-    return res.json();
   },
 
-  async createTask(input: TaskCreateInput): Promise<Task> {
-    const res = await fetch(`${API_BASE_URL}/tasks`, {
+  async login(email: string, password: string): Promise<UserAuthResponse> {
+    const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ email, password }),
     });
-    if (!res.ok) {
-      throw new Error(`Failed to create task: ${res.statusText}`);
-    }
+    if (!res.ok) throw new Error('Invalid email or password');
     return res.json();
   },
 
-  async updateTask(id: string, input: TaskUpdateInput): Promise<Task> {
-    const res = await fetch(`${API_BASE_URL}/tasks/${id}`, {
-      method: 'PUT',
+  async register(email: string, password: string, name: string): Promise<UserAuthResponse> {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ email, password, name }),
     });
-    if (!res.ok) {
-      throw new Error(`Failed to update task: ${res.statusText}`);
-    }
+    if (!res.ok) throw new Error('Registration failed');
     return res.json();
   },
 
-  async deleteTask(id: string): Promise<{ status: string; id: string }> {
-    const res = await fetch(`${API_BASE_URL}/tasks/${id}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) {
-      throw new Error(`Failed to delete task: ${res.statusText}`);
-    }
-    return res.json();
-  },
+  async logout(): Promise<void> {
+    await fetch('/api/auth/logout', { method: 'POST' });
+  }
 };

@@ -38,11 +38,20 @@ class Settings(BaseSettings):
             "http://localhost:5174",
             "http://127.0.0.1:5173",
             "http://127.0.0.1:5174",
+            "http://localhost:4173",
+            "http://127.0.0.1:4173",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+            "http://localhost:8001",
+            "http://127.0.0.1:8001",
+            "https://se-intelliplatform.vercel.app",
+            "https://se-intelliplatform-frontend.vercel.app",
+            "https://se-intelliplatform-backend.onrender.com",
         ],
         description="Allowed CORS origins for frontend web application",
     )
     CORS_ORIGIN_REGEX: str | None = Field(
-        default=r"^https:\/\/.*\.vercel\.app$",
+        default=r"^https:\/\/.*(\.vercel\.app|\.onrender\.com)$",
         description="Allowed CORS origin regex for Vercel preview and production deployments",
     )
 

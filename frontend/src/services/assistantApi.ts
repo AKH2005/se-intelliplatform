@@ -63,27 +63,78 @@ export const assistantApi = {
     callbacks?: StreamCallbacks,
     options?: { signal?: AbortSignal }
   ): Promise<AssistantMessage> => {
-    const url = `${apiClient.getBaseUrl()}/projects/${projectId}/assistant/messages/stream`;
+    const baseUrl = apiClient.getBaseUrl();
+    const url = `${baseUrl}/projects/${projectId}/assistant/messages/stream`;
     const headers = apiClient.getAuthHeaders({
       Accept: 'text/event-stream',
     });
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: options?.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        signal: options?.signal,
+      });
+    } catch (netErr: any) {
+      if (netErr?.name === 'AbortError' || netErr?.code === 'ERR_CANCELED') {
+        throw netErr;
+      }
+      const isMixedContent =
+        typeof window !== 'undefined' &&
+        window.location.protocol === 'https:' &&
+        baseUrl.startsWith('http:');
+
+      let diagnosticMsg = `Unable to connect to backend service at ${baseUrl}. `;
+      if (isMixedContent) {
+        diagnosticMsg +=
+          'Mixed Content Security Block: HTTPS pages cannot connect to insecure HTTP endpoints. Please configure a secure HTTPS API endpoint.';
+      } else {
+        diagnosticMsg +=
+          'Please verify that the backend server is running and reachable from your network.';
+      }
+
+      const err: any = new Error(diagnosticMsg);
+      err.isNetworkError = true;
+      err.targetUrl = url;
+      err.originalError = netErr;
+      throw err;
+    }
 
     if (!response.ok) {
       let errorDetail = `HTTP ${response.status}: ${response.statusText}`;
+      let errorData: any = null;
       try {
-        const errJson = await response.json();
-        errorDetail = errJson.detail || errorDetail;
+        errorData = await response.json();
+        errorDetail = errorData.detail || errorData.title || errorDetail;
       } catch {
-        // ignore
+        // ignore JSON parse failure on non-JSON error pages
       }
-      throw new Error(errorDetail);
+
+      const structuredErr: any = new Error(errorDetail);
+      structuredErr.status = response.status;
+      structuredErr.statusText = response.statusText;
+      structuredErr.response = { status: response.status, data: errorData };
+      structuredErr.detail = errorDetail;
+
+      if (response.status === 401) {
+        structuredErr.userMessage =
+          'Authentication session expired or invalid. Please refresh the page or log in again.';
+      } else if (response.status === 403) {
+        structuredErr.userMessage =
+          'You do not have permission to access or modify this project in the AI Development Assistant.';
+      } else if (response.status === 404) {
+        structuredErr.userMessage = `Project context not found on server (${projectId}). Please verify project selection.`;
+      } else if (response.status === 500) {
+        structuredErr.userMessage =
+          'Backend server encountered an internal error while generating assistant response. Please try again.';
+      } else if (response.status === 502 || response.status === 503 || response.status === 504) {
+        structuredErr.userMessage =
+          'Backend service is temporarily unavailable or restarting. Please retry in a few moments.';
+      }
+
+      throw structuredErr;
     }
 
     if (!response.body) {
@@ -137,6 +188,17 @@ export const assistantApi = {
             if (eventType === 'error') throw e;
           }
         }
+      }
+    } catch (streamErr: any) {
+      if (streamErr?.name === 'AbortError') {
+        throw streamErr;
+      }
+      if (!finalMessage) {
+        const err: any = new Error(
+          `Streaming interrupted: ${streamErr.message || 'Connection lost before completion'}`
+        );
+        err.originalError = streamErr;
+        throw err;
       }
     } finally {
       reader.releaseLock();

@@ -1,25 +1,69 @@
 import { ApiError, ProblemDetails } from '../types/api';
 
-const DEFAULT_DEV_BASE_URL = 'http://localhost:8000/api/v1';
-const DEFAULT_PROD_BASE_URL = 'https://se-intelliplatform-backend.onrender.com/api/v1';
+export const DEFAULT_DEV_BASE_URL = 'http://localhost:8000/api/v1';
+export const DEFAULT_PROD_BASE_URL = 'https://se-intelliplatform-backend.onrender.com/api/v1';
 
-function getBaseUrl(): string {
-  let url = '';
-  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) {
-    url = import.meta.env.VITE_API_BASE_URL.trim();
-  } else if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.PROD) {
-    url = DEFAULT_PROD_BASE_URL;
-  } else {
-    url = DEFAULT_DEV_BASE_URL;
+export function normalizeApiUrl(url: string): string {
+  let cleaned = (url || '').trim().replace(/\/+$/, '');
+  if (!cleaned) return DEFAULT_DEV_BASE_URL;
+  if (!cleaned.endsWith('/api/v1')) {
+    cleaned = `${cleaned}/api/v1`;
+  }
+  return cleaned;
+}
+
+export function getBaseUrl(): string {
+  // 1. Explicit window or localStorage debugging override
+  if (typeof window !== 'undefined') {
+    const override = (window as any).__SE_API_BASE_URL || localStorage.getItem('se_api_base_url');
+    if (override && typeof override === 'string' && override.trim()) {
+      return normalizeApiUrl(override.trim());
+    }
   }
 
-  // Strip trailing slashes
-  url = url.replace(/\/+$/, '');
-  // Ensure /api/v1 prefix is appended if omitted
-  if (!url.endsWith('/api/v1')) {
-    url = `${url}/api/v1`;
+  const isBrowser = typeof window !== 'undefined';
+  const isHttps = isBrowser && window.location.protocol === 'https:';
+  const isLocalHost = isBrowser && (
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1' ||
+    window.location.hostname === '[::1]'
+  );
+
+  const envUrl = typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL
+    ? String(import.meta.env.VITE_API_BASE_URL).trim()
+    : '';
+
+  const isLocalhostTarget = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/i.test(envUrl);
+
+  // If in browser over HTTPS, an insecure HTTP target will be blocked by Mixed Content policy.
+  // In that case, automatically upgrade to production backend.
+  if (isHttps && isLocalhostTarget) {
+    return normalizeApiUrl(DEFAULT_PROD_BASE_URL);
   }
-  return url;
+
+  // If the browser is accessing from a remote domain (e.g. Vercel deployment),
+  // a localhost target points to the user's local device, not the backend server.
+  if (isBrowser && !isLocalHost && isLocalhostTarget) {
+    return normalizeApiUrl(DEFAULT_PROD_BASE_URL);
+  }
+
+  // If explicit environment URL was provided and is valid for the current execution context
+  if (envUrl) {
+    return normalizeApiUrl(envUrl);
+  }
+
+  // In production builds on remote hosts, default to production Render backend
+  if (typeof import.meta !== 'undefined' && import.meta.env?.PROD) {
+    return normalizeApiUrl(DEFAULT_PROD_BASE_URL);
+  }
+
+  // In local development, match the browser host name
+  if (isLocalHost) {
+    const host = window.location.hostname || '127.0.0.1';
+    return normalizeApiUrl(`http://${host}:8000/api/v1`);
+  }
+
+  return normalizeApiUrl(DEFAULT_DEV_BASE_URL);
 }
 
 function generateCorrelationId(): string {

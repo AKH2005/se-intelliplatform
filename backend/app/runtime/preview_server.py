@@ -7284,9 +7284,21 @@ def get_analytics_dashboard_html(title: str = "Executive Analytics Dashboard", d
           <span>+ Add Metric</span>
         </button>
 
-        <button type="button" class="btn" onclick="exportCSV()">
+        <button type="button" id="btn-export-csv" class="btn" onclick="exportCSV()">
           <span>Export CSV</span>
         </button>
+
+        <!-- Auth guest trigger / logged in pill -->
+        <div id="auth-guest-view">
+          <button type="button" id="btn-open-login" class="btn btn-primary" style="background: linear-gradient(135deg, #6366f1, #8b5cf6); border: none;" onclick="openAuthModal()">
+            <span>🔑 Sign In / Login</span>
+          </button>
+        </div>
+        <div id="auth-logged-in-view" style="display:none; align-items:center; gap:0.5rem; background:rgba(99,102,241,0.15); padding:0.35rem 0.75rem; border-radius:8px; border:1px solid rgba(99,102,241,0.3);">
+          <span>👤</span>
+          <span id="auth-user-name" style="font-weight:700; font-size:0.85rem;">Executive User</span>
+          <button type="button" id="btn-logout" class="btn" style="padding:0.2rem 0.5rem; font-size:0.75rem;" onclick="logoutUser()">Log Out</button>
+        </div>
       </div>
     </header>
 
@@ -7528,6 +7540,50 @@ def get_analytics_dashboard_html(title: str = "Executive Analytics Dashboard", d
     </section>
   </div>
 
+  <!-- Interactive Auth Modal -->
+  <div class="modal-backdrop" id="auth-modal-overlay" style="display:none; position:fixed; inset:0; z-index:100000; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); align-items:center; justify-content:center;" onclick="if(event.target===this)closeAuthModal()">
+    <div class="modal-content auth-card" style="max-width:440px; width:92%; background:var(--surface); border:1px solid var(--border-accent); border-radius:14px; padding:1.5rem; box-shadow:0 20px 40px rgba(0,0,0,0.6);" onclick="event.stopPropagation()">
+      <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
+        <div class="auth-tabs" style="display:flex; gap:0.5rem;">
+          <button type="button" id="tab-login" class="btn filter-btn active" style="font-weight:700;" onclick="switchAuthTab('login')">Sign In</button>
+          <button type="button" id="tab-register" class="btn filter-btn" onclick="switchAuthTab('register')">Register</button>
+        </div>
+        <button type="button" id="btn-close-modal" class="btn" style="padding:0.25rem 0.55rem;" onclick="closeAuthModal()">✕</button>
+      </div>
+
+      <div id="auth-error-msg" style="display:none; background:rgba(239,68,68,0.2); border:1px solid var(--danger); color:#fca5a5; padding:0.5rem; border-radius:6px; margin-bottom:0.75rem; font-size:0.85rem;"></div>
+
+      <form id="authForm" onsubmit="event.preventDefault(); submitAuth();">
+        <div class="form-group" id="field-name-wrap" style="display:none; margin-bottom:0.85rem;">
+          <label class="form-label" for="auth-name-input">Executive Name</label>
+          <input type="text" id="auth-name-input" class="form-input" style="width:100%;" placeholder="e.g. Sarah Connor" />
+        </div>
+
+        <div class="form-group" style="margin-bottom:0.85rem;">
+          <label class="form-label" for="auth-email-input">Work Email</label>
+          <input type="email" id="auth-email-input" class="form-input" style="width:100%;" placeholder="executive@acmecorp.com" required />
+        </div>
+
+        <div class="form-group" style="margin-bottom:0.85rem;">
+          <label class="form-label" for="auth-pwd-input">Password</label>
+          <input type="password" id="auth-pwd-input" class="form-input" style="width:100%;" placeholder="••••••••••••" required />
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; font-size:0.8rem; color:var(--text-muted);">
+          <label style="display:flex; align-items:center; gap:0.35rem; cursor:pointer;">
+            <input type="checkbox" checked id="auth-remember-check" /> Remember me
+          </label>
+          <button type="button" id="link-forgot-password" class="auth-forgot-link" style="background:transparent; border:none; color:var(--accent-primary); cursor:pointer; text-decoration:underline;" onclick="triggerForgotPassword()">Forgot password?</button>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:0.5rem;">
+          <button type="submit" id="btn-submit-auth" class="btn btn-primary" style="width:100%; justify-content:center; padding:0.65rem; font-weight:700;">Sign In to Dashboard</button>
+          <button type="button" id="btn-quick-fill" class="btn" style="width:100%; justify-content:center; font-size:0.8rem;" onclick="quickFillExecutive()">👤 Quick Fill Executive Demo</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Add Metric Modal -->
   <div class="modal-backdrop" id="addMetricModal">
     <div class="modal-content">
@@ -7691,6 +7747,83 @@ def get_analytics_dashboard_html(title: str = "Executive Analytics Dashboard", d
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+    }}
+
+    // Interactive Auth Modal Controls
+    function openAuthModal() {{
+      const modal = document.getElementById('auth-modal-overlay');
+      if (modal) {{
+        modal.style.display = 'flex';
+        modal.style.visibility = 'visible';
+        modal.style.opacity = '1';
+      }}
+    }}
+
+    function closeAuthModal() {{
+      const modal = document.getElementById('auth-modal-overlay');
+      if (modal) modal.style.display = 'none';
+    }}
+
+    let isRegisterMode = false;
+    function switchAuthTab(mode) {{
+      isRegisterMode = (mode === 'register');
+      document.getElementById('tab-login').classList.toggle('active', !isRegisterMode);
+      document.getElementById('tab-register').classList.toggle('active', isRegisterMode);
+      const nameWrap = document.getElementById('field-name-wrap');
+      if (nameWrap) nameWrap.style.display = isRegisterMode ? 'block' : 'none';
+      const submitBtn = document.getElementById('btn-submit-auth');
+      if (submitBtn) submitBtn.innerText = isRegisterMode ? 'Create Executive Account' : 'Sign In to Dashboard';
+    }}
+
+    function quickFillExecutive() {{
+      const email = document.getElementById('auth-email-input');
+      const pwd = document.getElementById('auth-pwd-input');
+      const name = document.getElementById('auth-name-input');
+      if (email) email.value = 'executive@acmecorp.com';
+      if (pwd) pwd.value = 'ExecutiveSecure2026!';
+      if (name) name.value = 'Sarah Connor (VP)';
+      const err = document.getElementById('auth-error-msg');
+      if (err) err.style.display = 'none';
+    }}
+
+    function submitAuth() {{
+      const emailInp = document.getElementById('auth-email-input');
+      const pwdInp = document.getElementById('auth-pwd-input');
+      const email = emailInp ? emailInp.value.trim() : '';
+      const pwd = pwdInp ? pwdInp.value.trim() : '';
+      const err = document.getElementById('auth-error-msg');
+
+      if (!email || !pwd) {{
+        if (err) {{
+          err.innerText = 'Please provide both email and password.';
+          err.style.display = 'block';
+        }}
+        return;
+      }}
+
+      if (err) err.style.display = 'none';
+      const name = email.split('@')[0];
+      const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+      const guest = document.getElementById('auth-guest-view');
+      const loggedIn = document.getElementById('auth-logged-in-view');
+      const userName = document.getElementById('auth-user-name');
+      if (guest) guest.style.display = 'none';
+      if (loggedIn) loggedIn.style.display = 'inline-flex';
+      if (userName) userName.innerText = displayName + ' (Executive)';
+      closeAuthModal();
+    }}
+
+    function logoutUser() {{
+      const guest = document.getElementById('auth-guest-view');
+      const loggedIn = document.getElementById('auth-logged-in-view');
+      if (guest) guest.style.display = 'inline-flex';
+      if (loggedIn) loggedIn.style.display = 'none';
+    }}
+
+    function triggerForgotPassword() {{
+      const emailInp = document.getElementById('auth-email-input');
+      const email = (emailInp && emailInp.value.trim()) || 'executive@acmecorp.com';
+      alert('✓ Password recovery link has been dispatched to ' + email);
     }}
   </script>
 </body>
@@ -10183,23 +10316,34 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
             if act_ver_id:
                 clean_vid = str(uuid.UUID(str(act_ver_id)))
                 vid_h = clean_vid.replace("-", "")
-                cur.execute("SELECT metadata FROM development_versions WHERE id = ? OR id = ?", (clean_vid, vid_h))
+                cur.execute("SELECT metadata, files_manifest FROM development_versions WHERE id = ? OR id = ?", (clean_vid, vid_h))
                 v_row = cur.fetchone()
-                if v_row and v_row[0]:
-                    v_meta = json.loads(v_row[0]) if isinstance(v_row[0], str) else v_row[0]
-                    v_files = v_meta.get("files", {})
+                if v_row:
+                    v_meta = json.loads(v_row[0]) if v_row[0] and isinstance(v_row[0], str) else (v_row[0] or {})
+                    v_files = v_meta.get("files", {}) if isinstance(v_meta, dict) else {}
                     h_cand = v_files.get("frontend/index.html") or v_files.get("index.html")
+                    if not h_cand and len(v_row) > 1 and v_row[1]:
+                        try:
+                            m_list = json.loads(v_row[1]) if isinstance(v_row[1], str) else v_row[1]
+                            if isinstance(m_list, list):
+                                for item in m_list:
+                                    if isinstance(item, dict) and item.get("path") in ("frontend/index.html", "index.html") and item.get("content"):
+                                        h_cand = item.get("content")
+                                        break
+                        except Exception:
+                            pass
                     if h_cand:
                         is_stale = False
-                        # Anti-collision check for Kanban
-                        if mode not in ("taskflow", "custom") and any(m in h_cand for m in ["new-task-input", "loadTasks()", "task-form", "KanbanFlow Board"]):
-                            is_stale = True
-                        # Anti-collision check for Snake
+                        # Anti-collision check: only flag if content clearly belongs to another distinct archetype and doesn't match this project
+                        if mode != "shadow_master" and any(m in h_cand for m in ["Katana Slash", "Shadow Master Skill Builder", "The Shadow Master"]):
+                            if p_name and "shadow" not in p_name.lower():
+                                is_stale = True
                         if mode != "snake_game" and any(m in h_cand for m in ["spawnFood()", "snake_high_score", "Arcade Snake"]):
-                            is_stale = True
-                        # Anti-collision check for Shadow Master
-                        if mode != "shadow_master" and any(m in h_cand for m in ["combatCanvas", "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master"]):
-                            is_stale = True
+                            if p_name and "snake" not in p_name.lower():
+                                is_stale = True
+                        if mode not in ("taskflow", "custom") and "KanbanFlow Board" in h_cand:
+                            if p_name and "kanban" not in p_name.lower() and "task" not in p_name.lower():
+                                is_stale = True
 
                         if not is_stale:
                             return h_cand
@@ -10222,14 +10366,11 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
                 for cand in candidates:
                     if cand.is_file():
                         c_text = cand.read_text(encoding="utf-8", errors="replace")
-                        # Anti-collision check for Kanban
-                        if mode not in ("taskflow", "custom") and any(m in c_text for m in ["new-task-input", "loadTasks()", "task-form", "KanbanFlow Board"]):
+                        if mode not in ("taskflow", "custom") and "KanbanFlow Board" in c_text and (not p_name or "kanban" not in p_name.lower()):
                             continue
-                        # Anti-collision check for Snake
-                        if mode != "snake_game" and any(m in c_text for m in ["spawnFood()", "snake_high_score", "Arcade Snake"]):
+                        if mode != "snake_game" and any(m in c_text for m in ["spawnFood()", "snake_high_score", "Arcade Snake"]) and (not p_name or "snake" not in p_name.lower()):
                             continue
-                        # Anti-collision check for Shadow Master
-                        if mode != "shadow_master" and any(m in c_text for m in ["combatCanvas", "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master"]):
+                        if mode != "shadow_master" and any(m in c_text for m in ["combatCanvas", "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master"]) and (not p_name or "shadow" not in p_name.lower()):
                             continue
                         if "Interactive Application Playground" not in c_text or mode == "custom":
                             return c_text
@@ -10237,11 +10378,11 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
                     for f in files:
                         if f.endswith(".html"):
                             c_text = Path(root, f).read_text(encoding="utf-8", errors="replace")
-                            if mode not in ("taskflow", "custom") and any(m in c_text for m in ["new-task-input", "loadTasks()", "task-form", "KanbanFlow Board"]):
+                            if mode not in ("taskflow", "custom") and "KanbanFlow Board" in c_text and (not p_name or "kanban" not in p_name.lower()):
                                 continue
-                            if mode != "snake_game" and any(m in c_text for m in ["spawnFood()", "snake_high_score", "Arcade Snake"]):
+                            if mode != "snake_game" and any(m in c_text for m in ["spawnFood()", "snake_high_score", "Arcade Snake"]) and (not p_name or "snake" not in p_name.lower()):
                                 continue
-                            if mode != "shadow_master" and any(m in c_text for m in ["combatCanvas", "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master"]):
+                            if mode != "shadow_master" and any(m in c_text for m in ["combatCanvas", "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master"]) and (not p_name or "shadow" not in p_name.lower()):
                                 continue
                             return c_text
         except Exception:

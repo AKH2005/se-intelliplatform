@@ -179,7 +179,38 @@ class IntentRouter:
                 allow_actions=False,
             )
 
-        # 6. Debugging (Errors, Tracebacks, Live Preview Issues, Broken Handlers)
+        # 6. Autonomous Defect Repair / Bug Report / Broken Component / Missing UI element
+        bug_repair_triggers = [
+            "modal still doesn't appear", "modal still doesnt appear",
+            "modal doesn't appear", "modal does not appear", "modal not appearing",
+            "modal won't appear", "modal is not appearing", "modal not showing",
+            "modal won't open", "modal doesn't open", "modal does not open",
+            "login modal is not appearing", "login modal doesn't appear",
+            "i cant see the login", "i can't see the login", "cant see the login", "can't see the login",
+            "still not appered", "still not appeared",
+            "cant see", "can't see",
+            "button isn't working", "button is not working", "button not working", "button doesn't work",
+            "the export csv button isn't working", "export button isn't working", "the export csv button",
+            "export csv isn't working", "export csv not working",
+            "broken button", "filter isn't working", "handler isn't firing",
+            "fix the button", "fix the modal", "fix the error", "fix the bug", "fix button",
+            "doesn't appear", "does not appear", "not appearing", "won't open", "wont open",
+        ]
+        is_repair_request = any(t in msg for t in bug_repair_triggers) or (
+            any(k in msg for k in ["modal", "button", "login", "export", "filter", "dropdown", "dialog"]) and
+            any(w in msg for w in ["appear", "show", "work", "open", "see", "broken", "fix"])
+        )
+        if is_repair_request:
+            return IntentClassificationResult(
+                intent=AssistantIntent.CODE_MODIFICATION,
+                persona="IntelliDev",
+                confidence=0.98,
+                reasoning="Autonomous defect repair and code correction requested for project application.",
+                allow_actions=True,
+                is_fast_path_candidate=True,
+            )
+
+        # 7. Debugging (Errors, Tracebacks, Live Preview Issues, Broken Handlers)
         preview_triggers = [
             "changes are not seen in live preview",
             "changes not seen in live preview",

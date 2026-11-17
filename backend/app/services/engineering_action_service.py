@@ -1971,6 +1971,7 @@ class EngineeringActionService:
                     "reason": parameters["reason"],
                     "changed_files": [item["file_path"] for item in parameters["changes"]],
                     "candidate_stage": candidate_stage,
+                    "files": updated_files,
                 },
             )
             self.session.add(new_version)

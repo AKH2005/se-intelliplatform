@@ -1,0 +1,81 @@
+:root { --bg: #07090e; --purple: #a855f7; --purple-light: #c084fc; --text: #f8fafc; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Plus Jakarta Sans', sans-serif; }
+.shadow-master-root { padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
+.shadow-header h1 { font-size: 2rem; color: var(--purple-light); margin: 0 0 0.5rem; }
+.stats-hud-bar { display: flex; gap: 1rem; align-items: center; background: rgba(15, 23, 42, 0.8); padding: 0.75rem 1.25rem; border-radius: 12px; margin-bottom: 1rem; border: 1px solid rgba(168, 85, 247, 0.2); }
+.bar-bg { width: 120px; height: 10px; background: #1e293b; border-radius: 9999px; overflow: hidden; display: inline-block; margin: 0 0.5rem; }
+.bar-fill.hp { height: 100%; background: #ef4444; }
+.bar-fill.nrg { height: 100%; background: #06b6d4; }
+.hud-pill { background: rgba(168, 85, 247, 0.15); padding: 0.3rem 0.8rem; border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.3); font-weight: 700; }
+.shadow-workspace-grid { display: grid; grid-template-columns: 700px 1fr; gap: 1.5rem; }
+.arena-canvas { border: 2px solid rgba(168, 85, 247, 0.3); border-radius: 12px; box-shadow: 0 0 25px rgba(168, 85, 247, 0.15); }
+.ability-bar { display: flex; gap: 0.75rem; margin-top: 0.75rem; }
+.skill-slot { background: rgba(15, 23, 42, 0.9); border: 2px solid; border-radius: 8px; padding: 0.5rem; width: 110px; text-align: center; }
+.key-badge { background: #3b82f6; color: white; padding: 0.1rem 0.4rem; border-radius: 4px; font-weight: 800; font-size: 0.75rem; }
+.skill-designer-panel { background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 12px; padding: 1.25rem; }
+.skill-tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+.tab-btn { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: #cbd5e1; padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer; }
+.tab-btn.active { background: var(--purple); color: #07090e; font-weight: 700; }
+.control-row { margin-bottom: 0.75rem; }
+.control-row label { display: block; font-size: 0.85rem; margin-bottom: 0.25rem; }
+.control-row input { width: 100%; }
+.export-btn { width: 100%; margin-top: 1rem; padding: 0.6rem; background: linear-gradient(135deg, #a855f7, #6b21a8); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; }
+.json-view { margin-top: 0.75rem; background: #07090e; padding: 0.75rem; border-radius: 8px; font-size: 0.75rem; max-height: 180px; overflow-y: auto; color: #a5f3fc; }
+
+
+/* ==========================================================================
+   Responsive Mobile & Tablet Styles for Login & App Shell
+   ========================================================================== */
+@media (max-width: 768px) {
+  .auth-card {
+    width: 92vw !important;
+    max-width: 440px !important;
+    padding: 1.25rem !important;
+    margin: 1rem auto !important;
+  }
+
+  .auth-field input {
+    min-height: 48px !important;
+    font-size: 16px !important; /* Prevents auto-zoom on mobile iOS */
+  }
+
+  .auth-submit-btn,
+  .auth-demo-btn {
+    min-height: 48px !important;
+    font-size: 15px !important;
+  }
+
+  .social-login-grid {
+    grid-template-columns: 1fr !important;
+    gap: 0.5rem !important;
+  }
+
+  .shadow-header-top {
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 0.75rem !important;
+  }
+
+  .shadow-auth-ctrl {
+    width: 100% !important;
+    display: flex !important;
+    justify-content: center !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .auth-card {
+    width: 96vw !important;
+    padding: 1rem !important;
+    border-radius: 12px !important;
+  }
+
+  .auth-tabs {
+    gap: 0.25rem !important;
+  }
+
+  .auth-tab {
+    padding: 0.5rem 0.75rem !important;
+    font-size: 0.85rem !important;
+  }
+}

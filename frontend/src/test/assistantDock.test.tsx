@@ -438,6 +438,112 @@ describe('Phase 11I: Intelli Assistant Dock UI', () => {
       delete (assistantApi as any).sendMessageStream;
     }
   });
+
+  describe('Diagnostic Error Handling & Guidance', () => {
+    it('translates generic "Failed to fetch" into Backend Service Unavailable', async () => {
+      vi.mocked(assistantApi.listConversations).mockResolvedValue({ items: [], total: 0 });
+      vi.mocked(assistantApi.sendMessage).mockRejectedValue(new TypeError('Failed to fetch'));
+
+      render(
+        <AssistantDock
+          isOpen={true}
+          onClose={() => {}}
+          activeProjectName="Carrom Master"
+          projectId="proj-carrom"
+        />
+      );
+
+      const input = screen.getByLabelText('Assistant message input');
+      fireEvent.change(input, { target: { value: 'Add a login page.' } });
+      fireEvent.click(screen.getByLabelText('Send inquiry'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Backend Service Unavailable')).toBeInTheDocument();
+        expect(
+          screen.getByText(/Unable to reach the backend service\. Please check your network connection/i)
+        ).toBeInTheDocument();
+        expect(screen.getByTestId('retry-message-btn')).toBeInTheDocument();
+      });
+    });
+
+    it('translates 401 Unauthorized into Authentication Session Expired', async () => {
+      vi.mocked(assistantApi.listConversations).mockResolvedValue({ items: [], total: 0 });
+      const authErr: any = new Error('Invalid token or token expired');
+      authErr.status = 401;
+      vi.mocked(assistantApi.sendMessage).mockRejectedValue(authErr);
+
+      render(
+        <AssistantDock
+          isOpen={true}
+          onClose={() => {}}
+          activeProjectName="Carrom Master"
+          projectId="proj-carrom"
+        />
+      );
+
+      const input = screen.getByLabelText('Assistant message input');
+      fireEvent.change(input, { target: { value: 'Add a login page.' } });
+      fireEvent.click(screen.getByLabelText('Send inquiry'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Authentication Session Expired')).toBeInTheDocument();
+        expect(
+          screen.getByText(/Your session token has expired or is invalid/i)
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('translates 403 Forbidden into Permission Denied', async () => {
+      vi.mocked(assistantApi.listConversations).mockResolvedValue({ items: [], total: 0 });
+      const permErr: any = new Error('You do not have permission to access this project');
+      permErr.status = 403;
+      vi.mocked(assistantApi.sendMessage).mockRejectedValue(permErr);
+
+      render(
+        <AssistantDock
+          isOpen={true}
+          onClose={() => {}}
+          activeProjectName="Carrom Master"
+          projectId="proj-carrom"
+        />
+      );
+
+      const input = screen.getByLabelText('Assistant message input');
+      fireEvent.change(input, { target: { value: 'Add a login page.' } });
+      fireEvent.click(screen.getByLabelText('Send inquiry'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Permission Denied')).toBeInTheDocument();
+        expect(
+          screen.getByText(/You do not have permission to access or modify this project/i)
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('translates 404 Not Found into Project Context Not Found', async () => {
+      vi.mocked(assistantApi.listConversations).mockResolvedValue({ items: [], total: 0 });
+      const notFoundErr: any = new Error("Project with identifier 'proj-xyz' was not found");
+      notFoundErr.status = 404;
+      vi.mocked(assistantApi.sendMessage).mockRejectedValue(notFoundErr);
+
+      render(
+        <AssistantDock
+          isOpen={true}
+          onClose={() => {}}
+          activeProjectName="Carrom Master"
+          projectId="proj-carrom"
+        />
+      );
+
+      const input = screen.getByLabelText('Assistant message input');
+      fireEvent.change(input, { target: { value: 'Add a login page.' } });
+      fireEvent.click(screen.getByLabelText('Send inquiry'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Project Context Not Found')).toBeInTheDocument();
+      });
+    });
+  });
 });
 
 

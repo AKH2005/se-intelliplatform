@@ -28,6 +28,148 @@ import { assistantApi } from '../../services/assistantApi';
 import { developmentVersionApi } from '../../services/developmentVersionApi';
 import { AssistantConversation, AssistantMessage, ActionResult } from '../../types/assistant';
 
+export interface AssistantErrorDetail {
+  title: string;
+  detail: string;
+  canRetry: boolean;
+  category: 'offline' | 'auth' | 'permission' | 'timeout' | 'not-found' | 'server-error' | 'mixed-content' | 'general';
+}
+
+export function parseAssistantError(err: any): AssistantErrorDetail {
+  const status = err?.status || err?.response?.status;
+  const rawMsg = String(
+    err?.userMessage ||
+    err?.response?.data?.detail ||
+    err?.detail ||
+    err?.message ||
+    ''
+  ).trim();
+  const lowerMsg = rawMsg.toLowerCase();
+
+  // 1. Mixed Content
+  if (
+    lowerMsg.includes('mixed content') ||
+    (typeof window !== 'undefined' &&
+      window.location.protocol === 'https:' &&
+      (lowerMsg.includes('http://') || lowerMsg.includes('insecure')))
+  ) {
+    return {
+      title: 'Security Policy Block (Mixed Content)',
+      detail:
+        'The application was loaded over HTTPS, but the API endpoint uses insecure HTTP. Please configure a secure HTTPS backend URL.',
+      category: 'mixed-content',
+      canRetry: false,
+    };
+  }
+
+  // 2. Offline / Network / Failed to fetch
+  if (
+    err?.isNetworkError ||
+    lowerMsg.includes('failed to fetch') ||
+    lowerMsg.includes('networkerror') ||
+    lowerMsg.includes('err_connection_refused') ||
+    lowerMsg.includes('unable to reach backend')
+  ) {
+    return {
+      title: 'Backend Service Unavailable',
+      detail:
+        rawMsg && !lowerMsg.includes('failed to fetch')
+          ? rawMsg
+          : 'Unable to reach the backend service. Please check your network connection and ensure the backend server is running.',
+      category: 'offline',
+      canRetry: true,
+    };
+  }
+
+  // 3. Timeout
+  if (
+    err?.name === 'TimeoutError' ||
+    lowerMsg.includes('timeout') ||
+    lowerMsg.includes('timed out') ||
+    status === 504
+  ) {
+    return {
+      title: 'Request Timed Out',
+      detail:
+        rawMsg ||
+        'The AI assistant took too long to respond. The server or AI model may be busy. You can retry the request.',
+      category: 'timeout',
+      canRetry: true,
+    };
+  }
+
+  // 4. Authentication Expired or Missing (401)
+  if (
+    status === 401 ||
+    lowerMsg.includes('unauthorized') ||
+    lowerMsg.includes('token expired') ||
+    lowerMsg.includes('invalid token') ||
+    lowerMsg.includes('authentication required')
+  ) {
+    return {
+      title: 'Authentication Session Expired',
+      detail:
+        'Your session token has expired or is invalid. Please refresh the page or log in again to continue.',
+      category: 'auth',
+      canRetry: false,
+    };
+  }
+
+  // 5. Permission Denied (403)
+  if (
+    status === 403 ||
+    lowerMsg.includes('forbidden') ||
+    lowerMsg.includes('permission') ||
+    lowerMsg.includes('not have permission')
+  ) {
+    return {
+      title: 'Permission Denied',
+      detail:
+        'You do not have permission to access or modify this project in the AI Development Assistant.',
+      category: 'permission',
+      canRetry: false,
+    };
+  }
+
+  // 6. Project Not Found / Context Missing (404)
+  if (
+    status === 404 ||
+    lowerMsg.includes('not found') ||
+    lowerMsg.includes('project with identifier')
+  ) {
+    return {
+      title: 'Project Context Not Found',
+      detail:
+        rawMsg ||
+        'The requested project could not be found on the backend service. It may belong to a different environment.',
+      category: 'not-found',
+      canRetry: false,
+    };
+  }
+
+  // 7. Internal Server Error (500, 502, 503)
+  if (status >= 500 || lowerMsg.includes('internal server error')) {
+    return {
+      title: 'Assistant Service Error',
+      detail:
+        rawMsg ||
+        'The backend service encountered an internal error while processing your request. Please try again.',
+      category: 'server-error',
+      canRetry: true,
+    };
+  }
+
+  // 8. General fallback
+  return {
+    title: 'Assistant Communication Error',
+    detail:
+      rawMsg ||
+      'An unexpected error occurred while communicating with the AI Development Assistant.',
+    category: 'general',
+    canRetry: true,
+  };
+}
+
 interface AssistantDockProps {
   isOpen: boolean;
   onClose: () => void;
@@ -60,7 +202,7 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
   const [activeVersion, setActiveVersion] = useState<number | null>(activeVersionNumber ?? null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isConfirming, setIsConfirming] = useState<boolean>(false);
-  const [errorNotice, setErrorNotice] = useState<string | null>(null);
+  const [errorNotice, setErrorNotice] = useState<AssistantErrorDetail | string | null>(null);
   const [lastUserPrompt, setLastUserPrompt] = useState<string>('');
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
@@ -566,8 +708,14 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
       if (tempStreamingId) {
         setMessages((prev) => prev.filter((m) => m.message_id !== tempStreamingId));
       }
-      const errMsg = err?.response?.data?.detail || err?.message || 'Failed to communicate with AI Development Assistant';
-      setErrorNotice(errMsg);
+      const parsed = parseAssistantError(err);
+      console.error('[AI Assistant Error]:', {
+        category: parsed.category,
+        title: parsed.title,
+        detail: parsed.detail,
+        status: err?.status || err?.response?.status,
+      });
+      setErrorNotice(parsed);
     } finally {
       abortControllerRef.current = null;
       setIsLoading(false);
@@ -613,8 +761,14 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
         window.dispatchEvent(new CustomEvent('se-preview-refresh'));
       }
     } catch (err: any) {
-      const errMsg = err?.response?.data?.detail || err?.message || 'Failed to confirm action';
-      setErrorNotice(errMsg);
+      const parsed = parseAssistantError(err);
+      console.error('[AI Assistant Confirm Action Error]:', {
+        category: parsed.category,
+        title: parsed.title,
+        detail: parsed.detail,
+        status: err?.status || err?.response?.status,
+      });
+      setErrorNotice(parsed);
     } finally {
       setIsConfirming(false);
     }
@@ -1423,49 +1577,61 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
             </div>
           )}
 
-          {/* Error Notice with Retry */}
-          {errorNotice && (
-            <div
-              data-testid="assistant-error-banner"
-              style={{
-                padding: '0.65rem 0.85rem',
-                borderRadius: 'var(--radius-sm)',
-                background: 'rgba(239, 68, 68, 0.12)',
-                border: '1px solid rgba(239, 68, 68, 0.35)',
-                fontSize: '0.78rem',
-                color: '#f87171',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.4rem',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <AlertTriangle size={15} />
-                <span style={{ fontWeight: 600 }}>{errorNotice}</span>
-              </div>
-              {lastUserPrompt && (
+          {/* Error Notice with Diagnostic Info & Retry */}
+          {errorNotice && (() => {
+            const errObj =
+              typeof errorNotice === 'string'
+                ? parseAssistantError({ message: errorNotice })
+                : errorNotice;
+
+            return (
+              <div
+                data-testid="assistant-error-banner"
+                style={{
+                  padding: '0.65rem 0.85rem',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  border: '1px solid rgba(239, 68, 68, 0.35)',
+                  fontSize: '0.78rem',
+                  color: '#f87171',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.4rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <AlertTriangle size={15} />
+                  <span style={{ fontWeight: 600 }}>{errObj.title}</span>
+                </div>
+                {errObj.detail && (
+                  <div style={{ fontSize: '0.74rem', color: '#fca5a5', lineHeight: 1.45 }}>
+                    {errObj.detail}
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem' }}>
-                  <button
-                    type="button"
-                    data-testid="retry-message-btn"
-                    onClick={() => handleSendPrompt(lastUserPrompt)}
-                    style={{
-                      background: 'var(--status-failed)',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: 'var(--radius-sm)',
-                      padding: '0.25rem 0.6rem',
-                      fontSize: '0.72rem',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '0.3rem',
-                    }}
-                  >
-                    <RotateCcw size={11} />
-                    <span>Retry</span>
-                  </button>
+                  {errObj.canRetry !== false && lastUserPrompt && (
+                    <button
+                      type="button"
+                      data-testid="retry-message-btn"
+                      onClick={() => handleSendPrompt(lastUserPrompt)}
+                      style={{
+                        background: 'var(--status-failed)',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '0.25rem 0.6rem',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.3rem',
+                      }}
+                    >
+                      <RotateCcw size={11} />
+                      <span>Retry</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setErrorNotice(null)}
@@ -1480,9 +1646,9 @@ export const AssistantDock: React.FC<AssistantDockProps> = ({
                     Dismiss
                   </button>
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            );
+          })()}
 
 
           {/* Conversation Message Feed */}
