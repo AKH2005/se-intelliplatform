@@ -256,27 +256,27 @@ export const SUPPORTED_TEMPLATES: AppTemplate[] = [
     id: 'canvas_arcade_game',
     name: 'HTML5 Canvas 2D Arcade Game',
     slug: 'canvas-2d-arcade-game',
-    tagline: 'Retro arcade game with canvas engine, direction controls, and high scores.',
-    description: 'A classic 2D arcade game with directional controls, live score tracking, and restart states.',
+    tagline: 'Retro space arcade game with 60 FPS canvas engine, ship controls, enemy waves, and high scores.',
+    description: 'A classic 2D space arcade shooter with directional ship controls, laser firing, enemy waves, live score tracking, and restart states.',
     badge: 'Interactive',
     category: 'Gaming',
-    prompt: 'A classic 2D Snake game with directional controls, score tracking, and restart states',
+    prompt: 'A classic 2D space arcade shooter game with directional ship controls, laser firing, enemy waves, score tracking, and restart states',
     features: [
       'High-performance 60 FPS HTML5 Canvas game loop rendering engine',
-      'Responsive keyboard (Arrow/WASD) and touch directional controls',
-      'Live score calculation, speed progression, and local high-score storage',
+      'Responsive keyboard (Arrow/WASD, Space to fire) and touch directional controls',
+      'Dynamic enemy waves, projectile collision physics, and particle explosions',
       'Game state manager handling Start, Playing, Paused, and Game Over states',
     ],
     requirements: [
       {
         title: 'HTML5 Canvas 2D Rendering Engine',
-        description: 'Smooth 60 FPS game loop using requestAnimationFrame.',
+        description: 'Smooth 60 FPS game loop using requestAnimationFrame with 2D space canvas.',
         type: 'FUNCTIONAL',
         priority: 'HIGH',
       },
       {
         title: 'Directional Keyboard & Touchpad Controls',
-        description: 'Seamless controls for desktop keys and mobile touch gestures.',
+        description: 'Seamless ship navigation and rapid laser cannon firing controls.',
         type: 'FUNCTIONAL',
         priority: 'HIGH',
       },
@@ -288,9 +288,111 @@ export const SUPPORTED_TEMPLATES: AppTemplate[] = [
       },
       {
         title: 'Game State Machine Architecture',
-        description: 'Clean transitions between menu, active play, pause, and game over.',
+        description: 'Clean transitions between menu, active combat, pause, and game over.',
         type: 'NON_FUNCTIONAL',
         priority: 'HIGH',
+      },
+    ],
+  },
+  {
+    id: 'retro_snake_game',
+    name: 'Classic Retro Arcade Snake',
+    slug: 'classic-retro-snake',
+    tagline: 'Retro snake game with grid movement, food spawning, and speed progression.',
+    description: 'A classic 2D Snake game with directional controls, food spawning, speed progression, and high score persistence.',
+    badge: 'Arcade',
+    category: 'Gaming',
+    prompt: 'A classic 2D Snake game with directional controls, food spawning, speed progression, and high score persistence',
+    features: [
+      'Grid-based snake movement with directional key controls (Arrow keys / WASD)',
+      'Dynamic apple food generation and progressive length expansion',
+      'Collision detection against screen boundaries and snake body',
+      'Speed progression and persistent high score leaderboard',
+    ],
+    requirements: [
+      {
+        title: 'Snake Movement Engine',
+        description: 'Smooth 2D grid movement with collision detection.',
+        type: 'FUNCTIONAL',
+        priority: 'HIGH',
+      },
+      {
+        title: 'Food Spawning & Score Progression',
+        description: 'Randomized food spawning with score tally and speed ramping.',
+        type: 'FUNCTIONAL',
+        priority: 'HIGH',
+      },
+    ],
+  },
+  {
+    id: 'inventory_management',
+    name: 'Apex Inventory & Warehouse Manager',
+    slug: 'apex-inventory-warehouse',
+    tagline: 'Enterprise SKU catalog, stock level badges, transaction adjustments, and CSV export.',
+    description: 'Enterprise inventory control system with real-time stock levels, low-stock threshold alerts, inbound/outbound adjustments, and audit log.',
+    badge: 'Operations',
+    category: 'Supply Chain',
+    prompt: 'An enterprise inventory and warehouse management system with SKU tracking, stock adjustments, low-stock alerts, and transaction history',
+    features: [
+      'Complete product catalog with SKU, category, unit price, and warehouse location',
+      'Interactive stock adjustment modal for inbound receipt and outbound dispatch',
+      'Dynamic low-stock alert badges and replenishment priority indicators',
+      'Transaction audit log capturing timestamped stock movements with CSV export',
+    ],
+    requirements: [
+      {
+        title: 'SKU Catalog & Category Management',
+        description: 'Browse warehouse inventory with search, categories, and unit economics.',
+        type: 'FUNCTIONAL',
+        priority: 'HIGH',
+      },
+      {
+        title: 'Stock Adjustment & Audit Ledger',
+        description: 'Record inbound and outbound inventory adjustments with reason tracking.',
+        type: 'FUNCTIONAL',
+        priority: 'HIGH',
+      },
+      {
+        title: 'Low-Stock Gating & Reorder Alerts',
+        description: 'Automated threshold indicators identifying items needing immediate reorder.',
+        type: 'NON_FUNCTIONAL',
+        priority: 'HIGH',
+      },
+    ],
+  },
+  {
+    id: 'learning_management_academy',
+    name: 'SkillForge Online Academy & LMS',
+    slug: 'skillforge-online-academy',
+    tagline: 'Course catalog, interactive lesson player, syllabus progression, and quizzes.',
+    description: 'Online learning platform with course catalog, video/text lesson player, student progress tracking, and interactive quizzes.',
+    badge: 'Education',
+    category: 'Education',
+    prompt: 'A modern learning management system with course catalog, lesson player, progress tracking, and interactive quizzes',
+    features: [
+      'Course catalog with subject categorization, difficulty levels, and enrollment status',
+      'Interactive course player with lesson checklist and progress percentage calculation',
+      'Interactive knowledge-check quiz module with instant answer grading',
+      'Course completion certificates and student learning dashboard',
+    ],
+    requirements: [
+      {
+        title: 'Course Catalog & Enrollment',
+        description: 'Browse curriculum tracks with level filters and enrollment actions.',
+        type: 'FUNCTIONAL',
+        priority: 'HIGH',
+      },
+      {
+        title: 'Interactive Lesson Player & Progress Tracking',
+        description: 'Step-by-step syllabus player with automatic completion percentage updates.',
+        type: 'FUNCTIONAL',
+        priority: 'HIGH',
+      },
+      {
+        title: 'Knowledge Assessment Quiz Engine',
+        description: 'Interactive quiz questions validating student comprehension with instant scoring.',
+        type: 'FUNCTIONAL',
+        priority: 'MEDIUM',
       },
     ],
   },
@@ -383,7 +485,17 @@ const SUGGESTED_PROMPTS = [
   {
     type: 'create',
     label: 'Develop an HTML5 Canvas 2D Arcade Game',
-    prompt: 'A classic 2D Snake game with directional controls, score tracking, and restart states',
+    prompt: 'A classic 2D space arcade shooter game with directional ship controls, laser firing, enemy waves, score tracking, and restart states',
+  },
+  {
+    type: 'create',
+    label: 'Build an Inventory & Warehouse Management System',
+    prompt: 'An enterprise inventory and warehouse management system with SKU tracking, stock adjustments, low-stock alerts, and transaction history',
+  },
+  {
+    type: 'create',
+    label: 'Create an Online Learning Academy & LMS Platform',
+    prompt: 'A modern learning management system with course catalog, lesson player, progress tracking, and interactive quizzes',
   },
 ];
 
@@ -723,7 +835,10 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
 
   // Load a supported template into blueprint review (Stage 1 -> Stage 3)
   const handleSelectTemplate = (template: AppTemplate) => {
-    const arch = template.id === 'canvas_arcade_game' ? 'snake_game'
+    const arch = template.id === 'canvas_arcade_game' ? 'space_arcade'
+      : template.id === 'retro_snake_game' ? 'snake_game'
+      : template.id === 'inventory_management' ? 'inventory'
+      : template.id === 'learning_management_academy' ? 'lms'
       : template.id === 'management_directory' ? 'management'
       : template.id === 'executive_analytics_dashboard' ? 'analytics'
       : template.id === 'kanban_task_manager' ? 'taskflow'

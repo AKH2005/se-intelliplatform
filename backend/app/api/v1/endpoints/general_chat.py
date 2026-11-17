@@ -191,8 +191,213 @@ async def create_guided_app_plan(
         )
     except Exception as exc:
         logger.info(f"Fallback to heuristic blueprint synthesis: {exc}")
-        # Deterministic heuristic fallback if LLM response is non-JSON
+        # Deterministic heuristic fallback if LLM response is non-JSON or fails
         prompt_lower = request.prompt.strip().lower()
+
+        # 1. E-Commerce Store & Catalog
+        if any(k in prompt_lower for k in ["ecommerce", "e-commerce", "shop", "store", "catalog", "checkout", "cart", "product"]):
+            return GuidedAppPlanResponse(
+                name="ShopSphere E-Commerce Store",
+                slug="shopsphere-ecommerce-store",
+                description="Interactive online storefront with product catalog, category filters, sliding shopping cart, and multi-step checkout workflow.",
+                requirements=[
+                    AppRequirementItem(
+                        title="Product Catalog with Taxonomy & Search Filters",
+                        description="Browse products with responsive cards, category facets, price sorting, and live search.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Interactive Shopping Cart with Live Subtotals",
+                        description="Add, modify quantities, and remove items with instant subtotal calculations and stock availability gating.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Multi-Step Checkout & Order Confirmation Workflow",
+                        description="Customer shipping information form, payment simulation, and persistent order receipt generation.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Responsive Storefront UI & Fast Navigation",
+                        description="Modern dark slate e-commerce layout adapting gracefully from mobile devices to desktop viewports.",
+                        type="NON_FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                ],
+                suggested_features=["Filterable product grid", "Sliding cart drawer", "Checkout modal", "Persistent orders database"],
+            )
+
+        # 2. Event Management & Booking Hub
+        if any(k in prompt_lower for k in ["event", "booking", "conference", "summit", "reservation", "attendee", "ticket"]):
+            return GuidedAppPlanResponse(
+                name="EventHub Conference & Booking Portal",
+                slug="eventhub-conference-portal",
+                description="Event discovery and conference booking platform with venue details, seat capacity limits, and attendee registration.",
+                requirements=[
+                    AppRequirementItem(
+                        title="Event Discovery Catalog & Category Filtering",
+                        description="Discover upcoming conferences and summits with date filtering, venue details, and capacity indicators.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Attendee Registration with Real-Time Capacity Gating",
+                        description="Registration modal that books tickets and decrements available seats, preventing over-booking.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Reservation Management & Seat Recovery",
+                        description="Cancel reservations to immediately replenish seat capacity quotas and update attendee records.",
+                        type="FUNCTIONAL",
+                        priority="MEDIUM",
+                    ),
+                    AppRequirementItem(
+                        title="Modern Responsive Event Interface",
+                        description="Event card grid with date badges, capacity status pills, and accessible booking modal.",
+                        type="NON_FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                ],
+                suggested_features=["Event catalog", "Attendee booking form", "Seat availability tracking", "Ticket cancellation"],
+            )
+
+        # 3. Inventory & Warehouse Management
+        if any(k in prompt_lower for k in ["inventory", "warehouse", "stock", "sku", "supply chain", "replenishment"]):
+            return GuidedAppPlanResponse(
+                name="Apex Inventory & Warehouse Manager",
+                slug="apex-inventory-warehouse",
+                description="Enterprise inventory control system with real-time stock levels, low-stock threshold alerts, inbound/outbound adjustments, and audit log.",
+                requirements=[
+                    AppRequirementItem(
+                        title="SKU Inventory Catalog & Unit Economics",
+                        description="Browse warehouse SKU catalog with search, category filtering, unit prices, and warehouse locations.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Stock In/Out Adjustment Ledger",
+                        description="Interactive stock adjustment modal recording inbound receipts and outbound dispatches with reason audit trail.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Low-Stock Threshold Alert Badges",
+                        description="Automated threshold warnings highlighting critical items requiring immediate supplier reorders.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Transaction Audit Log & CSV Export",
+                        description="Complete transaction history with timestamped stock changes and one-click CSV export.",
+                        type="NON_FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                ],
+                suggested_features=["SKU tracking table", "Stock adjustment modal", "Low-stock alert badges", "CSV audit export"],
+            )
+
+        # 4. Learning Management System (LMS)
+        if any(k in prompt_lower for k in ["lms", "learning", "course", "lesson", "academy", "curriculum", "student", "quiz"]):
+            return GuidedAppPlanResponse(
+                name="SkillForge Online Academy & LMS",
+                slug="skillforge-online-academy",
+                description="Online learning platform with course catalog, video/text lesson player, student progress tracking, and interactive quizzes.",
+                requirements=[
+                    AppRequirementItem(
+                        title="Course Curriculum Catalog & Enrollment",
+                        description="Explore multi-track course curriculum with level filtering, instructor details, and enrollment triggers.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Interactive Course Player & Lesson Progression",
+                        description="Dedicated course player with lesson checklist, completion toggles, and live progress percentage bar.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Knowledge Check Quiz Module with Instant Grading",
+                        description="Interactive multiple-choice quiz questions assessing lesson comprehension with instant scoring.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Student Learning Dashboard & Certification",
+                        description="Student overview displaying enrolled courses, completed hours, mastery scores, and certificates.",
+                        type="NON_FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                ],
+                suggested_features=["Course catalog", "Lesson player", "Quiz assessment module", "Progress percentage tracking"],
+            )
+
+        # 5. Canvas 2D Arcade Game (Space Shooter - NOT Snake)
+        if any(k in prompt_lower for k in ["arcade", "space", "galaxy", "shooter", "alien", "fighter", "laser"]) and "snake" not in prompt_lower:
+            return GuidedAppPlanResponse(
+                name="Space Arcade Defender",
+                slug="space-arcade-defender",
+                description="High-performance 60 FPS HTML5 Canvas space combat shooter with player ship controls, laser cannons, descending alien waves, and high score tracking.",
+                requirements=[
+                    AppRequirementItem(
+                        title="60 FPS HTML5 Canvas Space Combat Loop",
+                        description="Smooth 60 FPS animation loop with starfield background, projectile physics, and particle explosions.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Directional Ship Controls & Laser Cannons",
+                        description="Responsive keyboard (Arrow keys / WASD) and Spacebar firing controls with cooldown management.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Alien Fleet Waves & Collision Detection",
+                        description="Descending alien armada with progressive speed, projectile collisions, and shield damage.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Avionics HUD & Persistent High Scores",
+                        description="Live HUD tracking shield health, wave counter, score, and local high score persistence.",
+                        type="NON_FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                ],
+                suggested_features=["60 FPS canvas loop", "Ship navigation & laser firing", "Alien wave progression", "Persistent high score"],
+            )
+
+        # 6. Retro Snake Game (ONLY when explicitly requested)
+        if any(k in prompt_lower for k in ["snake", "slither", "nibbles"]):
+            return GuidedAppPlanResponse(
+                name="Arcade Snake Retro",
+                slug="arcade-snake-retro",
+                description="Classic 2D retro Snake game with grid movement, food generation, speed ramping, and high scores.",
+                requirements=[
+                    AppRequirementItem(
+                        title="2D Grid Movement Engine",
+                        description="Responsive snake movement with directional Arrow / WASD controls.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Food Spawning & Growth Mechanics",
+                        description="Apples spawn randomly; eating increases length and accelerates speed.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                    AppRequirementItem(
+                        title="Game Over & Restart Flow",
+                        description="Boundary and self-collision detection with instant restart capability.",
+                        type="FUNCTIONAL",
+                        priority="HIGH",
+                    ),
+                ],
+                suggested_features=["Grid movement", "Food spawning", "Speed progression", "Score leaderboard"],
+            )
+
         if any(k in prompt_lower for k in ["analytics", "kpi", "dashboard", "metric", "executive"]):
             return GuidedAppPlanResponse(
                 name="Executive Analytics Dashboard",

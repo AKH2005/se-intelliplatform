@@ -246,22 +246,35 @@ class ApplicationIntegrityValidator:
                 stripped = (content or "").strip()
                 if len(stripped) < 15:
                     errors.append(f"File '{path}' appears to be an empty stub ({len(stripped)} chars).")
-                elif stripped in ("def init_module(): pass", "pass", "# Stub", "// Stub"):
+                elif any(s in stripped for s in ("def init_module():", "def init_module() -> None:")) and "pass" in stripped and len(stripped) < 80:
                     errors.append(f"File '{path}' contains placeholder stub code.")
+                elif stripped in ("pass", "# Stub", "// Stub"):
+                    errors.append(f"File '{path}' contains placeholder stub code.")
+                elif path.endswith(".html") and "<h1>" in stripped and len(stripped) < 160 and "<script" not in stripped and "<canvas" not in stripped and "<style" not in stripped:
+                    errors.append(f"HTML entry point '{path}' is a bare heading placeholder without styles or interactive components.")
 
         # 3. Archetype Anti-Collision Check
-        if archetype and archetype not in ("taskflow", "custom"):
+        p_name_lower = (project_name or "").lower()
+        if archetype and archetype not in ("taskflow", "custom") and "kanban" not in p_name_lower and "task" not in p_name_lower:
             for f in files:
                 content = f.content if hasattr(f, "content") else f.get("content", "")
                 if any(m in content for m in ["new-task-input", "loadTasks()", "KanbanFlow Board"]):
                     errors.append(f"Archetype collision: File contains Kanban TaskFlow markers in non-taskflow project ({archetype}).")
                     break
 
-        if archetype and archetype != "snake_game":
+        if archetype and archetype != "snake_game" and "snake" not in p_name_lower:
             for f in files:
                 content = f.content if hasattr(f, "content") else f.get("content", "")
                 if any(m in content for m in ["spawnFood()", "snake_high_score", "Arcade Snake"]):
                     errors.append(f"Archetype collision: File contains Snake markers in non-snake project ({archetype}).")
+                    break
+
+        if archetype and archetype != "shadow_master" and "shadow" not in p_name_lower:
+            for f in files:
+                content = f.content if hasattr(f, "content") else f.get("content", "")
+                content_lower = content.lower()
+                if any(m.lower() in content_lower for m in ["combatcanvas", "katana slash", "shadow master", "shadow warrior"]):
+                    errors.append(f"Archetype collision: File contains Shadow Master markers in non-shadow project ({archetype}).")
                     break
 
         return (len(errors) == 0, errors)

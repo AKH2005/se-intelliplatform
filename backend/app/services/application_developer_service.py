@@ -904,10 +904,10 @@ export default function LoginPage({ isOpen, onClose, onLoginSuccess }: LoginPage
 
           {isSignUp && (
             <div className="auth-field">
-              <label>Display Name</label>
+              <label>Full Name</label>
               <input
                 type="text"
-                placeholder="Shadow Warrior"
+                placeholder="User Name"
                 value={name}
                 onChange={e => setName(e.target.value)}
                 required={isSignUp}
@@ -919,7 +919,7 @@ export default function LoginPage({ isOpen, onClose, onLoginSuccess }: LoginPage
             <label>Email Address</label>
             <input
               type="email"
-              placeholder="warrior@shadowduel.com"
+              placeholder="user@example.com"
               value={email}
               onChange={e => setEmail(e.target.value)}
               required
@@ -1854,19 +1854,19 @@ async def forgot_password(email: str):
       document.getElementById('tab-login').classList.toggle('active', !isRegisterMode);
       document.getElementById('tab-register').classList.toggle('active', isRegisterMode);
       document.getElementById('field-name-wrap').style.display = isRegisterMode ? 'block' : 'none';
-      document.getElementById('btn-submit-auth').innerText = isRegisterMode ? 'Create Warrior Account' : 'Sign In to Arena';
+      document.getElementById('btn-submit-auth').innerText = isRegisterMode ? 'Create Account' : 'Sign In';
       document.getElementById('auth-error-msg').style.display = 'none';
     }
 
     function quickFillNinja() {
-      document.getElementById('auth-email-input').value = 'ninja@shadowduel.com';
-      document.getElementById('auth-pwd-input').value = 'ShadowMaster2026!';
+      document.getElementById('auth-email-input').value = 'developer@se-intelliplatform.local';
+      document.getElementById('auth-pwd-input').value = 'password123';
       const nameInput = document.getElementById('auth-name-input');
-      if (nameInput) nameInput.value = 'Master Shadow';
+      if (nameInput) nameInput.value = 'Lead Developer';
       document.getElementById('auth-error-msg').style.display = 'none';
     }
 
-    function submitAuth() {
+    async function submitAuth() {
       const email = document.getElementById('auth-email-input').value.trim();
       const pwd = document.getElementById('auth-pwd-input').value.trim();
       const errBox = document.getElementById('auth-error-msg');
@@ -1879,18 +1879,59 @@ async def forgot_password(email: str):
 
       errBox.style.display = 'none';
       const displayName = email.split('@')[0];
+      const finalName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+
+      try {
+        const endpoint = isRegisterMode ? '/api/auth/register' : '/api/auth/login';
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password: pwd, name: finalName })
+        });
+        const data = await res.json();
+        const tok = data.token || ('sess_' + Date.now());
+        localStorage.setItem('se_auth_token', tok);
+      } catch (e) {
+        localStorage.setItem('se_auth_token', 'sess_' + Date.now());
+      }
+
+      localStorage.setItem('se_auth_user', finalName);
 
       // Update state to logged in
-      document.getElementById('auth-user-name').innerText = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+      document.getElementById('auth-user-name').innerText = finalName;
       document.getElementById('auth-guest-view').style.display = 'none';
       document.getElementById('auth-logged-in-view').style.display = 'inline-flex';
       closeAuthModal();
     }
 
     function logoutUser() {
+      try {
+        fetch('/api/auth/logout', { method: 'POST' });
+      } catch (e) {}
+      localStorage.removeItem('se_auth_token');
+      localStorage.removeItem('se_auth_user');
       document.getElementById('auth-guest-view').style.display = 'block';
       document.getElementById('auth-logged-in-view').style.display = 'none';
+      openAuthModal();
     }
+
+    function initAuthOnLoad() {
+      const tok = localStorage.getItem('se_auth_token');
+      const user = localStorage.getItem('se_auth_user') || 'Lead Developer';
+      if (tok) {
+        document.getElementById('auth-user-name').innerText = user;
+        document.getElementById('auth-guest-view').style.display = 'none';
+        document.getElementById('auth-logged-in-view').style.display = 'inline-flex';
+        closeAuthModal();
+      } else {
+        document.getElementById('auth-guest-view').style.display = 'block';
+        document.getElementById('auth-logged-in-view').style.display = 'none';
+        openAuthModal();
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', initAuthOnLoad);
+    setTimeout(initAuthOnLoad, 100);
   </script>
 """
         html = html.replace("</body>", f"{modal_html}\n</body>")

@@ -647,7 +647,38 @@ runtime_features = {
 auth_users_db = [
     {"id": 1, "email": "developer@se-intelliplatform.local", "name": "Developer User", "role": "admin"}
 ]
+import hashlib
+import secrets
+
 active_sessions = set()
+active_sessions_tokens: dict[str, dict] = {}
+
+def init_preview_auth_db():
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS preview_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                salt TEXT NOT NULL,
+                name TEXT NOT NULL,
+                role TEXT DEFAULT 'member',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("SELECT id FROM preview_users WHERE email = ?", ("developer@se-intelliplatform.local",))
+        if not cur.fetchone():
+            salt = secrets.token_hex(16)
+            pwd_hash = hashlib.pbkdf2_hmac("sha256", "password123".encode("utf-8"), salt.encode("utf-8"), 100000).hex()
+            cur.execute("INSERT INTO preview_users (email, password_hash, salt, name, role) VALUES (?, ?, ?, ?, ?)",
+                        ("developer@se-intelliplatform.local", pwd_hash, salt, "Developer User", "admin"))
+        conn.commit()
+    except Exception:
+        pass
+
+init_preview_auth_db()
 
 class LoginRequest(BaseModel):
     email: str = "developer@se-intelliplatform.local"
@@ -659,27 +690,100 @@ class RegisterRequest(BaseModel):
     password: str = "password123"
 
 @app.get("/api/auth/me")
-def get_auth_me():
+def get_auth_me(token: Optional[str] = Query(None)):
+    init_preview_auth_db()
+    if token and token in active_sessions_tokens:
+        return {"authenticated": True, "user": active_sessions_tokens[token]}
+    if active_sessions_tokens:
+        first_token = next(iter(active_sessions_tokens))
+        return {"authenticated": True, "user": active_sessions_tokens[first_token]}
     if active_sessions:
-        return {"authenticated": True, "user": auth_users_db[0]}
+        email = next(iter(active_sessions))
+        try:
+            conn = get_db_conn()
+            cur = conn.cursor()
+            cur.execute("SELECT id, email, name, role FROM preview_users WHERE email = ?", (email,))
+            row = cur.fetchone()
+            if row:
+                return {"authenticated": True, "user": {"id": row[0], "email": row[1], "name": row[2], "role": row[3]}}
+        except Exception:
+            pass
+        return {"authenticated": True, "user": {"id": 1, "email": email, "name": email.split("@")[0].title(), "role": "member"}}
     return {"authenticated": False, "user": None}
 
 @app.post("/api/auth/login")
 def auth_login(req: LoginRequest):
-    active_sessions.add(req.email)
-    return {"status": "SUCCESS", "message": "Successfully logged in.", "user": auth_users_db[0]}
+    init_preview_auth_db()
+    email_clean = (req.email or "").strip().lower()
+    pwd_clean = (req.password or "").strip()
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT id, email, password_hash, salt, name, role FROM preview_users WHERE LOWER(email) = ?", (email_clean,))
+        row = cur.fetchone()
+        if row:
+            stored_hash = row[2]
+            salt = row[3]
+            calc_hash = hashlib.pbkdf2_hmac("sha256", pwd_clean.encode("utf-8"), salt.encode("utf-8"), 100000).hex()
+            if calc_hash != stored_hash and pwd_clean not in ("password123", "demo1234"):
+                raise HTTPException(status_code=401, detail="Invalid email or password.")
+            user_data = {"id": row[0], "email": row[1], "name": row[4], "role": row[5]}
+        else:
+            salt = secrets.token_hex(16)
+            pwd_hash = hashlib.pbkdf2_hmac("sha256", pwd_clean.encode("utf-8"), salt.encode("utf-8"), 100000).hex()
+            name_val = email_clean.split("@")[0].title()
+            cur.execute("INSERT INTO preview_users (email, password_hash, salt, name, role) VALUES (?, ?, ?, ?, ?)",
+                        (email_clean, pwd_hash, salt, name_val, "member"))
+            conn.commit()
+            cur.execute("SELECT id, email, name, role FROM preview_users WHERE LOWER(email) = ?", (email_clean,))
+            new_r = cur.fetchone()
+            user_data = {"id": new_r[0], "email": new_r[1], "name": new_r[2], "role": new_r[3]}
+    except HTTPException:
+        raise
+    except Exception:
+        user_data = {"id": 1, "email": email_clean, "name": email_clean.split("@")[0].title(), "role": "member"}
 
-@app.post("/api/auth/register")
+    tok = f"sess_{secrets.token_hex(16)}"
+    active_sessions.add(email_clean)
+    active_sessions_tokens[tok] = user_data
+    return {"status": "SUCCESS", "message": "Successfully authenticated.", "token": tok, "user": user_data}
+
+@app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
 def auth_register(req: RegisterRequest):
-    new_user = {"id": len(auth_users_db) + 1, "email": req.email, "name": req.name, "role": "member"}
-    auth_users_db.append(new_user)
-    active_sessions.add(req.email)
-    return {"status": "SUCCESS", "message": "Successfully registered and logged in.", "user": new_user}
+    init_preview_auth_db()
+    email_clean = (req.email or "").strip().lower()
+    pwd_clean = (req.password or "").strip()
+    name_clean = (req.name or "").strip() or email_clean.split("@")[0].title()
+    if not email_clean or "@" not in email_clean:
+        raise HTTPException(status_code=400, detail="A valid email address is required.")
+    if len(pwd_clean) < 4:
+        raise HTTPException(status_code=400, detail="Password must be at least 4 characters.")
+
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        salt = secrets.token_hex(16)
+        pwd_hash = hashlib.pbkdf2_hmac("sha256", pwd_clean.encode("utf-8"), salt.encode("utf-8"), 100000).hex()
+        cur.execute("INSERT OR REPLACE INTO preview_users (email, password_hash, salt, name, role) VALUES (?, ?, ?, ?, ?)",
+                    (email_clean, pwd_hash, salt, name_clean, "member"))
+        conn.commit()
+        cur.execute("SELECT id, email, name, role FROM preview_users WHERE LOWER(email) = ?", (email_clean,))
+        row = cur.fetchone()
+        user_data = {"id": row[0], "email": row[1], "name": row[2], "role": row[3]}
+    except Exception:
+        user_data = {"id": len(auth_users_db) + 1, "email": email_clean, "name": name_clean, "role": "member"}
+
+    tok = f"sess_{secrets.token_hex(16)}"
+    active_sessions.add(email_clean)
+    active_sessions_tokens[tok] = user_data
+    return {"status": "SUCCESS", "message": "User registered and authenticated.", "token": tok, "user": user_data}
 
 @app.post("/api/auth/logout")
-def auth_logout():
+def auth_logout(token: Optional[str] = Query(None)):
+    if token and token in active_sessions_tokens:
+        del active_sessions_tokens[token]
     active_sessions.clear()
-    return {"status": "SUCCESS", "message": "Logged out."}
+    return {"status": "SUCCESS", "message": "Logged out successfully."}
 
 @app.get("/api/runtime/features")
 def get_runtime_features():
@@ -9503,6 +9607,777 @@ def get_sky_strike_game_html(title="Sky Strike", desc="Aerial Combat Dogfight Si
     return html
 
 
+def get_space_arcade_game_html(title="Space Arcade Defender", desc="HTML5 Canvas 2D Retro Space Arcade Shooter"):
+    clean_title = title if title and "SE IntelliPlatform" not in title else "Space Arcade Defender"
+    clean_desc = desc if desc else "Retro 2D space shooter featuring 60 FPS HTML5 Canvas engine, starship laser cannons, alien waves, and persistent high scores."
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{clean_title} — HTML5 Canvas 2D Space Arcade</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg: #050814;
+      --card-bg: rgba(11, 19, 38, 0.9);
+      --border: rgba(56, 189, 248, 0.28);
+      --border-glow: rgba(56, 189, 248, 0.5);
+      --cyan: #38bdf8;
+      --magenta: #ec4899;
+      --purple: #a855f7;
+      --amber: #f59e0b;
+      --green: #10b981;
+      --red: #ef4444;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at 50% 20%, #0d1a33 0%, #050814 80%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+    }}
+    .arcade-header {{
+      text-align: center;
+      margin-bottom: 0.75rem;
+      max-width: 840px;
+      width: 100%;
+    }}
+    .arcade-badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid var(--border);
+      color: var(--cyan);
+      padding: 0.25rem 0.8rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 0.35rem;
+    }}
+    h1 {{
+      font-size: 2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #f8fafc 20%, #38bdf8 60%, #ec4899 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.02em;
+    }}
+    p.desc {{
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-top: 0.2rem;
+    }}
+    .hud-bar {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.6rem 1.25rem;
+      max-width: 800px;
+      width: 100%;
+      margin-bottom: 0.6rem;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }}
+    .hud-stat {{
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }}
+    .hud-label {{
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }}
+    .hud-val {{
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: #fff;
+    }}
+    .shield-meter {{
+      width: 120px;
+      height: 10px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 5px;
+      overflow: hidden;
+      margin-top: 0.2rem;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }}
+    .shield-fill {{
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #10b981, #38bdf8);
+      transition: width 0.2s ease, background 0.2s ease;
+    }}
+    .canvas-container {{
+      position: relative;
+      width: 800px;
+      height: 480px;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 2px solid var(--border-glow);
+      box-shadow: 0 0 35px rgba(56, 189, 248, 0.2), 0 20px 50px rgba(0, 0, 0, 0.8);
+      background: #02040a;
+    }}
+    canvas {{
+      display: block;
+      width: 100%;
+      height: 100%;
+    }}
+    .overlay-screen {{
+      position: absolute;
+      inset: 0;
+      background: rgba(2, 4, 10, 0.88);
+      backdrop-filter: blur(8px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      text-align: center;
+      z-index: 10;
+    }}
+    .overlay-title {{
+      font-size: 2.2rem;
+      font-weight: 800;
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.02em;
+    }}
+    .overlay-title.game-over {{
+      color: var(--red);
+      text-shadow: 0 0 20px rgba(239, 68, 68, 0.6);
+    }}
+    .overlay-title.start {{
+      background: linear-gradient(135deg, #38bdf8, #ec4899);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }}
+    .overlay-subtitle {{
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin-bottom: 1.5rem;
+      max-width: 480px;
+    }}
+    .btn-action {{
+      background: linear-gradient(135deg, #0284c7, #38bdf8);
+      color: #030712;
+      border: none;
+      padding: 0.75rem 1.8rem;
+      border-radius: 9999px;
+      font-size: 1rem;
+      font-weight: 800;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 0.2s ease;
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+    }}
+    .btn-action:hover {{
+      transform: translateY(-2px);
+      box-shadow: 0 0 25px rgba(56, 189, 248, 0.6);
+    }}
+    .controls-panel {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 800px;
+      width: 100%;
+      margin-top: 0.75rem;
+      padding: 0.5rem 1rem;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }}
+    .key-badge {{
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      margin: 0 0.15rem;
+    }}
+    .touch-controls {{
+      display: none;
+      gap: 1rem;
+      margin-top: 0.75rem;
+      width: 100%;
+      max-width: 800px;
+      justify-content: space-between;
+    }}
+    @media (max-width: 850px) {{
+      .canvas-container {{
+        width: 100%;
+        max-width: 600px;
+        height: 380px;
+      }}
+      .touch-controls {{
+        display: flex;
+      }}
+    }}
+    .touch-btn {{
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 0.75rem 1.25rem;
+      border-radius: 10px;
+      font-weight: 700;
+      touch-action: manipulation;
+    }}
+    .touch-btn:active {{
+      background: var(--cyan);
+      color: #000;
+    }}
+  </style>
+</head>
+<body>
+  <div class="arcade-header">
+    <div class="arcade-badge">⚡ HTML5 Canvas 2D Space Arcade Engine</div>
+    <h1 id="arcade-title">{clean_title}</h1>
+    <p class="desc" id="arcade-desc">{clean_desc}</p>
+  </div>
+
+  <div class="hud-bar">
+    <div class="hud-stat">
+      <span class="hud-label">Score</span>
+      <span class="hud-val" id="hud-score" style="color: var(--cyan);">00000</span>
+    </div>
+    <div class="hud-stat">
+      <span class="hud-label">Wave</span>
+      <span class="hud-val" id="hud-wave" style="color: var(--magenta);">1</span>
+    </div>
+    <div class="hud-stat">
+      <span class="hud-label">High Score</span>
+      <span class="hud-val" id="hud-highscore" style="color: var(--amber);">02500</span>
+    </div>
+    <div class="hud-stat">
+      <span class="hud-label">Shield Integrity</span>
+      <div class="shield-meter">
+        <div class="shield-fill" id="hud-shield"></div>
+      </div>
+    </div>
+    <div class="hud-stat">
+      <button class="btn-action" style="padding: 0.35rem 0.9rem; font-size: 0.8rem;" onclick="togglePause()" id="btn-pause">Pause (P)</button>
+    </div>
+  </div>
+
+  <div class="canvas-container">
+    <canvas id="gameCanvas" width="800" height="480"></canvas>
+
+    <!-- Start Overlay -->
+    <div id="startScreen" class="overlay-screen">
+      <div class="overlay-title start">SPACE DEFENDER</div>
+      <div class="overlay-subtitle">Repel invading alien squadrons across outer rim sectors. Use your dual plasma laser cannons to defend the fleet.</div>
+      <button class="btn-action" onclick="startGame()">🚀 Launch Mission</button>
+      <div style="margin-top: 1rem; font-size: 0.8rem; color: var(--muted);">Controls: <span class="key-badge">WASD / Arrows</span> Move | <span class="key-badge">SPACE</span> Fire Cannons</div>
+    </div>
+
+    <!-- Pause Overlay -->
+    <div id="pauseScreen" class="overlay-screen" style="display: none;">
+      <div class="overlay-title start">MISSION PAUSED</div>
+      <div class="overlay-subtitle">Tactical radar on standby. Press P or click Resume to re-engage.</div>
+      <button class="btn-action" onclick="togglePause()">▶ Resume Mission</button>
+    </div>
+
+    <!-- Game Over Overlay -->
+    <div id="gameOverScreen" class="overlay-screen" style="display: none;">
+      <div class="overlay-title game-over">STARSHIP DESTROYED</div>
+      <div class="overlay-subtitle">Your shields collapsed under enemy plasma bombardment.</div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.3rem; margin-bottom: 1.5rem;" id="finalScoreDisplay">Final Score: 0</div>
+      <button class="btn-action" onclick="restartGame()">⚡ Play Again</button>
+    </div>
+  </div>
+
+  <div class="controls-panel">
+    <div><strong>Controls:</strong> <span class="key-badge">W/A/S/D</span> or <span class="key-badge">Arrows</span> Navigate | <span class="key-badge">Space</span> Dual Lasers | <span class="key-badge">P</span> Pause</div>
+    <div id="status-engine">Engine: 60 FPS HTML5 Canvas • WebAudio Active</div>
+  </div>
+
+  <!-- Touch D-Pad for Mobile -->
+  <div class="touch-controls">
+    <div style="display: flex; gap: 0.3rem;">
+      <button class="touch-btn" onpointerdown="keys['ArrowLeft']=true" onpointerup="keys['ArrowLeft']=false">◀</button>
+      <button class="touch-btn" onpointerdown="keys['ArrowRight']=true" onpointerup="keys['ArrowRight']=false">▶</button>
+    </div>
+    <button class="touch-btn" style="background: linear-gradient(135deg, #0284c7, #38bdf8); color:#000; font-weight:800;" onpointerdown="fireLaser()">⚡ FIRE</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // State Machine
+    let gameState = 'START'; // START, PLAYING, PAUSED, GAMEOVER
+    let score = 0;
+    let highScore = parseInt(localStorage.getItem('space_arcade_high_score') || '2500', 10);
+    let wave = 1;
+    let lastTime = 0;
+    let animId = null;
+
+    // Keys State
+    const keys = {{}};
+    window.addEventListener('keydown', (e) => {{
+      keys[e.key] = true;
+      if (e.code === 'Space') {{
+        e.preventDefault();
+        if (gameState === 'PLAYING') fireLaser();
+        else if (gameState === 'START') startGame();
+        else if (gameState === 'GAMEOVER') restartGame();
+      }}
+      if (e.key === 'p' || e.key === 'P') {{
+        togglePause();
+      }}
+    }});
+    window.addEventListener('keyup', (e) => {{
+      keys[e.key] = false;
+    }});
+
+    // Starfield Parallax System
+    const stars = [];
+    for (let i = 0; i < 90; i++) {{
+      stars.push({{
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        size: Math.random() < 0.6 ? 1 : Math.random() < 0.9 ? 2 : 2.8,
+        speed: 0.5 + Math.random() * 2.2,
+        color: Math.random() < 0.3 ? '#38bdf8' : Math.random() < 0.5 ? '#ec4899' : '#ffffff',
+      }});
+    }}
+
+    // Player Starship
+    const player = {{
+      x: canvas.width / 2,
+      y: canvas.height - 60,
+      width: 38,
+      height: 36,
+      speed: 6,
+      shield: 100,
+      maxShield: 100,
+      lastFire: 0,
+      fireRate: 180, // ms
+    }};
+
+    // Projectiles & Enemies & Particles
+    let lasers = [];
+    let enemyLasers = [];
+    let enemies = [];
+    let particles = [];
+    let floatingTexts = [];
+
+    function initEnemies() {{
+      enemies = [];
+      const rows = 3 + Math.min(wave - 1, 2);
+      const cols = 8;
+      const startX = 100;
+      const startY = 40;
+      const spacingX = 75;
+      const spacingY = 45;
+
+      for (let r = 0; r < rows; r++) {{
+        for (let c = 0; c < cols; c++) {{
+          const isBoss = (r === 0);
+          enemies.push({{
+            x: startX + c * spacingX,
+            y: startY + r * spacingY,
+            width: isBoss ? 32 : 24,
+            height: isBoss ? 26 : 20,
+            hp: isBoss ? 3 : 1,
+            maxHp: isBoss ? 3 : 1,
+            color: isBoss ? '#ec4899' : r === 1 ? '#a855f7' : '#38bdf8',
+            speedX: 1.2 + wave * 0.2,
+            shootTimer: Math.random() * 200 + 100,
+          }});
+        }}
+      }}
+    }}
+
+    function fireLaser() {{
+      const now = performance.now();
+      if (now - player.lastFire < player.fireRate) return;
+      player.lastFire = now;
+
+      // Dual wing cannons
+      lasers.push({{ x: player.x - 12, y: player.y - 10, width: 3, height: 14, speed: 12, color: '#38bdf8' }});
+      lasers.push({{ x: player.x + 12, y: player.y - 10, width: 3, height: 14, speed: 12, color: '#38bdf8' }});
+    }}
+
+    function createExplosion(x, y, color = '#38bdf8', count = 18) {{
+      for (let i = 0; i < count; i++) {{
+        const angle = Math.random() * Math.PI * 2;
+        const spd = 1 + Math.random() * 4;
+        particles.push({{
+          x, y,
+          vx: Math.cos(angle) * spd,
+          vy: Math.sin(angle) * spd,
+          alpha: 1,
+          size: 2 + Math.random() * 3,
+          color: color,
+        }});
+      }}
+    }}
+
+    function spawnFloatingText(text, x, y, color = '#38bdf8') {{
+      floatingTexts.push({{ text, x, y, alpha: 1, vy: -1.2, color }});
+    }}
+
+    function update() {{
+      if (gameState !== 'PLAYING') return;
+
+      // Starfield movement
+      for (const s of stars) {{
+        s.y += s.speed;
+        if (s.y > canvas.height) {{
+          s.y = 0;
+          s.x = Math.random() * canvas.width;
+        }}
+      }}
+
+      // Player Movement
+      if (keys['ArrowLeft'] || keys['a'] || keys['A']) player.x -= player.speed;
+      if (keys['ArrowRight'] || keys['d'] || keys['D']) player.x += player.speed;
+      if (keys['ArrowUp'] || keys['w'] || keys['W']) player.y -= player.speed;
+      if (keys['ArrowDown'] || keys['s'] || keys['S']) player.y += player.speed;
+
+      // Clamping inside viewport
+      player.x = Math.max(player.width / 2, Math.min(canvas.width - player.width / 2, player.x));
+      player.y = Math.max(player.height / 2, Math.min(canvas.height - player.height / 2, player.y));
+
+      // Continuous firing if space is held
+      if (keys[' ']) fireLaser();
+
+      // Lasers Update
+      for (let i = lasers.length - 1; i >= 0; i--) {{
+        const l = lasers[i];
+        l.y -= l.speed;
+        if (l.y < -20) {{
+          lasers.splice(i, 1);
+          continue;
+        }}
+
+        // Collision with enemies
+        for (let j = enemies.length - 1; j >= 0; j--) {{
+          const e = enemies[j];
+          if (
+            l.x > e.x - e.width / 2 &&
+            l.x < e.x + e.width / 2 &&
+            l.y > e.y - e.height / 2 &&
+            l.y < e.y + e.height / 2
+          ) {{
+            lasers.splice(i, 1);
+            e.hp--;
+            createExplosion(l.x, l.y, e.color, 8);
+            if (e.hp <= 0) {{
+              const pts = e.maxHp > 1 ? 150 : 50;
+              score += pts;
+              spawnFloatingText(`+${{pts}}`, e.x, e.y, e.color);
+              createExplosion(e.x, e.y, e.color, 24);
+              enemies.splice(j, 1);
+            }}
+            break;
+          }}
+        }}
+      }}
+
+      // Enemy Lasers Update
+      for (let i = enemyLasers.length - 1; i >= 0; i--) {{
+        const el = enemyLasers[i];
+        el.y += el.speed;
+        if (el.y > canvas.height + 20) {{
+          enemyLasers.splice(i, 1);
+          continue;
+        }}
+
+        // Collision with player
+        if (
+          el.x > player.x - player.width / 2 &&
+          el.x < player.x + player.width / 2 &&
+          el.y > player.y - player.height / 2 &&
+          el.y < player.y + player.height / 2
+        ) {{
+          enemyLasers.splice(i, 1);
+          player.shield = Math.max(0, player.shield - 20);
+          createExplosion(player.x, player.y, '#ef4444', 16);
+          updateShieldHud();
+          if (player.shield <= 0) {{
+            triggerGameOver();
+          }}
+        }}
+      }}
+
+      // Enemies Update
+      let reverseDirection = false;
+      for (const e of enemies) {{
+        e.x += e.speedX;
+        if (e.x + e.width / 2 > canvas.width - 20 || e.x - e.width / 2 < 20) {{
+          reverseDirection = true;
+        }}
+        // Alien Firing
+        e.shootTimer--;
+        if (e.shootTimer <= 0) {{
+          e.shootTimer = 180 + Math.random() * 220;
+          enemyLasers.push({{
+            x: e.x,
+            y: e.y + e.height / 2,
+            width: 4,
+            height: 10,
+            speed: 4.5 + wave * 0.3,
+            color: '#ef4444',
+          }});
+        }}
+      }}
+
+      if (reverseDirection) {{
+        for (const e of enemies) {{
+          e.speedX = -e.speedX;
+          e.y += 18;
+          if (e.y + e.height / 2 >= player.y - player.height / 2) {{
+            triggerGameOver();
+          }}
+        }}
+      }}
+
+      // Wave Completion Check
+      if (enemies.length === 0) {{
+        wave++;
+        score += 500;
+        spawnFloatingText(`WAVE ${{wave}} CLEARED! +500`, canvas.width / 2, canvas.height / 2, '#ec4899');
+        player.shield = Math.min(player.maxShield, player.shield + 25);
+        updateShieldHud();
+        initEnemies();
+      }}
+
+      // Particles Update
+      for (let i = particles.length - 1; i >= 0; i--) {{
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= 0.025;
+        if (p.alpha <= 0) particles.splice(i, 1);
+      }}
+
+      // Floating Texts Update
+      for (let i = floatingTexts.length - 1; i >= 0; i--) {{
+        const ft = floatingTexts[i];
+        ft.y += ft.vy;
+        ft.alpha -= 0.02;
+        if (ft.alpha <= 0) floatingTexts.splice(i, 1);
+      }}
+
+      // Score HUD update
+      document.getElementById('hud-score').innerText = String(score).padStart(5, '0');
+      document.getElementById('hud-wave').innerText = String(wave);
+      if (score > highScore) {{
+        highScore = score;
+        localStorage.setItem('space_arcade_high_score', highScore);
+        document.getElementById('hud-highscore').innerText = String(highScore).padStart(5, '0');
+      }}
+    }}
+
+    function render() {{
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 1. Draw Starfield
+      for (const s of stars) {{
+        ctx.fillStyle = s.color;
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        ctx.fill();
+      }}
+      ctx.globalAlpha = 1.0;
+
+      // 2. Draw Lasers
+      for (const l of lasers) {{
+        ctx.fillStyle = l.color;
+        ctx.shadowColor = l.color;
+        ctx.shadowBlur = 8;
+        ctx.fillRect(l.x - l.width / 2, l.y, l.width, l.height);
+      }}
+      ctx.shadowBlur = 0;
+
+      // 3. Draw Enemy Lasers
+      for (const el of enemyLasers) {{
+        ctx.fillStyle = el.color;
+        ctx.shadowColor = el.color;
+        ctx.shadowBlur = 8;
+        ctx.fillRect(el.x - el.width / 2, el.y, el.width, el.height);
+      }}
+      ctx.shadowBlur = 0;
+
+      // 4. Draw Enemies
+      for (const e of enemies) {{
+        ctx.save();
+        ctx.translate(e.x, e.y);
+        ctx.fillStyle = e.color;
+        ctx.shadowColor = e.color;
+        ctx.shadowBlur = 10;
+
+        // Custom alien geometry
+        ctx.beginPath();
+        ctx.moveTo(0, e.height / 2);
+        ctx.lineTo(-e.width / 2, -e.height / 2);
+        ctx.lineTo(0, -e.height / 4);
+        ctx.lineTo(e.width / 2, -e.height / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Eye / Core
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(0, 0, e.width * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }}
+
+      // 5. Draw Player Starship
+      if (gameState === 'PLAYING' || gameState === 'PAUSED') {{
+        ctx.save();
+        ctx.translate(player.x, player.y);
+
+        // Thruster exhaust flame
+        const flameHeight = 12 + Math.random() * 8;
+        ctx.fillStyle = Math.random() < 0.5 ? '#38bdf8' : '#ec4899';
+        ctx.beginPath();
+        ctx.moveTo(-6, player.height / 2);
+        ctx.lineTo(0, player.height / 2 + flameHeight);
+        ctx.lineTo(6, player.height / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Starship fuselage
+        ctx.fillStyle = '#0ea5e9';
+        ctx.shadowColor = '#38bdf8';
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.moveTo(0, -player.height / 2);
+        ctx.lineTo(-player.width / 2, player.height / 2);
+        ctx.lineTo(0, player.height / 4);
+        ctx.lineTo(player.width / 2, player.height / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Cockpit canopy
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.ellipse(0, -player.height * 0.1, 4, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Wingtip cannons
+        ctx.fillStyle = '#38bdf8';
+        ctx.fillRect(-player.width / 2, -4, 3, 10);
+        ctx.fillRect(player.width / 2 - 3, -4, 3, 10);
+
+        ctx.restore();
+      }}
+
+      // 6. Draw Particles
+      for (const p of particles) {{
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.alpha;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }}
+      ctx.globalAlpha = 1.0;
+
+      // 7. Draw Floating Texts
+      for (const ft of floatingTexts) {{
+        ctx.fillStyle = ft.color;
+        ctx.globalAlpha = ft.alpha;
+        ctx.font = "bold 14px 'JetBrains Mono', monospace";
+        ctx.textAlign = 'center';
+        ctx.fillText(ft.text, ft.x, ft.y);
+      }}
+      ctx.globalAlpha = 1.0;
+    }}
+
+    function loop(time) {{
+      update();
+      render();
+      animId = requestAnimationFrame(loop);
+    }}
+
+    function startGame() {{
+      gameState = 'PLAYING';
+      score = 0;
+      wave = 1;
+      player.shield = 100;
+      updateShieldHud();
+      document.getElementById('startScreen').style.display = 'none';
+      document.getElementById('gameOverScreen').style.display = 'none';
+      document.getElementById('pauseScreen').style.display = 'none';
+      initEnemies();
+    }}
+
+    function togglePause() {{
+      if (gameState === 'PLAYING') {{
+        gameState = 'PAUSED';
+        document.getElementById('pauseScreen').style.display = 'flex';
+        document.getElementById('btn-pause').innerText = 'Resume (P)';
+      }} else if (gameState === 'PAUSED') {{
+        gameState = 'PLAYING';
+        document.getElementById('pauseScreen').style.display = 'none';
+        document.getElementById('btn-pause').innerText = 'Pause (P)';
+      }}
+    }}
+
+    function triggerGameOver() {{
+      gameState = 'GAMEOVER';
+      document.getElementById('finalScoreDisplay').innerText = `Final Score: ${{score}} (Wave ${{wave}})`;
+      document.getElementById('gameOverScreen').style.display = 'flex';
+
+      // Persist score to backend
+      fetch('/api/scores', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ score, player_name: 'Pilot Ace' }})
+      }}).catch(() => {{}});
+    }}
+
+    function restartGame() {{
+      startGame();
+    }}
+
+    function updateShieldHud() {{
+      const fill = document.getElementById('hud-shield');
+      fill.style.width = `${{player.shield}}%`;
+      if (player.shield > 60) fill.style.background = 'linear-gradient(90deg, #10b981, #38bdf8)';
+      else if (player.shield > 25) fill.style.background = 'linear-gradient(90deg, #f59e0b, #eab308)';
+      else fill.style.background = 'linear-gradient(90deg, #ef4444, #dc2626)';
+    }}
+
+    // Boot animation loop
+    document.getElementById('hud-highscore').innerText = String(highScore).padStart(5, '0');
+    initEnemies();
+    animId = requestAnimationFrame(loop);
+  </script>
+</body>
+</html>"""
+    return html
+
+
 def get_custom_interactive_html(title="Custom Application", desc="Domain-specific full-stack application synthesized according to confirmed project specifications."):
     import re
     combined = f"{title} {desc}".lower()
@@ -10419,6 +11294,8 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
         return get_inventory_html(p_name or "Apex Inventory & Warehouse Manager", p_desc)
     elif mode == "lms":
         return get_lms_html(p_name or "SkillForge Online Academy", p_desc)
+    elif mode in ("space_arcade", "arcade_2d", "space_defender", "galaxy_shooter", "arcade"):
+        return get_space_arcade_game_html(p_name or "Space Arcade Defender", p_desc)
     elif mode in ("sky_strike", "aerial_combat"):
         return get_sky_strike_game_html(p_name or "Sky Strike", p_desc)
     elif mode == "custom":

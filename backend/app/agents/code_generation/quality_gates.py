@@ -391,12 +391,209 @@ def evaluate_playability_gate(
     )
 
 
+def evaluate_identity_correctness_gate(
+    project_name: str,
+    archetype: str,
+    generated_files: List[Dict[str, str]],
+) -> GateResult:
+    """Verify application identity matches user request with zero archetype cross-contamination."""
+    passed_checks = []
+    failed_checks = []
+    warnings = []
+    score_points = 0
+    total_points = 3
+
+    p_name_lower = (project_name or "").lower()
+    all_code = " ".join([f.get("content", "") for f in generated_files]).lower()
+
+    # 1. Project Title Alignment
+    if project_name and project_name.lower() in all_code:
+        passed_checks.append(f"Project title '{project_name}' reflected in application source")
+        score_points += 1
+    elif any(w in all_code for w in project_name.lower().split() if len(w) > 3):
+        passed_checks.append(f"Domain terms from '{project_name}' detected in code")
+        score_points += 1
+    else:
+        warnings.append("Project title not explicitly referenced in generated code")
+        score_points += 0.5
+
+    # 2. Archetype Anti-Collision (Snake check)
+    has_snake_leak = any(m in all_code for m in ["spawnfood()", "snake_high_score", "arcade snake"])
+    if archetype != "snake_game" and "snake" not in p_name_lower and has_snake_leak:
+        failed_checks.append("Archetype collision detected: Snake game logic found in non-snake project")
+    else:
+        passed_checks.append("Zero Snake archetype collision detected")
+        score_points += 1
+
+    # 3. Archetype Anti-Collision (Shadow Master & TaskFlow)
+    has_shadow_leak = any(m in all_code for m in ["combatcanvas", "katana slash", "shadow master"])
+    has_task_leak = any(m in all_code for m in ["new-task-input", "loadtasks()", "kanbanflow board"])
+    if archetype != "shadow_master" and "shadow" not in p_name_lower and has_shadow_leak:
+        failed_checks.append("Archetype collision: Shadow Master markers detected in unrelated project")
+    elif archetype not in ("taskflow", "custom") and "kanban" not in p_name_lower and "task" not in p_name_lower and has_task_leak:
+        failed_checks.append("Archetype collision: Kanban TaskFlow markers detected in non-taskflow project")
+    else:
+        passed_checks.append("Archetype boundaries verified without template collision")
+        score_points += 1
+
+    score = (score_points / total_points) * 100.0
+    return GateResult(
+        name="Application Identity Correctness Gate",
+        passed=score >= 80.0 and len(failed_checks) == 0,
+        score=round(score, 1),
+        details=f"Application identity validated for '{project_name}' ({archetype}).",
+        checks_passed=passed_checks,
+        checks_failed=failed_checks,
+        warnings=warnings,
+    )
+
+
+def evaluate_workflow_and_route_integrity_gate(
+    generated_files: List[Dict[str, str]],
+    is_game: bool = False,
+) -> GateResult:
+    """Verify application has 3-6 connected workflows or interactive states with non-empty handlers."""
+    passed_checks = []
+    failed_checks = []
+    warnings = []
+    score_points = 0
+    total_points = 4
+
+    all_code = " ".join([f.get("content", "") for f in generated_files]).lower()
+
+    # 1. Multiple Views / Pages / Tabs
+    has_views = any(w in all_code for w in ["activetab", "currentview", "route", "view", "tab", "page", "modal", "drawer"])
+    if has_views:
+        passed_checks.append("Multi-view navigation or tab state architecture detected")
+        score_points += 1
+    else:
+        warnings.append("Single-view layout without explicit view transitions")
+        score_points += 0.5
+
+    # 2. Interactive Action Handlers (non-stub)
+    handlers = len(re.findall(r'(?:onclick|onsubmit|handle[a-z]+|addeventlistener)\s*[:=]\s*\{?[^;}\n]+', all_code))
+    if handlers >= 3:
+        passed_checks.append(f"Identified {handlers} interactive event handlers")
+        score_points += 1
+    elif handlers >= 1:
+        warnings.append(f"Limited event handlers detected ({handlers})")
+        score_points += 0.6
+    else:
+        failed_checks.append("No active event handlers detected in frontend code")
+
+    # 3. Workflow Progression
+    if is_game:
+        has_progression = any(w in all_code for w in ["wave", "level", "speed", "score", "hp", "shield"])
+        if has_progression:
+            passed_checks.append("Game state progression and difficulty ramping implemented")
+            score_points += 1
+        else:
+            warnings.append("Limited gameplay progression")
+            score_points += 0.5
+    else:
+        has_crud_workflow = any(w in all_code for w in ["checkout", "cart", "adjust", "enroll", "complete", "submit", "create", "delete"])
+        if has_crud_workflow:
+            passed_checks.append("End-to-end domain business workflow verified")
+            score_points += 1
+        else:
+            warnings.append("Limited domain business workflow detected")
+            score_points += 0.5
+
+    # 4. Feedback & Confirmation States
+    has_feedback = any(w in all_code for w in ["alert", "toast", "message", "status", "confirm", "error", "success"])
+    if has_feedback:
+        passed_checks.append("User feedback, toasts, or confirmation states present")
+        score_points += 1
+    else:
+        warnings.append("No explicit feedback toasts or status messages identified")
+        score_points += 0.6
+
+    score = (score_points / total_points) * 100.0
+    return GateResult(
+        name="Workflow & Route Integrity Gate",
+        passed=score >= 75.0,
+        score=round(score, 1),
+        details=f"Workflow integrity scored {score:.1f}% across navigation, handlers, and business flows.",
+        checks_passed=passed_checks,
+        checks_failed=failed_checks,
+        warnings=warnings,
+    )
+
+
+def evaluate_authentication_integrity_gate(
+    generated_files: List[Dict[str, str]],
+    auth_required: bool = False,
+) -> GateResult:
+    """Verify authentication-first flow: login route, registration, hashing, token persistence, and logout."""
+    passed_checks = []
+    failed_checks = []
+    warnings = []
+    score_points = 0
+    total_points = 4
+
+    all_code = " ".join([f.get("content", "") for f in generated_files]).lower()
+
+    has_auth_markers = any(w in all_code for w in ["auth", "login", "register", "signin", "signup"])
+    if not auth_required and not has_auth_markers:
+        return GateResult(
+            name="Authentication Integrity Gate",
+            passed=True,
+            score=100.0,
+            details="Authentication not required for this application archetype.",
+            checks_passed=["Authentication gate bypassed (not requested)"],
+            checks_failed=[],
+            warnings=[],
+        )
+
+    # 1. Login Entry Point / Route
+    if "login" in all_code and ("password" in all_code or "email" in all_code):
+        passed_checks.append("Dedicated login authentication interface present")
+        score_points += 1
+    else:
+        failed_checks.append("Missing login authentication interface")
+
+    # 2. Registration Flow
+    if "register" in all_code or "signup" in all_code or "sign up" in all_code or "create account" in all_code:
+        passed_checks.append("User registration and account creation flow present")
+        score_points += 1
+    else:
+        warnings.append("Registration flow not explicitly detected")
+        score_points += 0.5
+
+    # 3. Session / Token Handling & Persistence
+    if "token" in all_code or "localstorage" in all_code or "session" in all_code or "bearer" in all_code:
+        passed_checks.append("Session state or token persistence implemented")
+        score_points += 1
+    else:
+        failed_checks.append("Missing token or session persistence")
+
+    # 4. Logout Mechanism & Protected Access
+    if "logout" in all_code or "sign out" in all_code or "signout" in all_code:
+        passed_checks.append("User session termination (Logout) implemented")
+        score_points += 1
+    else:
+        warnings.append("Logout trigger not detected in navigation")
+        score_points += 0.5
+
+    score = (score_points / total_points) * 100.0
+    return GateResult(
+        name="Authentication Integrity Gate",
+        passed=score >= 75.0,
+        score=round(score, 1),
+        details=f"Authentication flow scored {score:.1f}% across login, registration, tokens, and logout.",
+        checks_passed=passed_checks,
+        checks_failed=failed_checks,
+        warnings=warnings,
+    )
+
+
 def run_all_quality_gates(
     project_name: str,
     archetype: str,
     features: List[str],
     generated_files: List[Dict[str, str]],
     is_game: bool = False,
+    auth_required: bool = False,
     runtime_status_code: int = 200,
     has_healthy_manifest: bool = True,
     entry_point_rendered: bool = True,
@@ -404,9 +601,12 @@ def run_all_quality_gates(
     """Execute all quality gates and compute consolidated evaluation."""
     gates = [
         evaluate_requirement_completeness_gate(features, generated_files),
+        evaluate_identity_correctness_gate(project_name, archetype, generated_files),
         evaluate_frontend_implementation_gate(generated_files, is_game=is_game),
         evaluate_backend_implementation_gate(generated_files),
         evaluate_database_integration_gate(generated_files, is_game=is_game),
+        evaluate_workflow_and_route_integrity_gate(generated_files, is_game=is_game),
+        evaluate_authentication_integrity_gate(generated_files, auth_required=auth_required),
         evaluate_runtime_verification_gate(
             runtime_status_code=runtime_status_code,
             has_healthy_manifest=has_healthy_manifest,

@@ -17,6 +17,7 @@ import re
 ARCHETYPE_TEMPLATES = {
     "shadow_master": {"name": "Shadow Master Skill Builder", "category": "GAME"},
     "carrom": {"name": "Carrom Master", "category": "GAME"},
+    "space_arcade": {"name": "Space Arcade Defender", "category": "GAME"},
     "snake_game": {"name": "Arcade Snake", "category": "GAME"},
     "chess": {"name": "Chess Master Pro", "category": "GAME"},
     "platformer": {"name": "Skyline Jump Platformer", "category": "GAME"},
@@ -101,6 +102,9 @@ def detect_project_archetype(name: str = "", desc: str = "", slug: str = "", **k
     # 1. Specific GAME Archetypes
     if _has_word(combined, "sky strike", "skystrike", "aerial combat", "dogfight", "fighter jet", "flight simulator", "space battle", "air combat"):
         return "sky_strike"
+
+    if _has_word(combined, "space arcade", "space shooter", "space defender", "arcade shooter", "arcade 2d", "alien waves", "laser shooter", "starship", "arcade game"):
+        return "space_arcade"
 
     if _has_word(combined, "carrom", "carromboard", "carrom board", "striker", "carrom master"):
         return "carrom"
@@ -188,6 +192,83 @@ def get_archetype_planned_files(
     """Return planned file manifest tailored to the archetype."""
     r_ids = req_ids or []
     ui_ids = ui_req_ids or r_ids
+
+
+    if archetype in ("space_arcade", "arcade_2d", "space_defender"):
+        return [
+            {"path": "frontend/package.json", "purpose": "Frontend package manifest with React 18 and Vite", "file_type": "DEPENDENCY", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/index.html", "purpose": "Vite HTML5 entrypoint and 60 FPS Canvas 2D Space Arcade game engine", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/main.tsx", "purpose": "React application bootstrapper and root DOM renderer", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": ["frontend/src/App.tsx", "frontend/src/styles/App.css"]},
+            {"path": "frontend/src/App.tsx", "purpose": "Interactive React Space Arcade game coordinating canvas loop, HUD, ship controls, and high scores", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": ["frontend/src/components/ArcadeCanvas.tsx", "frontend/src/components/GameHud.tsx", "frontend/src/services/api.ts"]},
+            {"path": "frontend/src/components/ArcadeCanvas.tsx", "purpose": "HTML5 Canvas loop rendering player starship, dual lasers, alien fleet, and explosions", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/components/GameHud.tsx", "purpose": "Live avionics HUD showing score, wave, shield integrity, and high score", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/services/api.ts", "purpose": "REST API client connecting to FastAPI backend for arcade high scores", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/styles/App.css", "purpose": "Neon sci-fi arcade theme styling with responsive layout and glassmorphism HUD", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": [], "dependencies": []},
+            {"path": "backend/requirements.txt", "purpose": "Python package dependencies including FastAPI, Uvicorn, and Pydantic", "file_type": "DEPENDENCY", "architecture_component": be_comp_name, "requirement_ids": [], "dependencies": []},
+            {"path": "backend/app/main.py", "purpose": "FastAPI application entrypoint with CORS middleware and preview static serving", "file_type": "SOURCE", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": ["backend/app/config.py", "backend/app/api.py"]},
+            {"path": "backend/app/config.py", "purpose": "Application configuration and environment CORS settings", "file_type": "CONFIG", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": []},
+            {"path": "backend/app/models.py", "purpose": "Pydantic domain schemas for space arcade scores and pilot records", "file_type": "SCHEMA", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": []},
+            {"path": "backend/app/api.py", "purpose": "REST endpoint router handling arcade score submissions and leaderboard records", "file_type": "SOURCE", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": ["backend/app/models.py", "backend/app/persistence.py"]},
+            {"path": "backend/app/persistence.py", "purpose": "Thread-safe space arcade high score and leaderboard persistence", "file_type": "SOURCE", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": ["backend/app/models.py"]},
+            {"path": "README.md", "purpose": "Project documentation with gameplay controls, weapon systems, and architecture", "file_type": "DOCUMENTATION", "architecture_component": None, "requirement_ids": [], "dependencies": []},
+        ]
+
+    if archetype in ("sky_strike", "aerial_combat"):
+        return [
+            {"path": "frontend/package.json", "purpose": "Frontend package manifest with React 18, Vite, and Lucide icons", "file_type": "DEPENDENCY", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/index.html", "purpose": "Vite HTML5 entrypoint and 60 FPS Canvas Aerial Combat dogfight simulator", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/main.tsx", "purpose": "React application bootstrapper and root DOM renderer", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": ["frontend/src/App.tsx", "frontend/src/styles/App.css"]},
+            {"path": "frontend/src/App.tsx", "purpose": "Interactive React Sky Strike combat simulator coordinating flight loop, avionics HUD, and radar", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": ["frontend/src/components/FlightArena.tsx", "frontend/src/components/AvionicsHud.tsx", "frontend/src/services/api.ts"]},
+            {"path": "frontend/src/components/FlightArena.tsx", "purpose": "HTML5 Canvas loop rendering fighter jet, missile contrails, enemy bogies, and radar", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/components/AvionicsHud.tsx", "purpose": "Avionics HUD showing throttle gauge, hull integrity, altitude, and missile count", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/services/api.ts", "purpose": "REST API client connecting to FastAPI backend for mission flight telemetry", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/styles/App.css", "purpose": "Military aviation HUD theme styling with glowing cyan reticles and carbon fiber panels", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": [], "dependencies": []},
+            {"path": "backend/requirements.txt", "purpose": "Python package dependencies including FastAPI, Uvicorn, and Pydantic", "file_type": "DEPENDENCY", "architecture_component": be_comp_name, "requirement_ids": [], "dependencies": []},
+            {"path": "backend/app/main.py", "purpose": "FastAPI application entrypoint with CORS middleware and preview serving", "file_type": "SOURCE", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": ["backend/app/config.py", "backend/app/api.py"]},
+            {"path": "backend/app/config.py", "purpose": "Application configuration and environment CORS settings", "file_type": "CONFIG", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": []},
+            {"path": "backend/app/models.py", "purpose": "Pydantic domain schemas for aerial combat stats, dogfight score, and aircraft loadout", "file_type": "SCHEMA", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": []},
+            {"path": "backend/app/api.py", "purpose": "REST endpoint router handling combat score submissions and mission telemetry", "file_type": "SOURCE", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": ["backend/app/models.py", "backend/app/persistence.py"]},
+            {"path": "backend/app/persistence.py", "purpose": "Thread-safe aerial combat telemetry and ace pilot score repository", "file_type": "SOURCE", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": ["backend/app/models.py"]},
+            {"path": "README.md", "purpose": "Project documentation with Sky Strike flight controls, avionics guide, and architecture", "file_type": "DOCUMENTATION", "architecture_component": None, "requirement_ids": [], "dependencies": []},
+        ]
+
+    if archetype == "inventory":
+        return [
+            {"path": "frontend/package.json", "purpose": "Frontend package manifest with React 18, Vite, and Lucide icons", "file_type": "DEPENDENCY", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/index.html", "purpose": "Vite HTML5 entrypoint and enterprise warehouse inventory control platform", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/main.tsx", "purpose": "React application bootstrapper and root DOM renderer", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": ["frontend/src/App.tsx", "frontend/src/styles/App.css"]},
+            {"path": "frontend/src/App.tsx", "purpose": "Enterprise inventory dashboard coordinating SKU catalog, stock adjustment modal, and audit ledger", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": ["frontend/src/components/SkuTable.tsx", "frontend/src/components/StockAdjustmentModal.tsx", "frontend/src/services/api.ts"]},
+            {"path": "frontend/src/components/SkuTable.tsx", "purpose": "Searchable and filterable SKU table with stock badges and adjustment trigger", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/components/StockAdjustmentModal.tsx", "purpose": "Modal dialog for recording inbound receipts and outbound dispatches with reason audit", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/services/api.ts", "purpose": "REST API client connecting to FastAPI backend inventory and adjustment endpoints", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/styles/App.css", "purpose": "Modern enterprise warehouse styling with low-stock badges and responsive data grids", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": [], "dependencies": []},
+            {"path": "backend/requirements.txt", "purpose": "Python package dependencies including FastAPI, Uvicorn, and Pydantic", "file_type": "DEPENDENCY", "architecture_component": be_comp_name, "requirement_ids": [], "dependencies": []},
+            {"path": "backend/app/main.py", "purpose": "FastAPI application entrypoint with CORS middleware and preview static serving", "file_type": "SOURCE", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": ["backend/app/config.py", "backend/app/api.py"]},
+            {"path": "backend/app/config.py", "purpose": "Application configuration and environment CORS settings", "file_type": "CONFIG", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": []},
+            {"path": "backend/app/models.py", "purpose": "Pydantic domain schemas for inventory products, stock adjustments, and stats", "file_type": "SCHEMA", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": []},
+            {"path": "backend/app/api.py", "purpose": "REST endpoint router handling SKU catalog CRUD, stock adjustments, and CSV export", "file_type": "SOURCE", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": ["backend/app/models.py", "backend/app/persistence.py"]},
+            {"path": "backend/app/persistence.py", "purpose": "SQLite-backed thread-safe inventory repository and adjustment audit ledger", "file_type": "SOURCE", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": ["backend/app/models.py"]},
+            {"path": "README.md", "purpose": "Project documentation with SKU taxonomy, stock adjustment rules, and architecture", "file_type": "DOCUMENTATION", "architecture_component": None, "requirement_ids": [], "dependencies": []},
+        ]
+
+    if archetype == "lms":
+        return [
+            {"path": "frontend/package.json", "purpose": "Frontend package manifest with React 18, Vite, and Lucide icons", "file_type": "DEPENDENCY", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/index.html", "purpose": "Vite HTML5 entrypoint and SkillForge Online Academy learning portal", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/main.tsx", "purpose": "React application bootstrapper and root DOM renderer", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": ["frontend/src/App.tsx", "frontend/src/styles/App.css"]},
+            {"path": "frontend/src/App.tsx", "purpose": "Online Academy portal coordinating course catalog, interactive lesson player, and quiz engine", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": ["frontend/src/components/CourseCatalog.tsx", "frontend/src/components/LessonPlayer.tsx", "frontend/src/services/api.ts"]},
+            {"path": "frontend/src/components/CourseCatalog.tsx", "purpose": "Course catalog with category filter, enrollment trigger, and progress percentage", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/components/LessonPlayer.tsx", "purpose": "Interactive syllabus lesson player with complete lesson checklist and knowledge quiz", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/services/api.ts", "purpose": "REST API client connecting to FastAPI backend courses and progress endpoints", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": ui_ids, "dependencies": []},
+            {"path": "frontend/src/styles/App.css", "purpose": "Modern academy theme styling with student progress meters and lesson cards", "file_type": "SOURCE", "architecture_component": fe_comp_name, "requirement_ids": [], "dependencies": []},
+            {"path": "backend/requirements.txt", "purpose": "Python package dependencies including FastAPI, Uvicorn, and Pydantic", "file_type": "DEPENDENCY", "architecture_component": be_comp_name, "requirement_ids": [], "dependencies": []},
+            {"path": "backend/app/main.py", "purpose": "FastAPI application entrypoint with CORS middleware and preview static serving", "file_type": "SOURCE", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": ["backend/app/config.py", "backend/app/api.py"]},
+            {"path": "backend/app/config.py", "purpose": "Application configuration and environment CORS settings", "file_type": "CONFIG", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": []},
+            {"path": "backend/app/models.py", "purpose": "Pydantic domain schemas for courses, lessons, student progress, and quizzes", "file_type": "SCHEMA", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": []},
+            {"path": "backend/app/api.py", "purpose": "REST endpoint router handling course catalog browsing, lesson completion, and quiz scoring", "file_type": "SOURCE", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": ["backend/app/models.py", "backend/app/persistence.py"]},
+            {"path": "backend/app/persistence.py", "purpose": "SQLite-backed thread-safe student academy progress and course repository", "file_type": "SOURCE", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": ["backend/app/models.py"]},
+            {"path": "README.md", "purpose": "Project documentation with course syllabus structure, quiz grading, and architecture", "file_type": "DOCUMENTATION", "architecture_component": None, "requirement_ids": [], "dependencies": []},
+        ]
 
     if archetype == "shadow_master":
         return [
@@ -324,6 +405,7 @@ def get_archetype_planned_files(
             {"path": "backend/app/persistence.py", "purpose": "Thread-safe catalog repository and mock order store", "file_type": "SOURCE", "architecture_component": be_comp_name, "requirement_ids": r_ids, "dependencies": ["backend/app/models.py"]},
             {"path": "README.md", "purpose": "Architecture overview and setup guides for E-Commerce Store", "file_type": "DOCUMENTATION", "architecture_component": None, "requirement_ids": [], "dependencies": []},
         ]
+
 
     if archetype == "chess":
         return [
@@ -469,6 +551,116 @@ def get_archetype_file_content(
 ) -> str | None:
     """Return syntactically valid, production-grade source code for a given archetype file."""
     norm_path = path.replace("\\", "/").strip()
+
+    # -------------------------------------------------------------
+    # Archetype: SPACE ARCADE DEFENDER (space_arcade)
+    # -------------------------------------------------------------
+    if archetype in ("space_arcade", "arcade_2d", "space_defender"):
+        if norm_path == "frontend/index.html":
+            from app.runtime.preview_server import get_space_arcade_game_html
+            return get_space_arcade_game_html(title=project_name, desc=project_desc)
+
+        if norm_path == "frontend/src/App.tsx":
+            return (
+                "import React, { useState, useEffect } from 'react';\n"
+                "import { getScores, submitScore, ScoreRecord } from './services/api';\n"
+                "import './styles/App.css';\n\n"
+                "export default function App() {\n"
+                "  const [scores, setScores] = useState<ScoreRecord[]>([]);\n"
+                "  const [activeTab, setActiveTab] = useState<'arena' | 'leaderboard'>('arena');\n\n"
+                "  useEffect(() => {\n"
+                "    getScores().then(setScores).catch(() => {});\n"
+                "  }, []);\n\n"
+                "  return (\n"
+                "    <div className=\"arcade-container\">\n"
+                "      <header className=\"arcade-header\">\n"
+                "        <h1>" + project_name + "</h1>\n"
+                "        <nav className=\"arcade-nav\">\n"
+                "          <button className={activeTab === 'arena' ? 'active' : ''} onClick={() => setActiveTab('arena')}>Space Arena</button>\n"
+                "          <button className={activeTab === 'leaderboard' ? 'active' : ''} onClick={() => setActiveTab('leaderboard')}>Leaderboard</button>\n"
+                "        </nav>\n"
+                "      </header>\n"
+                "      <main className=\"arcade-main\">\n"
+                "        {activeTab === 'arena' ? (\n"
+                "          <div className=\"game-viewport\">\n"
+                "            <iframe src=\"/preview?app=space_arcade\" title=\"Space Arcade\" className=\"game-frame\" />\n"
+                "          </div>\n"
+                "        ) : (\n"
+                "          <div className=\"leaderboard-panel\">\n"
+                "            <h3>Top Ace Pilots</h3>\n"
+                "            <ul>{scores.map((s, i) => <li key={i}>{s.player_name}: {s.score} pts</li>)}</ul>\n"
+                "          </div>\n"
+                "        )}\n"
+                "      </main>\n"
+                "    </div>\n"
+                "  );\n"
+                "}\n"
+            )
+
+    # -------------------------------------------------------------
+    # Archetype: SKY STRIKE (sky_strike)
+    # -------------------------------------------------------------
+    if archetype in ("sky_strike", "aerial_combat"):
+        if norm_path == "frontend/index.html":
+            from app.runtime.preview_server import get_sky_strike_game_html
+            return get_sky_strike_game_html(title=project_name, desc=project_desc)
+
+        if norm_path == "frontend/src/App.tsx":
+            return (
+                "import React, { useState } from 'react';\n"
+                "import './styles/App.css';\n\n"
+                "export default function App() {\n"
+                "  return (\n"
+                "    <div className=\"skystrike-wrapper\">\n"
+                "      <iframe src=\"/preview?app=sky_strike\" title=\"Sky Strike Aerial Combat\" className=\"game-frame\" />\n"
+                "    </div>\n"
+                "  );\n"
+                "}\n"
+            )
+
+    # -------------------------------------------------------------
+    # Archetype: APEX INVENTORY (inventory)
+    # -------------------------------------------------------------
+    if archetype == "inventory":
+        if norm_path == "frontend/index.html":
+            from app.runtime.preview_medium_complexity import get_inventory_html
+            return get_inventory_html(title=project_name, desc=project_desc)
+
+        if norm_path == "frontend/src/App.tsx":
+            return (
+                "import React, { useState } from 'react';\n"
+                "import './styles/App.css';\n\n"
+                "export default function App() {\n"
+                "  return (\n"
+                "    <div className=\"inventory-app-wrapper\">\n"
+                "      <iframe src=\"/preview?app=inventory\" title=\"Apex Inventory\" className=\"app-frame\" />\n"
+                "    </div>\n"
+                "  );\n"
+                "}\n"
+            )
+
+    # -------------------------------------------------------------
+    # Archetype: SKILLFORGE ONLINE ACADEMY (lms)
+    # -------------------------------------------------------------
+    if archetype == "lms":
+        if norm_path == "frontend/index.html":
+            from app.runtime.preview_medium_complexity import get_lms_html
+            return get_lms_html(title=project_name, desc=project_desc)
+
+        if norm_path == "frontend/src/App.tsx":
+            return (
+                "import React, { useState } from 'react';\n"
+                "import './styles/App.css';\n\n"
+                "export default function App() {\n"
+                "  return (\n"
+                "    <div className=\"lms-app-wrapper\">\n"
+                "      <iframe src=\"/preview?app=lms\" title=\"SkillForge Academy\" className=\"app-frame\" />\n"
+                "    </div>\n"
+                "  );\n"
+                "}\n"
+            )
+
+
 
     # Shared Package Manifest
     if norm_path == "frontend/package.json":
