@@ -63,7 +63,10 @@ export type SupportedTemplateId =
   | 'event_booking_hub'
   | 'management_directory'
   | 'ecommerce_store'
-  | 'canvas_arcade_game';
+  | 'canvas_arcade_game'
+  | 'retro_snake_game'
+  | 'inventory_management'
+  | 'learning_management_academy';
 
 export interface AppTemplate {
   id: SupportedTemplateId;
