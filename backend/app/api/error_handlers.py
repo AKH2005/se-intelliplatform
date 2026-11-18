@@ -37,6 +37,24 @@ def create_problem_response(
     if headers:
         response_headers.update(headers)
 
+    # Ensure CORS headers are attached to error responses so browser clients never encounter "Failed to fetch"
+    origin = request.headers.get("origin")
+    if origin:
+        import re
+        from app.core.config import settings
+
+        is_allowed = origin in settings.CORS_ORIGINS
+        if not is_allowed and settings.CORS_ORIGIN_REGEX:
+            try:
+                is_allowed = bool(re.match(settings.CORS_ORIGIN_REGEX, origin))
+            except Exception:
+                is_allowed = False
+
+        if is_allowed:
+            response_headers["Access-Control-Allow-Origin"] = origin
+            response_headers["Access-Control-Allow-Credentials"] = "true"
+            response_headers["Access-Control-Expose-Headers"] = "X-Correlation-ID"
+
     return JSONResponse(
         status_code=status_code,
         content=payload,

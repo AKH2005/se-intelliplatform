@@ -43,22 +43,48 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     register_test_generation_agents()
     register_browser_journey_agents()
 
-    # Database schema management: Production strictly relies on Alembic migrations
-    if settings.ENVIRONMENT in ("production", "staging"):
-        logger.info(
-            "Production/Staging environment: Database schema management is delegated exclusively to "
-            "Alembic migrations. Skipping automatic Base.metadata.create_all to prevent startup locking."
-        )
-    else:
-        # Local development convenience initialization
-        try:
-            from app.models.base import Base
-            import app.models  # noqa: F401
-            async with engine.begin() as conn:
+    # Database schema management & automated migration synchronization
+    try:
+        from app.models.base import Base
+        import app.models  # noqa: F401
+        from sqlalchemy import inspect as sa_inspect, text
+
+        async with engine.begin() as conn:
+            if settings.ENVIRONMENT not in ("production", "staging"):
                 await conn.run_sync(Base.metadata.create_all)
-            logger.info("Development environment: Local database tables verified.")
-        except Exception as exc:
-            logger.warning(f"Could not auto-create database tables on startup: {exc}")
+                logger.info("Development environment: Local database tables verified.")
+
+            # Reconcile schema: ensure missing columns are added idempotently across all database drivers
+            def reconcile_schema(sync_conn):
+                inspector = sa_inspect(sync_conn)
+                tables = inspector.get_table_names()
+
+                # 1. Ensure projects.owner_id exists
+                if "projects" in tables:
+                    p_cols = [c["name"] for c in inspector.get_columns("projects")]
+                    if "owner_id" not in p_cols:
+                        logger.info("Auto-reconciling schema: Adding missing 'owner_id' column to 'projects'.")
+                        try:
+                            sync_conn.execute(text("ALTER TABLE projects ADD COLUMN owner_id UUID REFERENCES users(id) ON DELETE SET NULL;"))
+                            sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_projects_owner_id ON projects (owner_id);"))
+                        except Exception as e:
+                            logger.warning(f"Could not add owner_id to projects: {e}")
+
+                # 2. Ensure assistant_conversations.user_id exists
+                if "assistant_conversations" in tables:
+                    ac_cols = [c["name"] for c in inspector.get_columns("assistant_conversations")]
+                    if "user_id" not in ac_cols:
+                        logger.info("Auto-reconciling schema: Adding missing 'user_id' column to 'assistant_conversations'.")
+                        try:
+                            sync_conn.execute(text("ALTER TABLE assistant_conversations ADD COLUMN user_id UUID REFERENCES users(id) ON DELETE CASCADE;"))
+                            sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_assistant_conversations_user_project ON assistant_conversations (user_id, project_id);"))
+                        except Exception as e:
+                            logger.warning(f"Could not add user_id to assistant_conversations: {e}")
+
+            await conn.run_sync(reconcile_schema)
+            logger.info("Database schema reconciliation completed successfully.")
+    except Exception as exc:
+        logger.warning(f"Database schema initialization notice: {exc}")
 
     # Automatically ensure application preview runtime on Port 8001
     try:

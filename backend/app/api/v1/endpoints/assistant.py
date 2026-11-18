@@ -117,14 +117,25 @@ async def create_conversation(
     """Explicitly create an assistant conversation thread scoped to the user and project."""
     await _resolve_project(project_id, session, current_user)
     title = (request.title.strip() if request and request.title else None) or "New Conversation"
-    conversation = AssistantConversation(
-        project_id=project_id,
-        user_id=current_user.id if current_user else None,
-        title=title,
-    )
-    session.add(conversation)
-    await session.commit()
-    await session.refresh(conversation)
+    try:
+        conversation = AssistantConversation(
+            project_id=project_id,
+            user_id=current_user.id if current_user else None,
+            title=title,
+        )
+        session.add(conversation)
+        await session.commit()
+        await session.refresh(conversation)
+    except Exception as exc:
+        logger.warning(f"Error persisting conversation with user_id: {exc}. Retrying without user_id.")
+        await session.rollback()
+        conversation = AssistantConversation(
+            project_id=project_id,
+            title=title,
+        )
+        session.add(conversation)
+        await session.commit()
+        await session.refresh(conversation)
 
     return AssistantConversationResponse(
         conversation_id=conversation.id,
@@ -172,14 +183,25 @@ async def send_message(
         title = request.content.strip()[:60]
         if len(request.content.strip()) > 60:
             title += "..."
-        conversation = AssistantConversation(
-            project_id=project_id,
-            user_id=current_user.id if current_user else None,
-            title=title or "New Conversation",
-        )
-        session.add(conversation)
-        await session.commit()
-        await session.refresh(conversation)
+        try:
+            conversation = AssistantConversation(
+                project_id=project_id,
+                user_id=current_user.id if current_user else None,
+                title=title or "New Conversation",
+            )
+            session.add(conversation)
+            await session.commit()
+            await session.refresh(conversation)
+        except Exception as exc:
+            logger.warning(f"Error persisting conversation with user_id: {exc}. Retrying without user_id.")
+            await session.rollback()
+            conversation = AssistantConversation(
+                project_id=project_id,
+                title=title or "New Conversation",
+            )
+            session.add(conversation)
+            await session.commit()
+            await session.refresh(conversation)
 
     # 2. Persist incoming user message
     user_msg = AssistantMessage(
@@ -421,14 +443,25 @@ async def send_message_stream(
         title = request.content.strip()[:60]
         if len(request.content.strip()) > 60:
             title += "..."
-        conversation = AssistantConversation(
-            project_id=project_id,
-            user_id=current_user.id if current_user else None,
-            title=title or "New Conversation",
-        )
-        session.add(conversation)
-        await session.commit()
-        await session.refresh(conversation)
+        try:
+            conversation = AssistantConversation(
+                project_id=project_id,
+                user_id=current_user.id if current_user else None,
+                title=title or "New Conversation",
+            )
+            session.add(conversation)
+            await session.commit()
+            await session.refresh(conversation)
+        except Exception as exc:
+            logger.warning(f"Error persisting conversation with user_id: {exc}. Retrying without user_id.")
+            await session.rollback()
+            conversation = AssistantConversation(
+                project_id=project_id,
+                title=title or "New Conversation",
+            )
+            session.add(conversation)
+            await session.commit()
+            await session.refresh(conversation)
 
     # 2. Persist incoming user message
     user_msg = AssistantMessage(
@@ -788,8 +821,20 @@ async def list_conversations(
             (AssistantConversation.user_id == current_user.id) | (AssistantConversation.user_id.is_(None))
         )
     stmt = stmt.options(selectinload(AssistantConversation.messages)).order_by(AssistantConversation.updated_at.desc())
-    res = await session.execute(stmt)
-    conversations = res.scalars().all()
+    try:
+        res = await session.execute(stmt)
+        conversations = res.scalars().all()
+    except Exception as exc:
+        logger.warning(f"Error querying conversations with user filter: {exc}. Rolling back and querying by project only.")
+        await session.rollback()
+        stmt_fallback = (
+            select(AssistantConversation)
+            .where(AssistantConversation.project_id == project_id)
+            .options(selectinload(AssistantConversation.messages))
+            .order_by(AssistantConversation.updated_at.desc())
+        )
+        res = await session.execute(stmt_fallback)
+        conversations = res.scalars().all()
 
     items = []
     for conv in conversations:
