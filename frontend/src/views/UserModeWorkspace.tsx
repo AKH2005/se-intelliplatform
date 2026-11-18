@@ -1055,11 +1055,15 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
       // Autonomous execution: generate code, validate, and launch in Docker
       await executeAutonomousBuild(newProj);
     } catch (err: any) {
-      setCreationError(err?.message || 'Failed to create application project. Please try again.');
-      setBuilderStage('ERROR');
-      setBuilderError(err?.message || 'Failed to create application project.');
+      if (typeof window !== 'undefined') {
+        setCreationError(err?.message || 'Failed to create application project. Please try again.');
+        setBuilderStage('ERROR');
+        setBuilderError(err?.message || 'Failed to create application project.');
+      }
     } finally {
-      setIsCreatingProject(false);
+      if (typeof window !== 'undefined') {
+        setIsCreatingProject(false);
+      }
     }
   };
 

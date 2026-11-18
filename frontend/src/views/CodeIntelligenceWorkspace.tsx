@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useProject } from '../context/ProjectContext';
 import { codeIntelligenceApi } from '../services/codeIntelligenceApi';
 import {
@@ -34,7 +34,9 @@ interface CodeIntelligenceWorkspaceProps {
   onNavigate?: (tab: NavigationTab) => void;
 }
 
-export const CodeIntelligenceWorkspace: React.FC<CodeIntelligenceWorkspaceProps> = () => {
+export const CodeIntelligenceWorkspace: React.FC<CodeIntelligenceWorkspaceProps> = ({
+  onNavigate: _onNavigate,
+}) => {
   const { selectedProjectId } = useProject();
 
   const [summary, setSummary] = useState<CodeIntelligenceSummaryResponse | null>(null);
@@ -50,10 +52,31 @@ export const CodeIntelligenceWorkspace: React.FC<CodeIntelligenceWorkspaceProps>
   const [fileFilter, setFileFilter] = useState<string>('');
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'technologies' | 'file' | 'uncertainty'>('overview');
 
+  // Request generation guard ref to protect project switching against race conditions / delayed responses
+  const requestGenRef = useRef<number>(0);
+  const fileReqGenRef = useRef<number>(0);
+
   const loadData = useCallback(async () => {
-    if (!selectedProjectId) return;
-    setIsLoading(true);
+    // 1. Immediately increment request generation to invalidate any inflight requests
+    requestGenRef.current += 1;
+    const currentGen = requestGenRef.current;
+
+    // 2. Immediately clear previous project data to prevent stale display
+    setSummary(null);
+    setLanguages(null);
+    setTechnologies([]);
+    setGraph(null);
+    setSelectedFile(null);
+    setFileDetails(null);
     setError(null);
+
+    if (!selectedProjectId) {
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+
     try {
       const [sumRes, langRes, graphRes, techRes] = await Promise.all([
         codeIntelligenceApi.getSummary(selectedProjectId),
@@ -61,21 +84,33 @@ export const CodeIntelligenceWorkspace: React.FC<CodeIntelligenceWorkspaceProps>
         codeIntelligenceApi.getGraph(selectedProjectId),
         codeIntelligenceApi.getTechnologies(selectedProjectId).catch(() => ({ project_id: selectedProjectId, technologies: [] })),
       ]);
+
+      // Guard: Discard result if user switched projects during fetch
+      if (requestGenRef.current !== currentGen) return;
+
       setSummary(sumRes);
       setLanguages(langRes);
       setGraph(graphRes);
       setTechnologies(techRes.technologies || []);
 
       // Auto-select first file if available
-      const files = Object.keys(graphRes.forward_adjacency);
+      const files = Array.from(
+        new Set([
+          ...Object.keys(graphRes.forward_adjacency || {}),
+          ...Object.keys(graphRes.reverse_adjacency || {}),
+        ])
+      );
       setSelectedFile((prev) => {
         if (prev && files.includes(prev)) return prev;
         return files.length > 0 ? files[0] : null;
       });
     } catch (err: any) {
+      if (requestGenRef.current !== currentGen) return;
       setError(err?.message || 'Failed to load code intelligence data.');
     } finally {
-      setIsLoading(false);
+      if (requestGenRef.current === currentGen) {
+        setIsLoading(false);
+      }
     }
   }, [selectedProjectId]);
 
@@ -83,18 +118,34 @@ export const CodeIntelligenceWorkspace: React.FC<CodeIntelligenceWorkspaceProps>
     loadData();
   }, [loadData]);
 
-  // Load selected file details
+  // Load selected file details with generation guard
   useEffect(() => {
-    if (!selectedProjectId || !selectedFile) return;
+    if (!selectedProjectId || !selectedFile) {
+      setFileDetails(null);
+      return;
+    }
+    fileReqGenRef.current += 1;
+    const currentFileGen = fileReqGenRef.current;
+
     setIsLoadingFile(true);
     codeIntelligenceApi
       .getFileDetails(selectedProjectId, selectedFile)
-      .then((res) => setFileDetails(res))
-      .catch((err) => {
-        console.warn('Could not load file intelligence:', err);
-        setFileDetails(null);
+      .then((res) => {
+        if (fileReqGenRef.current === currentFileGen) {
+          setFileDetails(res);
+        }
       })
-      .finally(() => setIsLoadingFile(false));
+      .catch((err) => {
+        if (fileReqGenRef.current === currentFileGen) {
+          console.warn('Could not load file intelligence:', err);
+          setFileDetails(null);
+        }
+      })
+      .finally(() => {
+        if (fileReqGenRef.current === currentFileGen) {
+          setIsLoadingFile(false);
+        }
+      });
   }, [selectedProjectId, selectedFile]);
 
   if (!selectedProjectId) {
@@ -279,64 +330,77 @@ export const CodeIntelligenceWorkspace: React.FC<CodeIntelligenceWorkspaceProps>
         </div>
       </div>
 
-      {/* Subtab Navigation */}
-      <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--border-color, #333)' }}>
-        <button
-          onClick={() => setActiveSubTab('overview')}
-          style={{
-            padding: '0.625rem 1rem',
-            background: 'none',
-            border: 'none',
-            borderBottom: activeSubTab === 'overview' ? '2px solid var(--color-primary, #6366f1)' : '2px solid transparent',
-            color: activeSubTab === 'overview' ? 'var(--text-primary, #fff)' : 'var(--text-secondary, #888)',
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          Graph Explorer
-        </button>
-        <button
-          onClick={() => setActiveSubTab('technologies')}
-          style={{
-            padding: '0.625rem 1rem',
-            background: 'none',
-            border: 'none',
-            borderBottom: activeSubTab === 'technologies' ? '2px solid var(--color-primary, #6366f1)' : '2px solid transparent',
-            color: activeSubTab === 'technologies' ? 'var(--text-primary, #fff)' : 'var(--text-secondary, #888)',
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          Technologies & Capabilities ({technologies.length})
-        </button>
-        <button
-          onClick={() => setActiveSubTab('file')}
-          style={{
-            padding: '0.625rem 1rem',
-            background: 'none',
-            border: 'none',
-            borderBottom: activeSubTab === 'file' ? '2px solid var(--color-primary, #6366f1)' : '2px solid transparent',
-            color: activeSubTab === 'file' ? 'var(--text-primary, #fff)' : 'var(--text-secondary, #888)',
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          File & Symbol Details
-        </button>
-        <button
-          onClick={() => setActiveSubTab('uncertainty')}
-          style={{
-            padding: '0.625rem 1rem',
-            background: 'none',
-            border: 'none',
-            borderBottom: activeSubTab === 'uncertainty' ? '2px solid var(--color-primary, #6366f1)' : '2px solid transparent',
-            color: activeSubTab === 'uncertainty' ? 'var(--text-primary, #fff)' : 'var(--text-secondary, #888)',
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          Uncertainty & Diagnostics ({summary?.uncertain_dependencies_count ?? 0})
-        </button>
+      {/* Subtab Navigation and View Mode Switcher */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '0.75rem',
+          borderBottom: '1px solid var(--border-color, #333)',
+          paddingBottom: '0.25rem',
+        }}
+      >
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setActiveSubTab('overview')}
+            style={{
+              padding: '0.625rem 1rem',
+              background: 'none',
+              border: 'none',
+              borderBottom: activeSubTab === 'overview' ? '2px solid var(--color-primary, #6366f1)' : '2px solid transparent',
+              color: activeSubTab === 'overview' ? 'var(--text-primary, #fff)' : 'var(--text-secondary, #888)',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Graph Explorer
+          </button>
+          <button
+            onClick={() => setActiveSubTab('technologies')}
+            style={{
+              padding: '0.625rem 1rem',
+              background: 'none',
+              border: 'none',
+              borderBottom: activeSubTab === 'technologies' ? '2px solid var(--color-primary, #6366f1)' : '2px solid transparent',
+              color: activeSubTab === 'technologies' ? 'var(--text-primary, #fff)' : 'var(--text-secondary, #888)',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Technologies & Capabilities ({technologies.length})
+          </button>
+          <button
+            onClick={() => setActiveSubTab('file')}
+            style={{
+              padding: '0.625rem 1rem',
+              background: 'none',
+              border: 'none',
+              borderBottom: activeSubTab === 'file' ? '2px solid var(--color-primary, #6366f1)' : '2px solid transparent',
+              color: activeSubTab === 'file' ? 'var(--text-primary, #fff)' : 'var(--text-secondary, #888)',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            File & Symbol Details
+          </button>
+          <button
+            onClick={() => setActiveSubTab('uncertainty')}
+            style={{
+              padding: '0.625rem 1rem',
+              background: 'none',
+              border: 'none',
+              borderBottom: activeSubTab === 'uncertainty' ? '2px solid var(--color-primary, #6366f1)' : '2px solid transparent',
+              color: activeSubTab === 'uncertainty' ? 'var(--text-primary, #fff)' : 'var(--text-secondary, #888)',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Uncertainty & Diagnostics ({summary?.uncertain_dependencies_count ?? 0})
+          </button>
+        </div>
+
       </div>
 
       {/* Content for Graph Explorer */}

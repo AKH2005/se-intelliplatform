@@ -89,3 +89,24 @@ class ForbiddenError(ApplicationError):
 
     def __init__(self, message: str = "You do not have permission to access this resource."):
         super().__init__(message=message, detail=message)
+
+
+class RateLimitExceededError(ApplicationError):
+    """Raised when a client exceeds permissible request rate limits."""
+
+    status_code: int = 429
+    title: str = "Rate Limit Exceeded"
+    type_uri: str = "https://api.se-intelliplatform.local/errors/rate-limit-exceeded"
+
+    def __init__(
+        self,
+        message: str = "Too many requests. Please slow down and try again later.",
+        retry_after_seconds: int = 60,
+    ):
+        super().__init__(
+            message=message,
+            detail=message,
+            extra={"retry_after_seconds": retry_after_seconds},
+        )
+        self.retry_after_seconds = retry_after_seconds
+

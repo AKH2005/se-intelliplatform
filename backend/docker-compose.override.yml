@@ -1,0 +1,27 @@
+# Docker Compose Local Development Override
+# This file is automatically merged with docker-compose.yml by `docker compose up`
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: se-intelliplatform-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - DATABASE_URL=postgresql+psycopg://postgres:postgres_password@postgres:5432/se_intelliplatform
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles:
+      - full-stack

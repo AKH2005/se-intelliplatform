@@ -8,10 +8,17 @@ from app.ml.schemas.risk_features import RiskFeatureSchema
 from app.ml.training.train_risk_model import validate_dataset
 
 
+def _get_dataset_path() -> Path:
+    backend_dir = Path(__file__).resolve().parent.parent.parent
+    candidate = backend_dir / "Reduced_Software_Project_Risk_Dataset_585.csv"
+    if candidate.exists():
+        return candidate
+    return backend_dir.parent / "Reduced_Software_Project_Risk_Dataset_585.csv"
+
+
 def test_real_dataset_passes_validation():
     """Verify that the real 585-row dataset passes strict schema validation."""
-    root_dir = Path(__file__).resolve().parent.parent.parent.parent
-    csv_path = root_dir / "Reduced_Software_Project_Risk_Dataset_585.csv"
+    csv_path = _get_dataset_path()
     assert csv_path.exists(), f"Dataset file missing at {csv_path}"
 
     df = pd.read_csv(csv_path)
@@ -52,8 +59,7 @@ def test_validate_dataset_rejects_missing_feature():
 
 def test_validate_dataset_rejects_nulls():
     """Verify validate_dataset rejects null values in predictors."""
-    root_dir = Path(__file__).resolve().parent.parent.parent.parent
-    csv_path = root_dir / "Reduced_Software_Project_Risk_Dataset_585.csv"
+    csv_path = _get_dataset_path()
     df = pd.read_csv(csv_path)
     df.loc[0, "Project_Size"] = None
 

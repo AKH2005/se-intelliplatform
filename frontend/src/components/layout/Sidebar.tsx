@@ -150,7 +150,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         {
           id: 'intelligence',
-          label: 'Data & Schemas',
+          label: 'Artifacts & Intelligence',
           icon: <Layers size={17} />,
           requiresProject: true,
           status: 'IMPLEMENTED',

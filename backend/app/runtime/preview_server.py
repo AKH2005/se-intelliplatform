@@ -11210,7 +11210,13 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
                     if h_cand:
                         is_stale = False
                         # Anti-collision check: only flag if content clearly belongs to another distinct archetype and doesn't match this project
-                        if mode != "shadow_master" and any(m in h_cand for m in ["Katana Slash", "Shadow Master Skill Builder", "The Shadow Master"]):
+                        shadow_duel_markers = [
+                            "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master",
+                            "ninja@shadowduel", "Sign In to Arena", "Quick Fill Demo Ninja",
+                            "Shadow Slayer", "Master Shadow", "Create Warrior Account", "shadowduel.com",
+                            "combatCanvas"
+                        ]
+                        if mode != "shadow_master" and any(m in h_cand for m in shadow_duel_markers):
                             if p_name and "shadow" not in p_name.lower():
                                 is_stale = True
                         if mode != "snake_game" and any(m in h_cand for m in ["spawnFood()", "snake_high_score", "Arcade Snake"]):
@@ -11238,6 +11244,12 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
                     ws_dir / "frontend" / "index.html",
                     ws_dir / "public" / "index.html",
                 ]
+                shadow_duel_markers = [
+                    "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master",
+                    "ninja@shadowduel", "Sign In to Arena", "Quick Fill Demo Ninja",
+                    "Shadow Slayer", "Master Shadow", "Create Warrior Account", "shadowduel.com",
+                    "combatCanvas"
+                ]
                 for cand in candidates:
                     if cand.is_file():
                         c_text = cand.read_text(encoding="utf-8", errors="replace")
@@ -11245,7 +11257,7 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
                             continue
                         if mode != "snake_game" and any(m in c_text for m in ["spawnFood()", "snake_high_score", "Arcade Snake"]) and (not p_name or "snake" not in p_name.lower()):
                             continue
-                        if mode != "shadow_master" and any(m in c_text for m in ["combatCanvas", "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master"]) and (not p_name or "shadow" not in p_name.lower()):
+                        if mode != "shadow_master" and any(m in c_text for m in shadow_duel_markers) and (not p_name or "shadow" not in p_name.lower()):
                             continue
                         if "Interactive Application Playground" not in c_text or mode == "custom":
                             return c_text
@@ -11257,7 +11269,7 @@ def get_app_html_for_project(project_id: Optional[str] = None, app_type: Optiona
                                 continue
                             if mode != "snake_game" and any(m in c_text for m in ["spawnFood()", "snake_high_score", "Arcade Snake"]) and (not p_name or "snake" not in p_name.lower()):
                                 continue
-                            if mode != "shadow_master" and any(m in c_text for m in ["combatCanvas", "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master"]) and (not p_name or "shadow" not in p_name.lower()):
+                            if mode != "shadow_master" and any(m in c_text for m in shadow_duel_markers) and (not p_name or "shadow" not in p_name.lower()):
                                 continue
                             return c_text
         except Exception:

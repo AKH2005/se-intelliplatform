@@ -299,7 +299,7 @@ describe('Phase 10B: SDLC Information Architecture & UX Foundation', () => {
 
     renderWithProviders(<IntelligenceWorkspace />);
 
-    expect(await screen.findByText('Intelligence Workspace')).toBeInTheDocument();
+    expect(await screen.findByText('Artifacts & Intelligence')).toBeInTheDocument();
     expect(await screen.findByText('1. What Was Analyzed')).toBeInTheDocument();
     expect(screen.getByText('2. What Was Found')).toBeInTheDocument();
     expect(screen.getByText('3. Why It Matters')).toBeInTheDocument();

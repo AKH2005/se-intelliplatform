@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useProject } from '../context/ProjectContext';
 import { requirementsApi } from '../services/requirementsApi';
@@ -10,6 +10,7 @@ import { ProjectContextPanel } from '../components/projects/ProjectContextPanel'
 import { ArchitectureTopologyView } from '../components/visualization/ArchitectureTopologyView';
 import { ErdPreview } from '../components/visualization/ErdPreview';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
+import { NavigationTab } from '../components/layout/Sidebar';
 import { ErrorAlert } from '../components/common/ErrorAlert';
 import { EmptyState } from '../components/common/EmptyState';
 import { Button } from '../components/common/Button';
@@ -28,11 +29,32 @@ import { CreateTaskModal } from '../components/requirements/CreateTaskModal';
 
 type SpecTab = 'requirements' | 'context' | 'snapshots' | 'blueprints';
 
-export const SpecificationWorkspace: React.FC = () => {
+interface SpecificationWorkspaceProps {
+  onNavigate?: (tab: NavigationTab) => void;
+}
+
+export const SpecificationWorkspace: React.FC<SpecificationWorkspaceProps> = ({
+  onNavigate: _onNavigate,
+}) => {
   const queryClient = useQueryClient();
   const { selectedProjectId, selectedProject, handleStaleProject } = useProject();
 
-  const [activeTab, setActiveTab] = useState<SpecTab>('requirements');
+  const [activeTab, setActiveTab] = useState<SpecTab>(() => {
+    if (typeof window !== 'undefined' && window.location.hash === '#blueprints') {
+      return 'blueprints';
+    }
+    return 'requirements';
+  });
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      if (typeof window !== 'undefined' && window.location.hash === '#blueprints') {
+        setActiveTab('blueprints');
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
   const [isCreateReqOpen, setIsCreateReqOpen] = useState(false);
   const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
   const [isSnapshotOpen, setIsSnapshotOpen] = useState(false);

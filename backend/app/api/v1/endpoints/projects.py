@@ -10,12 +10,34 @@ from app.api.dependencies import (
     get_project_service,
 )
 from app.core.exceptions import ForbiddenError
-from app.models.project import ProjectStatus
-from app.models.user import User
+from app.models.project import Project, ProjectStatus
+from app.models.user import User, UserRole
 from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
 from app.services.project_service import ProjectService
 
 router = APIRouter()
+
+
+def check_project_authorization(
+    project: Project,
+    current_user: User | None,
+    action: str = "access",
+) -> None:
+    """Enforce project ownership authorization with admin and environment safeguards."""
+    is_admin = current_user is not None and (
+        getattr(current_user, "role", None) == UserRole.ADMIN
+        or getattr(current_user, "role", None) == UserRole.ADMIN.value
+    )
+    if is_admin:
+        return
+
+    if project.owner_id is not None:
+        if current_user is None or str(project.owner_id) != str(current_user.id):
+            raise ForbiddenError(f"You do not have permission to {action} this project.")
+    else:
+        from app.core.config import settings
+        if settings.ENVIRONMENT in ("production", "staging"):
+            raise ForbiddenError(f"You do not have permission to {action} unowned or system projects in production.")
 
 
 @router.post(
@@ -65,9 +87,7 @@ async def get_project(
     current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
 ) -> ProjectResponse:
     project = await service.get_by_id(project_id)
-    if project.owner_id is not None:
-        if current_user is None or project.owner_id != current_user.id:
-            raise ForbiddenError("You do not have permission to access this project.")
+    check_project_authorization(project, current_user, "access")
     return ProjectResponse.model_validate(project)
 
 
@@ -84,9 +104,7 @@ async def update_project(
     current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
 ) -> ProjectResponse:
     project = await service.get_by_id(project_id)
-    if project.owner_id is not None:
-        if current_user is None or project.owner_id != current_user.id:
-            raise ForbiddenError("You do not have permission to modify this project.")
+    check_project_authorization(project, current_user, "modify")
     updated_project = await service.update_project(project_id, project_in)
     return ProjectResponse.model_validate(updated_project)
 
@@ -103,9 +121,7 @@ async def archive_project(
     current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
 ) -> ProjectResponse:
     project = await service.get_by_id(project_id)
-    if project.owner_id is not None:
-        if current_user is None or project.owner_id != current_user.id:
-            raise ForbiddenError("You do not have permission to archive this project.")
+    check_project_authorization(project, current_user, "archive")
     archived_project = await service.archive_project(project_id)
     return ProjectResponse.model_validate(archived_project)
 
@@ -155,9 +171,7 @@ async def restore_project(
     current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
 ) -> ProjectResponse:
     project = await service.get_by_id(project_id)
-    if project.owner_id is not None:
-        if current_user is None or project.owner_id != current_user.id:
-            raise ForbiddenError("You do not have permission to restore this project.")
+    check_project_authorization(project, current_user, "restore")
     restored = await service.restore_project(project_id)
     return ProjectResponse.model_validate(restored)
 
@@ -175,9 +189,7 @@ async def duplicate_project(
     current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
 ) -> ProjectResponse:
     project = await service.get_by_id(project_id)
-    if project.owner_id is not None:
-        if current_user is None or project.owner_id != current_user.id:
-            raise ForbiddenError("You do not have permission to duplicate this project.")
+    check_project_authorization(project, current_user, "duplicate")
     owner_id = current_user.id if current_user else None
     duplicated = await service.duplicate_project(project_id, owner_id=owner_id)
     return ProjectResponse.model_validate(duplicated)
@@ -195,9 +207,7 @@ async def permanent_delete_project(
     current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
 ) -> None:
     project = await service.get_by_id(project_id)
-    if project.owner_id is not None:
-        if current_user is None or project.owner_id != current_user.id:
-            raise ForbiddenError("You do not have permission to delete this project.")
+    check_project_authorization(project, current_user, "delete")
     await service.hard_delete_project(project_id)
 
 
@@ -213,8 +223,6 @@ async def get_project_activity(
     current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
 ) -> list[dict[str, Any]]:
     project = await service.get_by_id(project_id)
-    if project.owner_id is not None:
-        if current_user is None or project.owner_id != current_user.id:
-            raise ForbiddenError("You do not have permission to view activity for this project.")
+    check_project_authorization(project, current_user, "view activity for")
     return await service.get_activity_history(project_id)
 

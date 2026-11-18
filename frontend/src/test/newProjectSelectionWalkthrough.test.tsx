@@ -127,7 +127,7 @@ describe('Human User Walkthrough: New Project Creation, Selection, & Refresh', (
     });
 
     // 7. Navigate to Intelligence
-    const intellTabBtn = screen.getByRole('button', { name: /intelligence/i });
+    const intellTabBtn = screen.getByRole('button', { name: /artifacts & intelligence/i });
     fireEvent.click(intellTabBtn);
 
     // Intelligence workspace loads without 404

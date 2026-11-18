@@ -43,14 +43,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     register_test_generation_agents()
     register_browser_journey_agents()
 
-    # Initialize database tables
-    try:
-        from app.models.base import Base
-        import app.models  # noqa: F401
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-    except Exception as exc:
-        logger.warning(f"Could not auto-create database tables on startup: {exc}")
+    # Database schema management: Production strictly relies on Alembic migrations
+    if settings.ENVIRONMENT in ("production", "staging"):
+        logger.info(
+            "Production/Staging environment: Database schema management is delegated exclusively to "
+            "Alembic migrations. Skipping automatic Base.metadata.create_all to prevent startup locking."
+        )
+    else:
+        # Local development convenience initialization
+        try:
+            from app.models.base import Base
+            import app.models  # noqa: F401
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("Development environment: Local database tables verified.")
+        except Exception as exc:
+            logger.warning(f"Could not auto-create database tables on startup: {exc}")
 
     # Automatically ensure application preview runtime on Port 8001
     try:

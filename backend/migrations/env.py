@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 from logging.config import fileConfig
 from alembic import context
@@ -15,10 +16,11 @@ from app.models import (  # noqa: F401
     context_snapshot,
     development_version,
     environment,
+    preview,
     project,
     requirement,
+    user,
     workflow_execution,
-    preview,
 )
 
 config = context.config
@@ -28,8 +30,9 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Ensure alembic uses the configured application DATABASE_URL
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Ensure alembic uses the configured application DATABASE_URL or ALEMBIC_DATABASE_URL override
+db_url = os.environ.get("ALEMBIC_DATABASE_URL") or settings.DATABASE_URL
+config.set_main_option("sqlalchemy.url", db_url)
 
 
 def run_migrations_offline() -> None:

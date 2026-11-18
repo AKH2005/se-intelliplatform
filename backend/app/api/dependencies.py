@@ -72,14 +72,22 @@ async def get_authorized_project(
     project = res.scalar_one_or_none()
     if not project:
         raise NotFoundError("Project", str(project_id))
+
+    is_admin = current_user is not None and (
+        getattr(current_user, "role", None) == UserRole.ADMIN
+        or getattr(current_user, "role", None) == UserRole.ADMIN.value
+    )
+
     if project.owner_id is not None:
         is_owner = current_user is not None and str(project.owner_id) == str(current_user.id)
-        is_admin = current_user is not None and (
-            getattr(current_user, "role", None) == UserRole.ADMIN
-            or getattr(current_user, "role", None) == UserRole.ADMIN.value
-        )
         if not (is_owner or is_admin):
             raise ForbiddenError("You do not have permission to access this project.")
+    else:
+        # Unowned / legacy project: allow in development/testing, restrict to ADMIN in production/staging
+        from app.core.config import settings
+        if settings.ENVIRONMENT in ("production", "staging") and not is_admin:
+            raise ForbiddenError("You do not have permission to access unowned or system projects in production.")
+
     return project
 
 from app.agents.architecture_recommendation.contracts import (

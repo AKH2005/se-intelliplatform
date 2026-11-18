@@ -13,6 +13,7 @@ import {
   Brain,
   History,
   PlayCircle,
+  Layers,
 } from 'lucide-react';
 import { NavigationTab } from '../components/layout/Sidebar';
 
@@ -75,19 +76,92 @@ export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ on
       {/* Workspace Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700 }}>Intelligence Workspace</h1>
+          <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700 }}>Artifacts & Intelligence</h1>
           <p style={{ margin: '0.25rem 0 0 0', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-            Unified analytical presentation layer for multi-agent requirements, architecture, database, risk, and quality insights.
+            Multi-agent engineering artifacts, generated architecture specifications, and workflow execution outputs.
           </p>
         </div>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {onNavigate && (
+            <Button
+              variant="secondary"
+              icon={<Layers size={15} />}
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  window.location.hash = 'blueprints';
+                }
+                onNavigate('specification');
+              }}
+              title="Navigate to Architecture Topology and Relational ERD Preview"
+            >
+              Architecture & ERD Blueprints
+            </Button>
+          )}
+
+          {onNavigate && (
+            <Button
+              variant="primary"
+              icon={<PlayCircle size={15} />}
+              onClick={() => onNavigate('workflows')}
+            >
+              Launch New Analysis
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Informational Guidance Callout for Schemas & Architecture */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0.75rem 1rem',
+          background: 'rgba(99, 102, 241, 0.08)',
+          border: '1px solid rgba(99, 102, 241, 0.25)',
+          borderRadius: 'var(--radius-md, 8px)',
+          gap: '1rem',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 }}>
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: '6px',
+              background: 'rgba(99, 102, 241, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#818cf8',
+              flexShrink: 0,
+            }}
+          >
+            <Layers size={16} />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary, #ffffff)' }}>
+              Looking for Database Schemas & Relational ERD?
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary, #94a3b8)' }}>
+              Explore the interactive System Architecture Blueprint and Relational ERD Preview in the Specifications & Blueprints workspace.
+            </div>
+          </div>
+        </div>
         {onNavigate && (
           <Button
-            variant="primary"
-            icon={<PlayCircle size={15} />}
-            onClick={() => onNavigate('workflows')}
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              if (typeof window !== 'undefined') {
+                window.location.hash = 'blueprints';
+              }
+              onNavigate('specification');
+            }}
           >
-            Launch New Analysis
+            Open ERD Blueprint →
           </Button>
         )}
       </div>

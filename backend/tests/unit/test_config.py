@@ -72,3 +72,53 @@ def test_production_with_debug_enabled_fails_fast():
             DEBUG=True,
         )
     assert "DEBUG mode must be set to false" in str(exc_info.value)
+
+
+def test_production_with_default_or_weak_secret_key_fails_fast():
+    """Verify that production rejects default, weak, or missing SECRET_KEY."""
+    # 1. Default dev secret in production
+    with pytest.raises(ValidationError) as exc_info1:
+        Settings(
+            ENVIRONMENT="production",
+            POSTGRES_PASSWORD="a-very-secure-production-password-123",
+            DATABASE_URL="postgresql+psycopg://user:pass@proddb:5432/proddb",
+            DEBUG=False,
+            # using default SECRET_KEY
+        )
+    assert "Insecure, default, or weak SECRET_KEY is strictly prohibited" in str(exc_info1.value)
+
+    # 2. Short secret in production
+    with pytest.raises(ValidationError) as exc_info2:
+        Settings(
+            ENVIRONMENT="production",
+            POSTGRES_PASSWORD="a-very-secure-production-password-123",
+            DATABASE_URL="postgresql+psycopg://user:pass@proddb:5432/proddb",
+            DEBUG=False,
+            SECRET_KEY="short-secret-key-too-short",
+        )
+    assert "Insecure, default, or weak SECRET_KEY is strictly prohibited" in str(exc_info2.value)
+
+
+def test_valid_production_configuration_passes():
+    """Verify production environment succeeds with compliant credentials and 32+ char secret."""
+    valid_key = "a" * 32
+    s = Settings(
+        ENVIRONMENT="production",
+        POSTGRES_PASSWORD="a-very-secure-production-password-123",
+        DATABASE_URL="postgresql+psycopg://user:pass@proddb:5432/proddb",
+        DEBUG=False,
+        SECRET_KEY=valid_key,
+    )
+    assert s.ENVIRONMENT == "production"
+    assert s.DEBUG is False
+    assert s.SECRET_KEY == valid_key
+
+
+def test_development_allows_default_secret():
+    """Verify local development environment allows default development secret."""
+    s = Settings(
+        ENVIRONMENT="development",
+        DEBUG=True,
+    )
+    assert s.ENVIRONMENT == "development"
+    assert s.SECRET_KEY == "se-intelliplatform-super-secret-jwt-key-for-capstone-development-2026"

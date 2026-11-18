@@ -387,7 +387,11 @@ async def get_project_preview_html(
         # Defensive anti-collision check for legacy Shadow Master files on non-shadow_master archetypes
         legacy_shadow_collision = False
         if mode and mode != "shadow_master" and html_content:
-            shadow_collision_markers = ["combatCanvas", "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master"]
+            shadow_collision_markers = [
+                "combatCanvas", "Katana Slash", "Shadow Master Skill Builder", "The Shadow Master",
+                "ninja@shadowduel", "Sign In to Arena", "Quick Fill Demo Ninja", "Shadow Slayer",
+                "Master Shadow", "Create Warrior Account", "shadowduel.com"
+            ]
             if any(marker in html_content for marker in shadow_collision_markers):
                 legacy_shadow_collision = True
                 logger.warning(

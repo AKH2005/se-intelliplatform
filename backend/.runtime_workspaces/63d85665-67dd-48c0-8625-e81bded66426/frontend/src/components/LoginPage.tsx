@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 export interface UserProfile {
   email: string;
   name: string;
-  level?: number;
   role?: string;
 }
 
@@ -24,22 +23,10 @@ export default function LoginPage({ isOpen, onClose, onLoginSuccess }: LoginPage
 
   if (!isOpen) return null;
 
-  const getPasswordStrength = (pwd: string): { label: string; score: number; color: string } => {
-    if (!pwd) return { label: 'None', score: 0, color: '#64748b' };
-    if (pwd.length < 6) return { label: 'Weak', score: 25, color: '#ef4444' };
-    if (pwd.length < 10) return { label: 'Medium', score: 60, color: '#eab308' };
-    if (/[A-Z]/.test(pwd) && /[0-9]/.test(pwd) && /[^A-Za-z0-9]/.test(pwd)) {
-      return { label: 'Legendary', score: 100, color: '#a855f7' };
-    }
-    return { label: 'Strong', score: 85, color: '#22c55e' };
-  };
-
-  const strength = getPasswordStrength(password);
-
   const handleQuickFill = () => {
-    setEmail('ninja@shadowduel.com');
-    setPassword('ShadowMaster2026!');
-    setName('Master Shadow');
+    setEmail('player@carrommaster.local');
+    setPassword('CarromMaster2026!');
+    setName('Master Striker');
     setError(null);
   };
 
@@ -56,8 +43,7 @@ export default function LoginPage({ isOpen, onClose, onLoginSuccess }: LoginPage
       const profile: UserProfile = {
         email,
         name: name || email.split('@')[0],
-        level: 12,
-        role: 'Grandmaster',
+        role: 'Pro Striker',
       };
       onLoginSuccess(profile);
     } catch (err: any) {
@@ -68,109 +54,48 @@ export default function LoginPage({ isOpen, onClose, onLoginSuccess }: LoginPage
   };
 
   return (
-    <div className="auth-modal-overlay glass-backdrop" onClick={onClose}>
-      <div className="auth-card modern-glass-card glow-border" onClick={e => e.stopPropagation()}>
-        <div className="auth-card-header">
-          <div className="auth-badge-pill">🔒 ENCRYPTED ARENA PORTAL</div>
-          <div className="auth-tabs modern-tabs">
-            <button
-              type="button"
-              className={`auth-tab ${!isSignUp ? 'active' : ''}`}
-              onClick={() => { setIsSignUp(false); setError(null); }}
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              className={`auth-tab ${isSignUp ? 'active' : ''}`}
-              onClick={() => { setIsSignUp(true); setError(null); }}
-            >
-              Register
-            </button>
+    <div className="auth-modal-overlay" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(3,7,18,0.75)', backdropFilter: 'blur(8px)' }}>
+      <div className="auth-card" onClick={e => e.stopPropagation()} style={{ background: '#0f172a', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '16px', width: '90%', maxWidth: '420px', padding: '1.75rem', color: '#f8fafc' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', background: 'rgba(30,41,59,0.6)', padding: '0.25rem', borderRadius: '8px' }}>
+            <button type="button" style={{ background: !isSignUp ? '#6366f1' : 'transparent', border: 'none', color: '#fff', padding: '0.4rem 0.85rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }} onClick={() => { setIsSignUp(false); setError(null); }}>Sign In</button>
+            <button type="button" style={{ background: isSignUp ? '#6366f1' : 'transparent', border: 'none', color: '#fff', padding: '0.4rem 0.85rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }} onClick={() => { setIsSignUp(true); setError(null); }}>Register</button>
           </div>
-          <button type="button" className="auth-close-btn" onClick={onClose}>✕</button>
+          <button type="button" style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '1.2rem', cursor: 'pointer' }} onClick={onClose}>✕</button>
         </div>
 
-        <form onSubmit={handleSubmit} className="auth-form">
-          {error && <div className="auth-error-banner animate-shake">{error}</div>}
+        <form onSubmit={handleSubmit}>
+          {error && <div style={{ background: 'rgba(239,68,68,0.2)', border: '1px solid #ef4444', color: '#fca5a5', padding: '0.5rem', borderRadius: '6px', marginBottom: '0.75rem', fontSize: '0.85rem' }}>{error}</div>}
 
           {isSignUp && (
-            <div className="auth-field">
-              <label>Warrior Nickname</label>
-              <input
-                type="text"
-                className="input-modern"
-                placeholder="Shadow Slayer"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                required={isSignUp}
-              />
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '0.35rem' }}>Player Nickname</label>
+              <input type="text" placeholder="Master Striker" value={name} onChange={e => setName(e.target.value)} style={{ width: '100%', background: 'rgba(30,41,59,0.7)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '8px', padding: '0.65rem', color: '#fff', boxSizing: 'border-box' }} required={isSignUp} />
             </div>
           )}
 
-          <div className="auth-field">
-            <label>Email Address</label>
-            <input
-              type="email"
-              className="input-modern"
-              placeholder="warrior@shadowduel.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              required
-            />
+          <div style={{ marginBottom: '1rem' }}>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '0.35rem' }}>Email Address</label>
+            <input type="email" placeholder="player@carrommaster.local" value={email} onChange={e => setEmail(e.target.value)} style={{ width: '100%', background: 'rgba(30,41,59,0.7)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '8px', padding: '0.65rem', color: '#fff', boxSizing: 'border-box' }} required />
           </div>
 
-          <div className="auth-field">
-            <label>Master Password</label>
-            <input
-              type="password"
-              className="input-modern"
-              placeholder="••••••••••••"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-            />
-            {password && (
-              <div className="strength-meter-wrapper">
-                <div className="strength-bar-track">
-                  <div
-                    className="strength-bar-fill"
-                    style={{ width: `${strength.score}%`, backgroundColor: strength.color }}
-                  />
-                </div>
-                <span className="strength-text" style={{ color: strength.color }}>
-                  {strength.label} Security
-                </span>
-              </div>
-            )}
+          <div style={{ marginBottom: '1rem' }}>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '0.35rem' }}>Password</label>
+            <input type="password" placeholder="••••••••••••" value={password} onChange={e => setPassword(e.target.value)} style={{ width: '100%', background: 'rgba(30,41,59,0.7)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '8px', padding: '0.65rem', color: '#fff', boxSizing: 'border-box' }} required />
           </div>
 
-          <div className="social-login-grid">
-            <button type="button" className="btn-social google" onClick={handleQuickFill}>
-              <span>G</span> Google SSO
-            </button>
-            <button type="button" className="btn-social github" onClick={handleQuickFill}>
-              <span>⌨</span> GitHub
-            </button>
-          </div>
-
-          <div className="auth-options">
-            <label className="auth-remember">
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={e => setRememberMe(e.target.checked)}
-              />
-              <span>Keep session alive for 30 days</span>
+          <div style={{ marginBottom: '1.25rem', fontSize: '0.85rem', color: '#94a3b8' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} /> Remember me
             </label>
           </div>
 
-          <div className="auth-actions">
-            <button type="submit" className="btn-primary auth-submit-btn modern-gradient" disabled={isLoading}>
-              {isLoading ? 'Decrypting Credentials...' : (isSignUp ? 'Create Warrior Account' : 'Sign In to Arena')}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            <button type="submit" disabled={isLoading} style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none', color: '#fff', padding: '0.75rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}>
+              {isLoading ? 'Authenticating...' : (isSignUp ? 'Create Player Account' : 'Sign In to Carrom Master')}
             </button>
-            <button type="button" className="btn-secondary auth-demo-btn neon-subtle" onClick={handleQuickFill}>
-              ⚡ Quick Fill Demo Ninja
+            <button type="button" onClick={handleQuickFill} style={{ background: 'rgba(30,41,59,0.7)', border: '1px dashed rgba(99,102,241,0.4)', color: '#a5b4fc', padding: '0.6rem', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}>
+              👤 Quick Fill Carrom Player
             </button>
           </div>
         </form>

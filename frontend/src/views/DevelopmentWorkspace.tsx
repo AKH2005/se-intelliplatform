@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Card, CardBody, CardHeader } from '../components/common/Card';
 import { CapabilityBadge } from '../components/common/CapabilityBadge';
 import { Button } from '../components/common/Button';
@@ -49,6 +49,7 @@ export const DevelopmentWorkspace: React.FC<DevelopmentWorkspaceProps> = ({ onNa
   const [selectedVersion, setSelectedVersion] = useState<DevelopmentVersionResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const requestGenRef = useRef<number>(0);
 
   // Browser journeys state (Phase 11K Stage 6)
   const {
@@ -142,18 +143,23 @@ export const DevelopmentWorkspace: React.FC<DevelopmentWorkspaceProps> = ({ onNa
     }
   };
 
-  // Fetch versions on project select
-  const fetchVersions = async () => {
-    if (!selectedProjectId) {
+  // Fetch versions on project select or reload
+  const fetchVersions = async (targetProjectId = selectedProjectId) => {
+    const currentGen = ++requestGenRef.current;
+    if (!targetProjectId) {
       setVersions([]);
       setActiveVersion(null);
       setSelectedVersion(null);
+      setSelectedFile(null);
+      setFileContent(null);
+      setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const res = await developmentVersionApi.listVersions(selectedProjectId);
+      const res = await developmentVersionApi.listVersions(targetProjectId);
+      if (requestGenRef.current !== currentGen) return;
       setVersions(res.items);
       const active = res.items.find((v) => v.is_active) || null;
       setActiveVersion(active);
@@ -170,21 +176,40 @@ export const DevelopmentWorkspace: React.FC<DevelopmentWorkspaceProps> = ({ onNa
         setSelectedFile(null);
       }
     } catch (err: any) {
+      if (requestGenRef.current !== currentGen) return;
       // If error occurs, keep empty versions without breaking UI
       console.warn('Unable to load development versions:', err);
     } finally {
-      setLoading(false);
+      if (requestGenRef.current === currentGen) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchVersions();
+    // Immediately clear all stale state from prior project to prevent cross-project contamination
+    setVersions([]);
+    setActiveVersion(null);
+    setSelectedVersion(null);
+    setSelectedFile(null);
+    setFileContent(null);
+    setVerificationSnapshot(null);
+    setChanges([]);
+    setComparison(null);
+    setError(null);
+
+    fetchVersions(selectedProjectId);
+
+    return () => {
+      // Invalidate inflight requests on unmount or project switch
+      requestGenRef.current += 1;
+    };
   }, [selectedProjectId]);
 
   // Synchronize Code Studio immediately when a new version is created or activated
   useEffect(() => {
     const handleRemoteVersionRefresh = () => {
-      fetchVersions();
+      fetchVersions(selectedProjectId);
     };
     window.addEventListener('se-version-refresh', handleRemoteVersionRefresh);
     return () => {
@@ -198,18 +223,26 @@ export const DevelopmentWorkspace: React.FC<DevelopmentWorkspaceProps> = ({ onNa
       setFileContent(null);
       return;
     }
+    const currentProjId = selectedProjectId;
+    const currentVerId = selectedVersion.version_id;
     let isMounted = true;
     setLoadingFile(true);
     developmentVersionApi
       .getVersionFileContent(selectedProjectId, selectedVersion.version_id, selectedFile.path)
       .then((content) => {
-        if (isMounted) setFileContent(content);
+        if (isMounted && selectedProjectId === currentProjId && selectedVersion?.version_id === currentVerId) {
+          setFileContent(content);
+        }
       })
       .catch((e) => {
-        if (isMounted) setFileContent(`// Error loading file: ${e.message}`);
+        if (isMounted && selectedProjectId === currentProjId && selectedVersion?.version_id === currentVerId) {
+          setFileContent(`// Error loading file: ${e.message}`);
+        }
       })
       .finally(() => {
-        if (isMounted) setLoadingFile(false);
+        if (isMounted && selectedProjectId === currentProjId && selectedVersion?.version_id === currentVerId) {
+          setLoadingFile(false);
+        }
       });
     return () => {
       isMounted = false;
@@ -218,28 +251,52 @@ export const DevelopmentWorkspace: React.FC<DevelopmentWorkspaceProps> = ({ onNa
 
   // Fetch verification snapshot when verification tab opens
   useEffect(() => {
+    let isMounted = true;
     if (activeTab === 'verification' && selectedProjectId && selectedVersion) {
       if (selectedVersion.verification_summary) {
         setVerificationSnapshot(selectedVersion.verification_summary);
       } else {
+        const currentProjId = selectedProjectId;
+        const currentVerId = selectedVersion.version_id;
         developmentVersionApi
           .getVersionVerification(selectedProjectId, selectedVersion.version_id)
-          .then(setVerificationSnapshot)
+          .then((snap) => {
+            if (isMounted && selectedProjectId === currentProjId && selectedVersion?.version_id === currentVerId) {
+              setVerificationSnapshot(snap);
+            }
+          })
           .catch(console.error);
       }
     }
+    return () => {
+      isMounted = false;
+    };
   }, [activeTab, selectedProjectId, selectedVersion?.version_id]);
 
   // Fetch change history when changes tab opens
   useEffect(() => {
+    let isMounted = true;
     if (activeTab === 'changes' && selectedProjectId && selectedVersion) {
+      const currentProjId = selectedProjectId;
+      const currentVerId = selectedVersion.version_id;
       setLoadingChanges(true);
       developmentVersionApi
         .getVersionChanges(selectedProjectId, selectedVersion.version_id)
-        .then(setChanges)
+        .then((data) => {
+          if (isMounted && selectedProjectId === currentProjId && selectedVersion?.version_id === currentVerId) {
+            setChanges(data);
+          }
+        })
         .catch(console.error)
-        .finally(() => setLoadingChanges(false));
+        .finally(() => {
+          if (isMounted && selectedProjectId === currentProjId && selectedVersion?.version_id === currentVerId) {
+            setLoadingChanges(false);
+          }
+        });
     }
+    return () => {
+      isMounted = false;
+    };
   }, [activeTab, selectedProjectId, selectedVersion?.version_id]);
 
   // Fetch comparison when compare tab opens
@@ -257,14 +314,28 @@ export const DevelopmentWorkspace: React.FC<DevelopmentWorkspaceProps> = ({ onNa
   }, [activeTab, selectedVersion?.version_id, versions]);
 
   useEffect(() => {
+    let isMounted = true;
     if (activeTab === 'compare' && selectedProjectId && selectedVersion && compareTargetId) {
+      const currentProjId = selectedProjectId;
+      const currentVerId = selectedVersion.version_id;
       setLoadingComparison(true);
       developmentVersionApi
         .compareVersions(selectedProjectId, compareTargetId, selectedVersion.version_id)
-        .then(setComparison)
+        .then((res) => {
+          if (isMounted && selectedProjectId === currentProjId && selectedVersion?.version_id === currentVerId) {
+            setComparison(res);
+          }
+        })
         .catch(console.error)
-        .finally(() => setLoadingComparison(false));
+        .finally(() => {
+          if (isMounted && selectedProjectId === currentProjId && selectedVersion?.version_id === currentVerId) {
+            setLoadingComparison(false);
+          }
+        });
     }
+    return () => {
+      isMounted = false;
+    };
   }, [compareTargetId, activeTab, selectedProjectId, selectedVersion?.version_id]);
 
   // Handle re-verification

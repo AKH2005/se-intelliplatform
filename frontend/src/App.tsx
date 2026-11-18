@@ -6,29 +6,64 @@ import { contextApi } from './services/contextApi';
 import { useProject } from './context/ProjectContext';
 import { AppShell } from './components/layout/AppShell';
 import { NavigationTab } from './components/layout/Sidebar';
-import { OverviewWorkspace } from './views/OverviewWorkspace';
-import { PreviewWorkspace } from './views/PreviewWorkspace';
-import { SpecificationWorkspace } from './views/SpecificationWorkspace';
-import { DevelopmentWorkspace } from './views/DevelopmentWorkspace';
-import { CodeStudioWorkspace } from './views/CodeStudioWorkspace';
-import { TestingWorkspace } from './views/TestingWorkspace';
-import { IssuesWorkspace } from './views/IssuesWorkspace';
-import { IntelligenceWorkspace } from './views/IntelligenceWorkspace';
-import { EnvironmentWorkspace } from './views/EnvironmentWorkspace';
-import { CodeIntelligenceWorkspace } from './views/CodeIntelligenceWorkspace';
-import { WorkflowStudio } from './views/WorkflowStudio';
-import { RunHistory } from './views/RunHistory';
-import { ProjectsView } from './views/ProjectsView';
-import { CreateProjectModal } from './components/projects/CreateProjectModal';
-import { CreateTaskModal } from './components/requirements/CreateTaskModal';
-import { LoginView } from './views/auth/LoginView';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
+import { ChunkErrorBoundary } from './components/common/ChunkErrorBoundary';
 import { useAuth } from './context/AuthContext';
 import { useMode } from './context/ModeContext';
-import { ModeSelectionView } from './views/ModeSelectionView';
-import { UserModeWorkspace } from './views/UserModeWorkspace';
 import { FloatingAssistant } from './components/assistant/FloatingAssistant';
 import { ProjectCreate, ProjectResponse } from './types/project';
+
+// Lazy-loaded Views and Workspaces
+const OverviewWorkspace = React.lazy(() =>
+  import('./views/OverviewWorkspace').then((m) => ({ default: m.OverviewWorkspace }))
+);
+const PreviewWorkspace = React.lazy(() =>
+  import('./views/PreviewWorkspace').then((m) => ({ default: m.PreviewWorkspace }))
+);
+const SpecificationWorkspace = React.lazy(() =>
+  import('./views/SpecificationWorkspace').then((m) => ({ default: m.SpecificationWorkspace }))
+);
+const DevelopmentWorkspace = React.lazy(() =>
+  import('./views/DevelopmentWorkspace').then((m) => ({ default: m.DevelopmentWorkspace }))
+);
+const CodeStudioWorkspace = React.lazy(() =>
+  import('./views/CodeStudioWorkspace').then((m) => ({ default: m.CodeStudioWorkspace }))
+);
+const TestingWorkspace = React.lazy(() =>
+  import('./views/TestingWorkspace').then((m) => ({ default: m.TestingWorkspace }))
+);
+const IssuesWorkspace = React.lazy(() =>
+  import('./views/IssuesWorkspace').then((m) => ({ default: m.IssuesWorkspace }))
+);
+const IntelligenceWorkspace = React.lazy(() =>
+  import('./views/IntelligenceWorkspace').then((m) => ({ default: m.IntelligenceWorkspace }))
+);
+const EnvironmentWorkspace = React.lazy(() =>
+  import('./views/EnvironmentWorkspace').then((m) => ({ default: m.EnvironmentWorkspace }))
+);
+const CodeIntelligenceWorkspace = React.lazy(() =>
+  import('./views/CodeIntelligenceWorkspace').then((m) => ({ default: m.CodeIntelligenceWorkspace }))
+);
+const WorkflowStudio = React.lazy(() =>
+  import('./views/WorkflowStudio').then((m) => ({ default: m.WorkflowStudio }))
+);
+const RunHistory = React.lazy(() =>
+  import('./views/RunHistory').then((m) => ({ default: m.RunHistory }))
+);
+const ProjectsView = React.lazy(() =>
+  import('./views/ProjectsView').then((m) => ({ default: m.ProjectsView }))
+);
+import { CreateProjectModal } from './components/projects/CreateProjectModal';
+import { CreateTaskModal } from './components/requirements/CreateTaskModal';
+const LoginView = React.lazy(() =>
+  import('./views/auth/LoginView').then((m) => ({ default: m.LoginView }))
+);
+const ModeSelectionView = React.lazy(() =>
+  import('./views/ModeSelectionView').then((m) => ({ default: m.ModeSelectionView }))
+);
+const UserModeWorkspace = React.lazy(() =>
+  import('./views/UserModeWorkspace').then((m) => ({ default: m.UserModeWorkspace }))
+);
 
 // Helper to parse pathname into project ID, workspace tab, and active view mode
 const parseCurrentUrl = () => {
@@ -397,17 +432,35 @@ export const App: React.FC = () => {
     const intendedPath = typeof window !== 'undefined' ? window.location.pathname : '/select-mode';
     const isRegisterRoute = intendedPath === '/register';
     return (
-      <LoginView
-        initialMode={isRegisterRoute ? 'register' : 'login'}
-        redirectPath={
-          intendedPath === '/login' || intendedPath === '/register' || intendedPath === '/'
-            ? '/select-mode'
-            : intendedPath
-        }
-        onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ['projects'] });
-        }}
-      />
+      <ChunkErrorBoundary fallbackMessage="Unable to load sign in screen">
+        <React.Suspense
+          fallback={
+            <div
+              style={{
+                minHeight: '100vh',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'var(--bg-base, #0a0e1a)',
+              }}
+            >
+              <LoadingSpinner label="Authenticating session..." />
+            </div>
+          }
+        >
+          <LoginView
+            initialMode={isRegisterRoute ? 'register' : 'login'}
+            redirectPath={
+              intendedPath === '/login' || intendedPath === '/register' || intendedPath === '/'
+                ? '/select-mode'
+                : intendedPath
+            }
+            onSuccess={() => {
+              queryClient.invalidateQueries({ queryKey: ['projects'] });
+            }}
+          />
+        </React.Suspense>
+      </ChunkErrorBoundary>
     );
   }
 
@@ -415,52 +468,22 @@ export const App: React.FC = () => {
   const isSelectModePath = typeof window !== 'undefined' && window.location.pathname.startsWith('/select-mode');
   if (!isModeSelected || isSelectModePath) {
     return (
-      <ModeSelectionView
-        onSelectMode={(selectedMode, remember) => {
-          setMode(selectedMode, remember);
-          if (selectedMode === 'user') {
-            window.history.pushState({}, '', '/user');
-          } else {
-            const target = selectedProjectId ? `/projects/${selectedProjectId}/workspace` : '/projects';
-            window.history.pushState({}, '', target);
-            if (!selectedProjectId) {
-              setActiveTab('projects');
-            }
+      <ChunkErrorBoundary fallbackMessage="Unable to load mode selection">
+        <React.Suspense
+          fallback={
+            <div
+              style={{
+                minHeight: '100vh',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'var(--bg-base, #0a0e1a)',
+              }}
+            >
+              <LoadingSpinner label="Loading experience modes..." />
+            </div>
           }
-        }}
-        canClose={isModeSelected}
-        onClose={closeModeSelection}
-        currentMode={mode}
-      />
-    );
-  }
-
-  // 4. User Mode Experience
-  if (mode === 'user') {
-    return (
-      <>
-        <UserModeWorkspace
-          projects={projects}
-          onOpenCreateProject={() => setIsCreateProjectOpen(true)}
-          onCreateProject={async (data) => {
-            return await createProjectMutation.mutateAsync(data);
-          }}
-          onNavigateToProjectInDev={(proj) => {
-            selectProject(proj);
-            setActiveTab('overview');
-            window.history.pushState({}, '', `/projects/${proj.id}/workspace`);
-            switchMode('developer');
-          }}
-        />
-
-        {/* Global Floating AI Assistant (ambient, general Q&A) */}
-        <FloatingAssistant
-          currentMode="user"
-          activeProjectName={selectedProject?.name}
-          onNavigateTab={handleSelectTab}
-        />
-
-        {isModeSelectionOpen && (
+        >
           <ModeSelectionView
             onSelectMode={(selectedMode, remember) => {
               setMode(selectedMode, remember);
@@ -474,20 +497,86 @@ export const App: React.FC = () => {
                 }
               }
             }}
-            canClose={true}
+            canClose={isModeSelected}
             onClose={closeModeSelection}
             currentMode={mode}
           />
-        )}
+        </React.Suspense>
+      </ChunkErrorBoundary>
+    );
+  }
 
-        <CreateProjectModal
-          isOpen={isCreateProjectOpen}
-          onClose={() => setIsCreateProjectOpen(false)}
-          onSubmit={async (data) => {
-            await createProjectMutation.mutateAsync(data);
-          }}
-        />
-      </>
+  // 4. User Mode Experience
+  if (mode === 'user') {
+    return (
+      <ChunkErrorBoundary fallbackMessage="Unable to load User Mode workspace">
+        <React.Suspense
+          fallback={
+            <div
+              style={{
+                minHeight: '100vh',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'var(--bg-base, #0a0e1a)',
+              }}
+            >
+              <LoadingSpinner label="Loading User Mode workspace..." />
+            </div>
+          }
+        >
+          <UserModeWorkspace
+            projects={projects}
+            onOpenCreateProject={() => setIsCreateProjectOpen(true)}
+            onCreateProject={async (data) => {
+              return await createProjectMutation.mutateAsync(data);
+            }}
+            onNavigateToProjectInDev={(proj) => {
+              selectProject(proj);
+              setActiveTab('overview');
+              window.history.pushState({}, '', `/projects/${proj.id}/workspace`);
+              switchMode('developer');
+            }}
+          />
+
+          {/* Global Floating AI Assistant (ambient, general Q&A) */}
+          <FloatingAssistant
+            currentMode="user"
+            activeProjectName={selectedProject?.name}
+            onNavigateTab={handleSelectTab}
+          />
+
+          {isModeSelectionOpen && (
+            <React.Suspense fallback={null}>
+              <ModeSelectionView
+                onSelectMode={(selectedMode, remember) => {
+                  setMode(selectedMode, remember);
+                  if (selectedMode === 'user') {
+                    window.history.pushState({}, '', '/user');
+                  } else {
+                    const target = selectedProjectId ? `/projects/${selectedProjectId}/workspace` : '/projects';
+                    window.history.pushState({}, '', target);
+                    if (!selectedProjectId) {
+                      setActiveTab('projects');
+                    }
+                  }
+                }}
+                canClose={true}
+                onClose={closeModeSelection}
+                currentMode={mode}
+              />
+            </React.Suspense>
+          )}
+
+          <CreateProjectModal
+            isOpen={isCreateProjectOpen}
+            onClose={() => setIsCreateProjectOpen(false)}
+            onSubmit={async (data) => {
+              await createProjectMutation.mutateAsync(data);
+            }}
+          />
+        </React.Suspense>
+      </ChunkErrorBoundary>
     );
   }
 
@@ -530,7 +619,7 @@ export const App: React.FC = () => {
           <OverviewWorkspace onNavigate={handleSelectTab} />
         )}
         {(activeTab === 'specification' || activeTab === 'requirements') && (
-          <SpecificationWorkspace />
+          <SpecificationWorkspace onNavigate={handleSelectTab} />
         )}
         {activeTab === 'code-studio' && (
           <CodeStudioWorkspace onNavigate={handleSelectTab} />
@@ -564,23 +653,25 @@ export const App: React.FC = () => {
 
       {/* Mode selection modal overlay if re-opened from Header */}
       {isModeSelectionOpen && (
-        <ModeSelectionView
-          onSelectMode={(selectedMode, remember) => {
-            setMode(selectedMode, remember);
-            if (selectedMode === 'user') {
-              window.history.pushState({}, '', '/user');
-            } else {
-              const target = selectedProjectId ? `/projects/${selectedProjectId}/workspace` : '/projects';
-              window.history.pushState({}, '', target);
-              if (!selectedProjectId) {
-                setActiveTab('projects');
+        <React.Suspense fallback={null}>
+          <ModeSelectionView
+            onSelectMode={(selectedMode, remember) => {
+              setMode(selectedMode, remember);
+              if (selectedMode === 'user') {
+                window.history.pushState({}, '', '/user');
+              } else {
+                const target = selectedProjectId ? `/projects/${selectedProjectId}/workspace` : '/projects';
+                window.history.pushState({}, '', target);
+                if (!selectedProjectId) {
+                  setActiveTab('projects');
+                }
               }
-            }
-          }}
-          canClose={true}
-          onClose={closeModeSelection}
-          currentMode={mode}
-        />
+            }}
+            canClose={true}
+            onClose={closeModeSelection}
+            currentMode={mode}
+          />
+        </React.Suspense>
       )}
 
       <CreateProjectModal

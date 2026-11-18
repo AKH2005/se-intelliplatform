@@ -187,6 +187,7 @@ class WorkflowService:
         self,
         workflow_id: str,
         request: WorkflowExecuteRequest,
+        preallocated_execution_id: uuid.UUID | None = None,
     ) -> WorkflowResult:
         """Resolve context, construct WorkflowInput, and delegate execution to coordinator.
 
@@ -274,7 +275,7 @@ class WorkflowService:
                 initial_artifacts=initial_artifacts,
             )
 
-            workflow_execution_id = uuid.uuid4()
+            workflow_execution_id = preallocated_execution_id or uuid.uuid4()
             started_at = datetime.now(timezone.utc)
 
             # 3. Create persistent WorkflowExecution record in RUNNING state

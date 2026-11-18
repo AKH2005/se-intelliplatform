@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
-import { AlertTriangle, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Bot, AlertTriangle, X } from 'lucide-react';
 import { Sidebar, NavigationTab } from './Sidebar';
 import { Header } from './Header';
-import { AssistantDock } from '../assistant/AssistantDock';
+import { LoadingSpinner } from '../common/LoadingSpinner';
+import { ChunkErrorBoundary } from '../common/ChunkErrorBoundary';
 import { ProjectResponse } from '../../types/project';
 import { useProject } from '../../context/ProjectContext';
+const LazyAssistantDock = React.lazy(() =>
+  import('../assistant/AssistantDock').then((m) => ({ default: m.AssistantDock }))
+);
 
 interface AppShellProps {
   activeTab: NavigationTab;
@@ -40,6 +44,15 @@ export const AppShell: React.FC<AppShellProps> = ({
     externalIsAssistantOpen !== undefined ? externalIsAssistantOpen : internalIsAssistantOpen;
   const handleToggleAssistant =
     externalOnToggleAssistant || (() => setInternalIsAssistantOpen((prev) => !prev));
+
+  // Track whether assistant has been opened at least once in this session
+  const [hasEverOpenedAssistant, setHasEverOpenedAssistant] = useState(isAssistantOpen);
+
+  useEffect(() => {
+    if (isAssistantOpen && !hasEverOpenedAssistant) {
+      setHasEverOpenedAssistant(true);
+    }
+  }, [isAssistantOpen, hasEverOpenedAssistant]);
 
   return (
     <div className="app-shell">
@@ -108,21 +121,94 @@ export const AppShell: React.FC<AppShellProps> = ({
           </div>
         )}
 
-        <main className="app-content-scroll" role="main">
-          {children}
+        <main className="app-content-scroll" role="main" style={{ position: 'relative', zIndex: 1 }}>
+          <ChunkErrorBoundary fallbackMessage="Unable to load workspace tab">
+            <React.Suspense
+              fallback={
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minHeight: '60vh',
+                    width: '100%',
+                  }}
+                >
+                  <LoadingSpinner label="Loading workspace..." />
+                </div>
+              }
+            >
+              <div key={activeTab} className="workspace-view-enter" style={{ width: '100%', minHeight: '100%' }}>
+                {children}
+              </div>
+            </React.Suspense>
+          </ChunkErrorBoundary>
         </main>
       </div>
 
-      {/* 3. Persistent Intelli Assistant Dock */}
-      <AssistantDock
-        isOpen={isAssistantOpen}
-        onClose={() => handleToggleAssistant()}
-        activeProjectName={selectedProject?.name}
-        projectId={selectedProjectId}
-        onNavigate={onSelectTab}
-        initialPrompt={initialAssistantPrompt}
-        onClearInitialPrompt={onClearInitialAssistantPrompt}
-      />
+      {/* 3. Persistent Intelli Assistant Dock (Loaded on-demand, preserved once opened) */}
+      {hasEverOpenedAssistant && (
+        <ChunkErrorBoundary fallbackMessage="Unable to load Intelli Assistant">
+          <React.Suspense
+            fallback={
+              isAssistantOpen ? (
+                <aside className="assistant-dock open" aria-label="Intelli Assistant Dock">
+                  <div className="assistant-dock-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Bot size={18} color="var(--accent-primary)" />
+                      <h3
+                        style={{
+                          margin: 0,
+                          fontSize: '0.95rem',
+                          fontWeight: 650,
+                          color: 'var(--text-primary)',
+                        }}
+                      >
+                        Intelli Assistant
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleAssistant()}
+                      aria-label="Close Intelli Assistant"
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: '0.25rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      Intelli Assistant connects conversational reasoning across requirements, architecture, code, tests, and preview containers.
+                    </p>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--accent-primary)' }}>Assistant Ready</span>
+                  </div>
+                  <div style={{ padding: '3rem 1.5rem', display: 'flex', justifyContent: 'center' }}>
+                    <LoadingSpinner label="Loading assistant engine..." size={28} />
+                  </div>
+                </aside>
+              ) : null
+            }
+          >
+            <LazyAssistantDock
+              isOpen={isAssistantOpen}
+              onClose={() => handleToggleAssistant()}
+              activeProjectName={selectedProject?.name}
+              projectId={selectedProjectId}
+              onNavigate={onSelectTab}
+              initialPrompt={initialAssistantPrompt}
+              onClearInitialPrompt={onClearInitialAssistantPrompt}
+            />
+          </React.Suspense>
+        </ChunkErrorBoundary>
+      )}
     </div>
   );
 };

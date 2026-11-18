@@ -19,6 +19,7 @@ def create_problem_response(
     type_uri: str,
     request: Request,
     extra: dict | None = None,
+    headers: dict | None = None,
 ) -> JSONResponse:
     """Construct an RFC 7807 compliant problem details response."""
     payload = {
@@ -32,10 +33,14 @@ def create_problem_response(
     if extra:
         payload.update(extra)
 
+    response_headers = {"Content-Type": "application/problem+json"}
+    if headers:
+        response_headers.update(headers)
+
     return JSONResponse(
         status_code=status_code,
         content=payload,
-        headers={"Content-Type": "application/problem+json"},
+        headers=response_headers,
     )
 
 
@@ -45,6 +50,9 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApplicationError)
     async def application_error_handler(request: Request, exc: ApplicationError) -> JSONResponse:
         logger.warning(f"Application error [{exc.title}]: {exc.detail}")
+        headers = {}
+        if exc.status_code == 429:
+            headers["Retry-After"] = str(getattr(exc, "retry_after_seconds", 60))
         return create_problem_response(
             status_code=exc.status_code,
             title=exc.title,
@@ -52,6 +60,7 @@ def register_error_handlers(app: FastAPI) -> None:
             type_uri=exc.type_uri,
             request=request,
             extra=exc.extra,
+            headers=headers,
         )
 
     @app.exception_handler(RequestValidationError)

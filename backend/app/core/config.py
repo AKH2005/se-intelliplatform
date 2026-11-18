@@ -169,6 +169,25 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"DEBUG mode must be set to false in {self.ENVIRONMENT} environment."
                 )
+            known_insecure_secrets = {
+                "se-intelliplatform-super-secret-jwt-key-for-capstone-development-2026",
+                "secret",
+                "changeme",
+                "password",
+                "your-secret-key",
+                "secret-key",
+                "supersecret",
+            }
+            if (
+                not self.SECRET_KEY
+                or self.SECRET_KEY.strip() in known_insecure_secrets
+                or len(self.SECRET_KEY.strip()) < 32
+            ):
+                raise ValueError(
+                    f"Insecure, default, or weak SECRET_KEY is strictly prohibited in {self.ENVIRONMENT} environment. "
+                    f"A high-entropy SECRET_KEY of at least 32 characters must be provided via the SECRET_KEY environment variable. "
+                    f"Generate a secure key with `openssl rand -hex 32` or `python -c \"import secrets; print(secrets.token_hex(32))\"`."
+                )
 
         return self
 

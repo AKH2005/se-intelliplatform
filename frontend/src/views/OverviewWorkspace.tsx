@@ -63,11 +63,38 @@ export const OverviewWorkspace: React.FC<OverviewWorkspaceProps> = ({ onNavigate
     enabled: Boolean(selectedProjectId),
   });
 
-  const activeProject =
-    selectedProject ||
-    (selectedProjectId ? projects.find((p) => p.id === selectedProjectId) || null : null) ||
-    (context?.project as any) ||
-    (projects.length > 0 ? projects[0] : null);
+  const requestGenRef = React.useRef<number>(0);
+
+  React.useEffect(() => {
+    const currentGen = ++requestGenRef.current;
+    return () => {
+      requestGenRef.current = currentGen + 1;
+    };
+  }, [selectedProjectId]);
+
+  const activeProject = React.useMemo(() => {
+    if (selectedProject && (!selectedProjectId || selectedProject.id === selectedProjectId)) {
+      return selectedProject;
+    }
+    if (selectedProjectId) {
+      const fromProjects = projects.find((p) => p.id === selectedProjectId);
+      if (fromProjects) return fromProjects;
+      if (context?.project?.id === selectedProjectId) {
+        return context.project as any;
+      }
+      return null;
+    }
+    return projects.length > 0 ? projects[0] : null;
+  }, [selectedProject, selectedProjectId, projects, context]);
+
+  // Ensure context strictly belongs to the currently selected project to prevent cross-project contamination
+  const safeContext = React.useMemo(() => {
+    if (!selectedProjectId || !context) return null;
+    if (context.project?.id === selectedProjectId) {
+      return context;
+    }
+    return null;
+  }, [context, selectedProjectId]);
 
   React.useEffect(() => {
     if (contextError && isProjectNotFoundError(contextError)) {
@@ -87,6 +114,12 @@ export const OverviewWorkspace: React.FC<OverviewWorkspaceProps> = ({ onNavigate
     queryFn: () => historyApi.listProjectHistory(selectedProjectId!, { limit: 5, offset: 0 }),
     enabled: Boolean(selectedProjectId),
   });
+
+  // Ensure history data belongs to the currently selected project
+  const safeHistoryData = React.useMemo(() => {
+    if (!selectedProjectId || !historyData) return undefined;
+    return historyData;
+  }, [historyData, selectedProjectId]);
 
   // Create Project mutation
   const createProjectMutation = useMutation({
@@ -523,23 +556,23 @@ export const OverviewWorkspace: React.FC<OverviewWorkspaceProps> = ({ onNavigate
               <CardBody>
                 {isLoadingContext ? (
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Loading context metrics...</div>
-                ) : context ? (
+                ) : safeContext ? (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', textAlign: 'center' }}>
                     <div style={{ padding: '0.5rem', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
                       <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent-cyan)' }}>
-                        {context.statistics?.total_requirements ?? 0}
+                        {safeContext.statistics?.total_requirements ?? 0}
                       </div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Total Req</div>
                     </div>
                     <div style={{ padding: '0.5rem', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
                       <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--status-completed)' }}>
-                        {context.statistics?.active_requirements ?? 0}
+                        {safeContext.statistics?.active_requirements ?? 0}
                       </div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Active</div>
                     </div>
                     <div style={{ padding: '0.5rem', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
                       <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent-primary)' }}>
-                        {context.statistics?.completion_percentage ?? 0}%
+                        {safeContext.statistics?.completion_percentage ?? 0}%
                       </div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Completion</div>
                     </div>
@@ -615,7 +648,7 @@ export const OverviewWorkspace: React.FC<OverviewWorkspaceProps> = ({ onNavigate
                 )}
               </CardHeader>
               <CardBody>
-                {historyData?.items && historyData.items.length > 0 ? (
+                {safeHistoryData?.items && safeHistoryData.items.length > 0 ? (
                   <div className="table-container">
                     <table className="data-table">
                       <thead>
@@ -628,7 +661,7 @@ export const OverviewWorkspace: React.FC<OverviewWorkspaceProps> = ({ onNavigate
                         </tr>
                       </thead>
                       <tbody>
-                        {historyData.items.slice(0, 5).map((run) => (
+                        {safeHistoryData.items.slice(0, 5).map((run) => (
                           <tr key={run.workflow_execution_id}>
                             <td style={{ fontWeight: 600, fontFamily: 'monospace' }}>
                               {run.workflow_id}

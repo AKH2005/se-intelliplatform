@@ -36,6 +36,59 @@ class WorkflowStepMetadata(BaseModel):
     description: str | None = Field(default=None, description="Human-readable description of intent")
 
 
+class AsyncWorkflowExecutionResponse(BaseModel):
+    """Response returned when initiating an asynchronous multi-agent workflow execution."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workflow_execution_id: uuid.UUID = Field(
+        ...,
+        description="Authoritative UUID for tracking this asynchronous execution run",
+    )
+    project_id: uuid.UUID = Field(
+        ...,
+        description="Project ID on which the workflow is being executed",
+    )
+    workflow_id: str = Field(
+        ...,
+        description="Workflow pipeline identifier",
+    )
+    status: WorkflowStatus = Field(
+        default=WorkflowStatus.RUNNING,
+        description="Initial lifecycle status",
+    )
+    status_url: str = Field(
+        ...,
+        description="REST polling endpoint for retrieving execution status and progress",
+    )
+    stream_url: str = Field(
+        ...,
+        description="Server-Sent Events (SSE) streaming endpoint for real-time progress events",
+    )
+
+
+class WorkflowStatusPollingResponse(BaseModel):
+    """Detailed polling status payload for active or completed workflow executions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workflow_execution_id: uuid.UUID = Field(..., description="Unique execution UUID")
+    project_id: uuid.UUID = Field(..., description="Project UUID")
+    workflow_id: str = Field(..., description="Workflow ID")
+    workflow_version: str = Field(..., description="Workflow version")
+    status: WorkflowStatus = Field(..., description="Current status")
+    started_at: datetime = Field(..., description="Started at UTC")
+    completed_at: datetime | None = Field(default=None, description="Completed at UTC")
+    step_count: int = Field(default=0, description="Total steps in workflow")
+    completed_steps: int = Field(default=0, description="Completed steps")
+    failed_steps: int = Field(default=0, description="Failed steps")
+    skipped_steps: int = Field(default=0, description="Skipped steps")
+    progress_percentage: float = Field(default=0.0, description="Progress from 0 to 100")
+    is_terminal: bool = Field(default=False, description="True if status is terminal")
+    errors: list[str] = Field(default_factory=list, description="Errors encountered")
+    warnings: list[str] = Field(default_factory=list, description="Warnings encountered")
+
+
 class WorkflowMetadataResponse(BaseModel):
     """Authoritative declarative discovery schema for a predefined workflow pipeline."""
 

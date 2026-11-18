@@ -148,7 +148,7 @@ describe('S-Tier Upgrade: Application Shell (Header, Sidebar, AppShell)', () => 
     expect(screen.getByText('Code Intelligence')).toBeInTheDocument();
 
     // Verify tools under INTELLIGENCE
-    expect(screen.getByText('Data & Schemas')).toBeInTheDocument();
+    expect(screen.getByText('Artifacts & Intelligence')).toBeInTheDocument();
     expect(screen.getByText('Issues & Triage')).toBeInTheDocument();
     expect(screen.getByText('Workflow Studio')).toBeInTheDocument();
     expect(screen.getByText('Environments & Deploy')).toBeInTheDocument();

@@ -3,8 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProjectProvider } from '../context/ProjectContext';
-import { ProjectWorkspace } from '../views/ProjectWorkspace';
-import { RequirementsWorkspace } from '../views/RequirementsWorkspace';
+import { SpecificationWorkspace } from '../views/SpecificationWorkspace';
 import { WorkflowStudio } from '../views/WorkflowStudio';
 import { RunHistory } from '../views/RunHistory';
 import { projectsApi } from '../services/projectsApi';
@@ -35,15 +34,15 @@ describe('Frontend Workspaces and Component Flows', () => {
     localStorage.clear();
   });
 
-  it('Project Workspace: renders empty state when no projects exist', async () => {
+  it('Specification Workspace: renders empty state when no project is selected', async () => {
     vi.spyOn(projectsApi, 'list').mockResolvedValue([]);
 
-    renderWithProviders(<ProjectWorkspace />);
+    renderWithProviders(<SpecificationWorkspace />);
 
-    expect(await screen.findByText('Create your first project to begin')).toBeInTheDocument();
+    expect(await screen.findByText('No Active Project Selected')).toBeInTheDocument();
   });
 
-  it('Project Workspace: renders project cards and context stats when project is present', async () => {
+  it('Specification Workspace: renders requirements and tabs when project is present', async () => {
     const mockProjects = [
       {
         id: 'proj-1',
@@ -56,18 +55,33 @@ describe('Frontend Workspaces and Component Flows', () => {
       },
     ];
 
+    const mockRequirements = [
+      {
+        id: 'req-1',
+        project_id: 'proj-1',
+        title: 'User Login with JWT',
+        description: 'System must issue secure RS256 JWT tokens.',
+        type: 'FUNCTIONAL' as const,
+        priority: 'HIGH' as const,
+        status: 'APPROVED' as const,
+        is_archived: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ];
+
     const mockContext = {
       project: mockProjects[0],
-      requirements: [],
+      requirements: mockRequirements,
       statistics: {
-        total_requirements: 4,
-        active_requirements: 3,
-        functional_count: 2,
-        non_functional_count: 1,
+        total_requirements: 1,
+        active_requirements: 1,
+        functional_count: 1,
+        non_functional_count: 0,
         constraint_count: 0,
         by_priority: {},
         by_status: {},
-        completion_percentage: 66.7,
+        completion_percentage: 100,
       },
       context_version: 1,
       generated_at: new Date().toISOString(),
@@ -76,39 +90,15 @@ describe('Frontend Workspaces and Component Flows', () => {
     localStorage.setItem('se_intelliplatform_active_project_id', 'proj-1');
 
     vi.spyOn(projectsApi, 'list').mockResolvedValue(mockProjects);
+    vi.spyOn(requirementsApi, 'list').mockResolvedValue(mockRequirements);
     vi.spyOn(contextApi, 'getContext').mockResolvedValue(mockContext);
     vi.spyOn(contextApi, 'listSnapshots').mockResolvedValue([]);
 
-    renderWithProviders(<ProjectWorkspace />);
-
-    expect(await screen.findByText('Alpha Project')).toBeInTheDocument();
-    expect(await screen.findByText('66.7%')).toBeInTheDocument();
-    expect(screen.getByText('Canonical Project Context')).toBeInTheDocument();
-  });
-
-  it('Requirements Workspace: renders requirements and handles empty state', async () => {
-    localStorage.setItem('se_intelliplatform_active_project_id', 'proj-1');
-
-    vi.spyOn(requirementsApi, 'list').mockResolvedValue([
-      {
-        id: 'req-1',
-        project_id: 'proj-1',
-        title: 'User Login with JWT',
-        description: 'System must issue secure RS256 JWT tokens.',
-        type: 'FUNCTIONAL',
-        priority: 'HIGH',
-        status: 'APPROVED',
-        is_archived: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ]);
-
-    renderWithProviders(<RequirementsWorkspace />);
+    renderWithProviders(<SpecificationWorkspace />);
 
     expect(await screen.findByText('User Login with JWT')).toBeInTheDocument();
-    expect(screen.getAllByText('FUNCTIONAL').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('HIGH')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /requirements/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /architecture & erd blueprints/i })).toBeInTheDocument();
   });
 
   it('Workflow Studio: discovers workflows, displays runner, and synchronously shows execution results', async () => {

@@ -39,7 +39,7 @@ async def register(req: RegisterRequest):
             "email": req.email,
             "name": req.name or req.email.split("@")[0].capitalize(),
             "level": 1,
-            "role": "Novice Ninja",
+            "role": "Executive",
         }
     }
 

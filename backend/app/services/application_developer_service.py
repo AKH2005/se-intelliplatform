@@ -516,7 +516,23 @@ export default function LoginPage({ isOpen, onClose, onLoginSuccess }: LoginPage
         changes.append({"file_path": "frontend/src/components/LoginPage.tsx", "content": login_component_code})
 
         # B. Updated App.tsx ensuring active modal mounting, trigger binding, and clean dashboard layout
-        app_code = """import React, { useState } from 'react';
+        existing_app = current_files.get("frontend/src/App.tsx", "")
+        is_analytics = "analytics" in (project.name or "").lower() or "metric" in (project.name or "").lower() or "dashboard" in (project.name or "").lower()
+        if existing_app and not is_analytics and "export default function App" in existing_app:
+            app_code = existing_app
+            if "import LoginPage" not in app_code:
+                app_code = "import LoginPage, { UserProfile } from './components/LoginPage';\n" + app_code
+            if "isLoginOpen" not in app_code:
+                state_hook = "\n  const [isLoginOpen, setIsLoginOpen] = useState(false);\n  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);\n"
+                app_code = re.sub(r'(export\s+default\s+function\s+App\s*\([^\)]*\)\s*\{)', r'\1' + state_hook, app_code, count=1)
+            if "<LoginPage" not in app_code:
+                mount_jsx = "\n      <LoginPage isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLoginSuccess={(u) => { setCurrentUser(u); setIsLoginOpen(false); }} />\n"
+                if "</div>" in app_code:
+                    last_div = app_code.rfind("</div>")
+                    app_code = app_code[:last_div] + mount_jsx + app_code[last_div:]
+            changes.append({"file_path": "frontend/src/App.tsx", "content": app_code})
+        else:
+            app_code = """import React, { useState } from 'react';
 import LoginPage, { UserProfile } from './components/LoginPage';
 
 export default function App() {
@@ -680,12 +696,17 @@ export default function App() {
   );
 }
 """
-        changes.append({"file_path": "frontend/src/App.tsx", "content": app_code})
+            changes.append({"file_path": "frontend/src/App.tsx", "content": app_code})
 
         # C. Updated frontend/index.html with interactive HTML prototype
-        from app.runtime.preview_server import get_analytics_dashboard_html
-        index_html = get_analytics_dashboard_html(p_name, project.description or "", str(project.id))
-        changes.append({"file_path": "frontend/index.html", "content": index_html})
+        if is_analytics:
+            from app.runtime.preview_server import get_analytics_dashboard_html
+            index_html = get_analytics_dashboard_html(p_name, project.description or "", str(project.id))
+            changes.append({"file_path": "frontend/index.html", "content": index_html})
+        else:
+            existing_index = current_files.get("frontend/index.html") or current_files.get("index.html") or ""
+            updated_index = self._inject_login_into_html(existing_index, project.name, project)
+            changes.append({"file_path": "frontend/index.html", "content": updated_index})
 
         # D. Ensure backend persistence and endpoints are valid
         existing_backend = current_files.get("backend/app/api.py", "")
@@ -805,6 +826,150 @@ class AnalyticsMetricsResponse(BaseModel):
         )
         return changes, summary, {"feature": "backend_endpoint", "files_count": len(changes)}
 
+    @staticmethod
+    def _get_project_auth_context(project: Project) -> Dict[str, Any]:
+        """Derive domain-appropriate authentication context and sample credentials for a project."""
+        p_name = project.name or "Application"
+        p_desc = project.description or ""
+        combined = f"{p_name} {p_desc}".lower()
+
+        if any(w in combined for w in ["inventory", "warehouse", "stock", "sku", "logistics"]):
+            return {
+                "app_title": p_name,
+                "demo_email": "admin@inventory.local",
+                "demo_password": "WarehouseSecure2026!",
+                "demo_name": "Inventory Manager",
+                "demo_role": "Warehouse Admin",
+                "action_button": "Sign In to Inventory Portal",
+                "register_button": "Create Manager Account",
+                "quick_fill_label": "👤 Quick Fill Inventory Admin",
+                "user_rank": "Role: Inventory Manager",
+                "name_field_label": "Manager Name",
+                "portal_badge": "🔒 INVENTORY MANAGEMENT PORTAL",
+                "is_game": False,
+            }
+        elif any(w in combined for w in ["analytics", "kpi", "metric", "executive", "revenue", "financial"]):
+            return {
+                "app_title": p_name,
+                "demo_email": "executive@analytics.local",
+                "demo_password": "ExecutiveSecure2026!",
+                "demo_name": "Sarah Connor",
+                "demo_role": "VP Operations",
+                "action_button": "Sign In to Executive Dashboard",
+                "register_button": "Create Executive Account",
+                "quick_fill_label": "👤 Quick Fill Executive Demo",
+                "user_rank": "Role: Executive Leader",
+                "name_field_label": "Executive Name",
+                "portal_badge": "🔒 EXECUTIVE ANALYTICS PORTAL",
+                "is_game": False,
+            }
+        elif any(w in combined for w in ["carrom", "striker", "board game"]):
+            return {
+                "app_title": p_name,
+                "demo_email": "player@carrommaster.local",
+                "demo_password": "CarromMaster2026!",
+                "demo_name": "Master Striker",
+                "demo_role": "Pro Player",
+                "action_button": "Sign In to Carrom Master",
+                "register_button": "Create Player Account",
+                "quick_fill_label": "👤 Quick Fill Carrom Player",
+                "user_rank": "Rank: Pro Striker",
+                "name_field_label": "Player Nickname",
+                "portal_badge": "🔒 CARROM MASTER ARENA",
+                "is_game": True,
+            }
+        elif any(w in combined for w in ["shadow", "duel", "ninja", "katana", "stealth combat", "shadow warrior"]):
+            return {
+                "app_title": p_name,
+                "demo_email": "ninja@shadowduel.com",
+                "demo_password": "ShadowMaster2026!",
+                "demo_name": "Master Shadow",
+                "demo_role": "Grandmaster",
+                "action_button": "Sign In to Arena",
+                "register_button": "Create Warrior Account",
+                "quick_fill_label": "👤 Quick Fill Demo Ninja",
+                "user_rank": "Rank: Grandmaster",
+                "name_field_label": "Warrior Nickname",
+                "portal_badge": "🔒 ENCRYPTED ARENA PORTAL",
+                "is_game": True,
+            }
+        elif any(w in combined for w in ["ecommerce", "shop", "store", "product catalog", "cart"]):
+            return {
+                "app_title": p_name,
+                "demo_email": "customer@store.local",
+                "demo_password": "CustomerSecure2026!",
+                "demo_name": "Valued Customer",
+                "demo_role": "Member",
+                "action_button": "Sign In to Shop",
+                "register_button": "Create Customer Account",
+                "quick_fill_label": "👤 Quick Fill Demo Customer",
+                "user_rank": "Tier: Gold Member",
+                "name_field_label": "Customer Name",
+                "portal_badge": "🔒 SHOPPING PORTAL",
+                "is_game": False,
+            }
+        elif any(w in combined for w in ["event", "conference", "summit", "registration"]):
+            return {
+                "app_title": p_name,
+                "demo_email": "attendee@eventhub.local",
+                "demo_password": "EventSecure2026!",
+                "demo_name": "Conference Attendee",
+                "demo_role": "Registered Attendee",
+                "action_button": "Sign In to EventHub",
+                "register_button": "Register for Conference",
+                "quick_fill_label": "👤 Quick Fill Event Demo",
+                "user_rank": "Pass: All-Access VIP",
+                "name_field_label": "Attendee Name",
+                "portal_badge": "🔒 EVENT REGISTRATION PORTAL",
+                "is_game": False,
+            }
+        elif any(w in combined for w in ["lms", "academy", "course", "lesson", "learning"]):
+            return {
+                "app_title": p_name,
+                "demo_email": "student@academy.local",
+                "demo_password": "LearningSecure2026!",
+                "demo_name": "Alex Mercer",
+                "demo_role": "Student",
+                "action_button": "Sign In to Academy",
+                "register_button": "Enroll in Academy",
+                "quick_fill_label": "👤 Quick Fill Student Demo",
+                "user_rank": "Track: Full-Stack Engineer",
+                "name_field_label": "Student Name",
+                "portal_badge": "🔒 LEARNING ACADEMY PORTAL",
+                "is_game": False,
+            }
+        elif any(w in combined for w in ["task", "kanban", "todo", "taskflow"]):
+            return {
+                "app_title": p_name,
+                "demo_email": "user@taskflow.local",
+                "demo_password": "TaskFlowSecure2026!",
+                "demo_name": "Team Member",
+                "demo_role": "Collaborator",
+                "action_button": "Sign In to TaskFlow",
+                "register_button": "Create Member Account",
+                "quick_fill_label": "👤 Quick Fill Demo Member",
+                "user_rank": "Role: Team Lead",
+                "name_field_label": "Member Name",
+                "portal_badge": "🔒 TASKFLOW BOARD PORTAL",
+                "is_game": False,
+            }
+        else:
+            safe_slug = re.sub(r'[^a-z0-9]', '', p_name.lower()) or 'app'
+            return {
+                "app_title": p_name,
+                "demo_email": f"demo@{safe_slug}.local",
+                "demo_password": "SecurePassword2026!",
+                "demo_name": "Demo User",
+                "demo_role": "Administrator",
+                "action_button": f"Sign In to {p_name}",
+                "register_button": "Create Account",
+                "quick_fill_label": "👤 Quick Fill Demo User",
+                "user_rank": "Role: Platform User",
+                "name_field_label": "Full Name",
+                "portal_badge": f"🔒 {p_name.upper()} SECURE PORTAL",
+                "is_game": False,
+            }
+
     # -------------------------------------------------------------------------
     # 1. ADD LOGIN PAGE
     # -------------------------------------------------------------------------
@@ -815,25 +980,25 @@ class AnalyticsMetricsResponse(BaseModel):
         user_message: str,
     ) -> Tuple[List[Dict[str, str]], str, Dict[str, Any]]:
         changes = []
-        is_shadow_duel = "shadow" in (project.name or "").lower() or "duel" in (project.name or "").lower() or "fight" in (project.name or "").lower()
+        ctx = self._get_project_auth_context(project)
 
         # A. LoginPage.tsx component
-        login_component_code = """import React, { useState } from 'react';
+        login_component_code = f"""import React, {{ useState }} from 'react';
 
-export interface UserProfile {
+export interface UserProfile {{
   email: string;
   name: string;
   level?: number;
   role?: string;
-}
+}}
 
-interface LoginPageProps {
+interface LoginPageProps {{
   isOpen: boolean;
   onClose: () => void;
   onLoginSuccess: (user: UserProfile) => void;
-}
+}}
 
-export default function LoginPage({ isOpen, onClose, onLoginSuccess }: LoginPageProps) {
+export default function LoginPage({{ isOpen, onClose, onLoginSuccess }}: LoginPageProps) {{
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -844,84 +1009,83 @@ export default function LoginPage({ isOpen, onClose, onLoginSuccess }: LoginPage
 
   if (!isOpen) return null;
 
-  const handleQuickFill = () => {
-    setEmail('ninja@shadowduel.com');
-    setPassword('ShadowMaster2026!');
-    setName('Master Shadow');
+  const handleQuickFill = () => {{
+    setEmail('{ctx["demo_email"]}');
+    setPassword('{ctx["demo_password"]}');
+    setName('{ctx["demo_name"]}');
     setError(null);
-  };
+  }};
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {{
     e.preventDefault();
     setError(null);
-    if (!email || !password) {
+    if (!email || !password) {{
       setError('Please provide email and password.');
       return;
-    }
+    }}
     setIsLoading(true);
-    try {
-      // Simulate authentication request
+    try {{
       await new Promise(resolve => setTimeout(resolve, 400));
-      const profile: UserProfile = {
+      const profile: UserProfile = {{
         email,
         name: name || email.split('@')[0],
-        level: 12,
-        role: 'Grandmaster',
-      };
+        level: 1,
+        role: '{ctx["demo_role"]}',
+      }};
       onLoginSuccess(profile);
-    } catch (err: any) {
+    }} catch (err: any) {{
       setError(err?.message || 'Authentication failed');
-    } finally {
+    }} finally {{
       setIsLoading(false);
-    }
-  };
+    }}
+  }};
 
   return (
-    <div className="auth-modal-overlay" onClick={onClose}>
-      <div className="auth-card" onClick={e => e.stopPropagation()}>
+    <div className="auth-modal-overlay" onClick={{onClose}}>
+      <div className="auth-card" onClick={{e => e.stopPropagation()}}>
         <div className="auth-card-header">
           <div className="auth-tabs">
             <button
               type="button"
-              className={`auth-tab ${!isSignUp ? 'active' : ''}`}
-              onClick={() => { setIsSignUp(false); setError(null); }}
+              className={{`auth-tab ${{!isSignUp ? 'active' : ''}}`}}
+              onClick={{() => {{ setIsSignUp(false); setError(null); }}}}
             >
               Sign In
             </button>
             <button
               type="button"
-              className={`auth-tab ${isSignUp ? 'active' : ''}`}
-              onClick={() => { setIsSignUp(true); setError(null); }}
+              className={{`auth-tab ${{isSignUp ? 'active' : ''}}`}}
+              onClick={{() => {{ setIsSignUp(true); setError(null); }}}}
             >
               Register
             </button>
           </div>
-          <button type="button" className="auth-close-btn" onClick={onClose}>✕</button>
+          <button type="button" className="auth-close-btn" onClick={{onClose}}>✕</button>
         </div>
 
-        <form onSubmit={handleSubmit} className="auth-form">
-          {error && <div className="auth-error-banner">{error}</div>}
+        <form onSubmit={{handleSubmit}} className="auth-form">
+          {{error && <div className="auth-error-banner">{{error}}</div>}}
 
-          {isSignUp && (
+          {{isSignUp && (
             <div className="auth-field">
-              <label>Full Name</label>
+              <label>{ctx["name_field_label"]}</label>
               <input
                 type="text"
-                placeholder="User Name"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                required={isSignUp}
+                placeholder="{ctx["demo_name"]}"
+                value={{name}}
+                onChange={{e => setName(e.target.value)}}
+                required={{isSignUp}}
               />
             </div>
-          )}
+          )}}
 
           <div className="auth-field">
             <label>Email Address</label>
             <input
               type="email"
-              placeholder="user@example.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
+              placeholder="{ctx["demo_email"]}"
+              value={{email}}
+              onChange={{e => setEmail(e.target.value)}}
               required
             />
           </div>
@@ -931,8 +1095,8 @@ export default function LoginPage({ isOpen, onClose, onLoginSuccess }: LoginPage
             <input
               type="password"
               placeholder="••••••••••••"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
+              value={{password}}
+              onChange={{e => setPassword(e.target.value)}}
               required
             />
           </div>
@@ -941,172 +1105,131 @@ export default function LoginPage({ isOpen, onClose, onLoginSuccess }: LoginPage
             <label className="auth-remember">
               <input
                 type="checkbox"
-                checked={rememberMe}
-                onChange={e => setRememberMe(e.target.checked)}
+                checked={{rememberMe}}
+                onChange={{e => setRememberMe(e.target.checked)}}
               />
               <span>Remember me</span>
             </label>
           </div>
 
           <div className="auth-actions">
-            <button type="submit" className="btn-primary auth-submit-btn" disabled={isLoading}>
-              {isLoading ? 'Authenticating...' : (isSignUp ? 'Create Warrior Account' : 'Sign In to Arena')}
+            <button type="submit" className="btn-primary auth-submit-btn" disabled={{isLoading}}>
+              {{isLoading ? 'Authenticating...' : (isSignUp ? '{ctx["register_button"]}' : '{ctx["action_button"]}')}}
             </button>
-            <button type="button" className="btn-secondary auth-demo-btn" onClick={handleQuickFill}>
-              👤 Quick Fill Demo Ninja
+            <button type="button" className="btn-secondary auth-demo-btn" onClick={{handleQuickFill}}>
+              {ctx["quick_fill_label"]}
             </button>
           </div>
         </form>
       </div>
     </div>
   );
-}
+}}
 """
         changes.append({"file_path": "frontend/src/components/LoginPage.tsx", "content": login_component_code})
 
-        # B. Updated App.tsx
+        # B. Updated App.tsx - Preserving existing project architecture
         existing_app = current_files.get("frontend/src/App.tsx", "")
         if "LoginPage" not in existing_app:
-            app_code = """import React, { useState } from 'react';
-import CombatArena from './components/CombatArena';
-import SkillDesigner from './components/SkillDesigner';
-import StatsPanel from './components/StatsPanel';
-import LoginPage, { UserProfile } from './components/LoginPage';
-import { shadowApi, SkillConfig } from './services/api';
+            if existing_app and "export default function App" in existing_app:
+                app_code = existing_app
+                if "import LoginPage" not in app_code:
+                    app_code = "import LoginPage, { UserProfile } from './components/LoginPage';\n" + app_code
+                if "isLoginOpen" not in app_code:
+                    state_hook = "\n  const [isLoginOpen, setIsLoginOpen] = useState(false);\n  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);\n"
+                    app_code = re.sub(r'(export\s+default\s+function\s+App\s*\([^\)]*\)\s*\{)', r'\1' + state_hook, app_code, count=1)
+                if "<LoginPage" not in app_code:
+                    mount_jsx = "\n      <LoginPage isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLoginSuccess={(u) => { setCurrentUser(u); setIsLoginOpen(false); }} />\n"
+                    if "</div>" in app_code:
+                        last_div = app_code.rfind("</div>")
+                        app_code = app_code[:last_div] + mount_jsx + app_code[last_div:]
+                changes.append({"file_path": "frontend/src/App.tsx", "content": app_code})
+            else:
+                clean_app_code = f"""import React, {{ useState }} from 'react';
+import LoginPage, {{ UserProfile }} from './components/LoginPage';
+import './styles/App.css';
 
-const DEFAULT_SKILLS: SkillConfig[] = [
-  { id: 'slash', name: 'Katana Slash', key: 'Q', damage: 45, energyCost: 15, cooldown: 0.6, radius: 65, color: '#c084fc', element: 'VOID', desc: 'Rapid crescent slash that strikes nearby foes in an arc.' },
-  { id: 'dash', name: 'Shadow Dash', key: 'W', damage: 25, energyCost: 25, cooldown: 1.5, radius: 120, color: '#06b6d4', element: 'SHADOW', desc: 'Phases through enemies dealing damage and granting brief invulnerability.' },
-  { id: 'shuriken', name: 'Shuriken Volley', key: 'E', damage: 30, energyCost: 20, cooldown: 1.0, radius: 240, color: '#eab308', element: 'LIGHTNING', desc: 'Fires three piercing void shurikens in a spreading fan.' },
-  { id: 'cloak', name: 'Shadow Cloak', key: 'R', damage: 0, energyCost: 35, cooldown: 4.0, radius: 0, color: '#a855f7', element: 'VOID', desc: 'Enters stealth mode; next attack deals 250% critical ambush damage.' },
-  { id: 'decoy', name: 'Shadow Decoy', key: 'Space', damage: 55, energyCost: 40, cooldown: 3.5, radius: 90, color: '#ec4899', element: 'FIRE', desc: 'Summons a mirror duplicate that taunts enemies then detonates.' }
-];
-
-export default function App() {
-  const [skills, setSkills] = useState<SkillConfig[]>(DEFAULT_SKILLS);
-  const [stats, setStats] = useState({ health: 100, energy: 100, score: 0, combo: 1, level: 1, xp: 0 });
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+export default function App() {{
   const [isLoginOpen, setIsLoginOpen] = useState(false);
-
-  const handleUpdateSkill = (updated: SkillConfig) => {
-    setSkills(prev => prev.map(s => s.id === updated.id ? updated : s));
-    shadowApi.saveSkill(updated);
-  };
-
-  const handleLogout = () => {
-    setCurrentUser(null);
-  };
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
 
   return (
-    <div className="shadow-master-root">
-      <header className="shadow-header">
-        <div className="shadow-header-top">
-          <h1>Shadow Duel</h1>
-          <div className="shadow-auth-ctrl">
-            {currentUser ? (
-              <div className="shadow-user-pill">
-                <span className="user-avatar">👤</span>
-                <span className="user-name">{currentUser.name}</span>
-                <span className="user-rank">Rank: {currentUser.role || 'Grandmaster'}</span>
-                <button id="btn-logout" className="btn-logout" onClick={handleLogout}>Log Out</button>
-              </div>
-            ) : (
-              <button id="btn-open-login" className="btn-login-trigger" onClick={() => setIsLoginOpen(true)}>
-                🔑 Sign In / Register
-              </button>
-            )}
+    <div className="app-container">
+      <header className="app-header">
+        <h1>{ctx["app_title"]}</h1>
+        {{currentUser ? (
+          <div className="user-badge">
+            <span>👤 {{currentUser.name}} ({{currentUser.role}})</span>
+            <button onClick={{() => setCurrentUser(null)}}>Log Out</button>
           </div>
-        </div>
-        <p>A fast‑paced 2D fighting game where players control shadow avatars in dynamic arenas, combining fluid combat mechanics with strategic power‑ups. The game offers single‑player and online multiplayer modes, delivering an immersive experience across mobile and web platforms.</p>
+        ) : (
+          <button id="btn-open-login" onClick={{() => setIsLoginOpen(true)}}>🔑 Sign In / Register</button>
+        )}}
       </header>
-
-      <StatsPanel stats={stats} />
-      <div className="shadow-workspace-grid">
-        <CombatArena skills={skills} onStatsChange={setStats} />
-        <SkillDesigner skills={skills} onUpdateSkill={handleUpdateSkill} />
-      </div>
-
+      <main className="app-main">
+        <iframe src="/preview?project_id={project.id}" title="{ctx["app_title"]}" className="app-frame" style={{{{ width: '100%', height: '80vh', border: 'none' }}}} />
+      </main>
       <LoginPage
-        isOpen={isLoginOpen}
-        onClose={() => setIsLoginOpen(false)}
-        onLoginSuccess={(u) => {
+        isOpen={{isLoginOpen}}
+        onClose={{() => setIsLoginOpen(false)}}
+        onLoginSuccess={{(u) => {{
           setCurrentUser(u);
           setIsLoginOpen(false);
-        }}
+        }}}}
       />
     </div>
   );
-}
+}}
 """
-            changes.append({"file_path": "frontend/src/App.tsx", "content": app_code})
+                changes.append({"file_path": "frontend/src/App.tsx", "content": clean_app_code})
 
-        # C. Updated api.ts
-        api_code = """export interface SkillConfig {
-  id: string;
-  name: string;
-  key: string;
-  damage: number;
-  energyCost: number;
-  cooldown: number;
-  radius: number;
-  color: string;
-  element: string;
-  desc: string;
-}
-
-export interface UserAuthResponse {
+        # C. Updated api.ts - Appending authApi without overwriting domain APIs
+        existing_api = current_files.get("frontend/src/services/api.ts", "")
+        if "authApi" not in existing_api and "login(" not in existing_api:
+            auth_api_code = f"""
+export interface UserAuthResponse {{
   token: string;
-  user: {
+  user: {{
     email: string;
     name: string;
-    level: number;
     role: string;
-  };
-}
+  }};
+}}
 
-export const shadowApi = {
-  async saveSkill(skill: SkillConfig): Promise<boolean> {
-    try {
-      const res = await fetch('/api/skills', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(skill),
-      });
-      return res.ok;
-    } catch {
-      return false;
-    }
-  },
-
-  async login(email: string, password: string): Promise<UserAuthResponse> {
-    const res = await fetch('/api/auth/login', {
+export const authApi = {{
+  async login(email: string, password: string): Promise<UserAuthResponse> {{
+    const res = await fetch('/api/auth/login', {{
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ email, password }}),
+    }});
     if (!res.ok) throw new Error('Invalid email or password');
     return res.json();
-  },
+  }},
 
-  async register(email: string, password: string, name: string): Promise<UserAuthResponse> {
-    const res = await fetch('/api/auth/register', {
+  async register(email: string, password: string, name: string): Promise<UserAuthResponse> {{
+    const res = await fetch('/api/auth/register', {{
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name }),
-    });
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ email, password, name }}),
+    }});
     if (!res.ok) throw new Error('Registration failed');
     return res.json();
-  },
+  }},
 
-  async logout(): Promise<void> {
-    await fetch('/api/auth/logout', { method: 'POST' });
-  }
-};
+  async logout(): Promise<void> {{
+    await fetch('/api/auth/logout', {{ method: 'POST' }});
+  }}
+}};
 """
-        changes.append({"file_path": "frontend/src/services/api.ts", "content": api_code})
+            new_api = (existing_api + "\n" + auth_api_code).strip()
+            changes.append({"file_path": "frontend/src/services/api.ts", "content": new_api})
 
         # D. Backend endpoints and models
-        backend_api = """from fastapi import APIRouter, HTTPException, status
+        token_prefix = re.sub(r'[^a-z0-9]', '', (project.slug or project.name or 'app').lower())
+        existing_backend = current_files.get("backend/app/api.py", "")
+        if "/api/auth/login" not in existing_backend:
+            backend_api = f"""from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from typing import Optional
 
@@ -1125,47 +1248,46 @@ class RegisterRequest(BaseModel):
 async def login(req: LoginRequest):
     if not req.email or not req.password:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email and password required")
-    return {
+    return {{
         "status": "success",
-        "token": "shadow-token-auth-verified-jwt-2026",
-        "user": {
+        "token": "{token_prefix}-token-auth-verified-jwt-2026",
+        "user": {{
             "email": req.email,
             "name": req.email.split("@")[0].capitalize(),
-            "level": 12,
-            "role": "Shadow Master",
-        }
-    }
+            "role": "{ctx['demo_role']}",
+        }}
+    }}
 
 @router.post("/api/auth/register")
 async def register(req: RegisterRequest):
     if not req.email or not req.password:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email and password required")
-    return {
+    return {{
         "status": "success",
-        "token": "shadow-token-registered-jwt-2026",
-        "user": {
+        "token": "{token_prefix}-token-registered-jwt-2026",
+        "user": {{
             "email": req.email,
             "name": req.name or req.email.split("@")[0].capitalize(),
-            "level": 1,
-            "role": "Novice Ninja",
-        }
-    }
+            "role": "{ctx['demo_role']}",
+        }}
+    }}
 
 @router.post("/api/auth/logout")
 async def logout():
-    return {"status": "success", "message": "Logged out successfully"}
+    return {{"status": "success", "message": "Logged out successfully"}}
 """
-        changes.append({"file_path": "backend/app/api.py", "content": backend_api})
+            changes.append({"file_path": "backend/app/api.py", "content": backend_api})
 
-        backend_models = """from pydantic import BaseModel
+        existing_models = current_files.get("backend/app/models.py", "")
+        if "class User(" not in existing_models:
+            backend_models = f"""from pydantic import BaseModel
 from typing import Optional
 
 class User(BaseModel):
     id: str
     email: str
     name: str
-    level: int = 1
-    role: str = "Shadow Warrior"
+    role: str = "{ctx['demo_role']}"
     is_active: bool = True
 
 class UserLoginRequest(BaseModel):
@@ -1182,20 +1304,20 @@ class AuthResponse(BaseModel):
     token: str
     user: User
 """
-        changes.append({"file_path": "backend/app/models.py", "content": backend_models})
+            changes.append({"file_path": "backend/app/models.py", "content": backend_models})
 
         # E. Injected into frontend/index.html for direct live preview
         existing_index = current_files.get("frontend/index.html") or current_files.get("index.html") or ""
-        updated_index = self._inject_login_into_html(existing_index, project.name)
+        updated_index = self._inject_login_into_html(existing_index, project.name, project)
         changes.append({"file_path": "frontend/index.html", "content": updated_index})
 
         summary = (
             f"Successfully implemented login & registration system for {project.name}:\n"
-            f"• Created `frontend/src/components/LoginPage.tsx` with Sign In / Register tabs, form validation, and quick-fill demo credentials.\n"
-            f"• Updated `frontend/src/App.tsx` with user authentication state, top-bar login triggers, and profile status pill.\n"
+            f"• Created `frontend/src/components/LoginPage.tsx` with Sign In / Register tabs, form validation, and domain credentials ({ctx['demo_email']}).\n"
+            f"• Preserved and connected `frontend/src/App.tsx` with user authentication state and login triggers.\n"
             f"• Added authentication methods (`login`, `register`, `logout`) in `frontend/src/services/api.ts`.\n"
-            f"• Added backend authentication API endpoints (`/api/auth/login`, `/api/auth/register`) in `backend/app/api.py` and `backend/app/models.py`.\n"
-            f"• Integrated interactive authentication modal in Live Preview with session persistence."
+            f"• Added backend authentication API endpoints (`/api/auth/login`, `/api/auth/register`) in `backend/app/api.py`.\n"
+            f"• Integrated authentication modal in Live Preview with session persistence."
         )
         return changes, summary, {"feature": "login_page", "files_count": len(changes)}
 
@@ -1209,24 +1331,25 @@ class AuthResponse(BaseModel):
         user_message: str,
     ) -> Tuple[List[Dict[str, str]], str, Dict[str, Any]]:
         changes = []
+        ctx = self._get_project_auth_context(project)
 
         # A. Enhanced LoginPage.tsx with glassmorphism and password meter
-        improved_login_tsx = """import React, { useState } from 'react';
+        improved_login_tsx = f"""import React, {{ useState }} from 'react';
 
-export interface UserProfile {
+export interface UserProfile {{
   email: string;
   name: string;
   level?: number;
   role?: string;
-}
+}}
 
-interface LoginPageProps {
+interface LoginPageProps {{
   isOpen: boolean;
   onClose: () => void;
   onLoginSuccess: (user: UserProfile) => void;
-}
+}}
 
-export default function LoginPage({ isOpen, onClose, onLoginSuccess }: LoginPageProps) {
+export default function LoginPage({{ isOpen, onClose, onLoginSuccess }}: LoginPageProps) {{
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -1237,98 +1360,98 @@ export default function LoginPage({ isOpen, onClose, onLoginSuccess }: LoginPage
 
   if (!isOpen) return null;
 
-  const getPasswordStrength = (pwd: string): { label: string; score: number; color: string } => {
-    if (!pwd) return { label: 'None', score: 0, color: '#64748b' };
-    if (pwd.length < 6) return { label: 'Weak', score: 25, color: '#ef4444' };
-    if (pwd.length < 10) return { label: 'Medium', score: 60, color: '#eab308' };
-    if (/[A-Z]/.test(pwd) && /[0-9]/.test(pwd) && /[^A-Za-z0-9]/.test(pwd)) {
-      return { label: 'Legendary', score: 100, color: '#a855f7' };
-    }
-    return { label: 'Strong', score: 85, color: '#22c55e' };
-  };
+  const getPasswordStrength = (pwd: string): {{ label: string; score: number; color: string }} => {{
+    if (!pwd) return {{ label: 'None', score: 0, color: '#64748b' }};
+    if (pwd.length < 6) return {{ label: 'Weak', score: 25, color: '#ef4444' }};
+    if (pwd.length < 10) return {{ label: 'Medium', score: 60, color: '#eab308' }};
+    if (/[A-Z]/.test(pwd) && /[0-9]/.test(pwd) && /[^A-Za-z0-9]/.test(pwd)) {{
+      return {{ label: 'Legendary', score: 100, color: '#a855f7' }};
+    }}
+    return {{ label: 'Strong', score: 85, color: '#22c55e' }};
+  }};
 
   const strength = getPasswordStrength(password);
 
-  const handleQuickFill = () => {
-    setEmail('ninja@shadowduel.com');
-    setPassword('ShadowMaster2026!');
-    setName('Master Shadow');
+  const handleQuickFill = () => {{
+    setEmail('{ctx["demo_email"]}');
+    setPassword('{ctx["demo_password"]}');
+    setName('{ctx["demo_name"]}');
     setError(null);
-  };
+  }};
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {{
     e.preventDefault();
     setError(null);
-    if (!email || !password) {
+    if (!email || !password) {{
       setError('Please provide email and password.');
       return;
-    }
+    }}
     setIsLoading(true);
-    try {
+    try {{
       await new Promise(resolve => setTimeout(resolve, 350));
-      const profile: UserProfile = {
+      const profile: UserProfile = {{
         email,
         name: name || email.split('@')[0],
-        level: 12,
-        role: 'Grandmaster',
-      };
+        level: 1,
+        role: '{ctx["demo_role"]}',
+      }};
       onLoginSuccess(profile);
-    } catch (err: any) {
+    }} catch (err: any) {{
       setError(err?.message || 'Authentication failed');
-    } finally {
+    }} finally {{
       setIsLoading(false);
-    }
-  };
+    }}
+  }};
 
   return (
-    <div className="auth-modal-overlay glass-backdrop" onClick={onClose}>
-      <div className="auth-card modern-glass-card glow-border" onClick={e => e.stopPropagation()}>
+    <div className="auth-modal-overlay glass-backdrop" onClick={{onClose}}>
+      <div className="auth-card modern-glass-card glow-border" onClick={{e => e.stopPropagation()}}>
         <div className="auth-card-header">
-          <div className="auth-badge-pill">🔒 ENCRYPTED ARENA PORTAL</div>
+          <div className="auth-badge-pill">{ctx["portal_badge"]}</div>
           <div className="auth-tabs modern-tabs">
             <button
               type="button"
-              className={`auth-tab ${!isSignUp ? 'active' : ''}`}
-              onClick={() => { setIsSignUp(false); setError(null); }}
+              className={{`auth-tab ${{!isSignUp ? 'active' : ''}}`}}
+              onClick={{() => {{ setIsSignUp(false); setError(null); }}}}
             >
               Sign In
             </button>
             <button
               type="button"
-              className={`auth-tab ${isSignUp ? 'active' : ''}`}
-              onClick={() => { setIsSignUp(true); setError(null); }}
+              className={{`auth-tab ${{isSignUp ? 'active' : ''}}`}}
+              onClick={{() => {{ setIsSignUp(true); setError(null); }}}}
             >
               Register
             </button>
           </div>
-          <button type="button" className="auth-close-btn" onClick={onClose}>✕</button>
+          <button type="button" className="auth-close-btn" onClick={{onClose}}>✕</button>
         </div>
 
-        <form onSubmit={handleSubmit} className="auth-form">
-          {error && <div className="auth-error-banner animate-shake">{error}</div>}
+        <form onSubmit={{handleSubmit}} className="auth-form">
+          {{error && <div className="auth-error-banner animate-shake">{{error}}</div>}}
 
-          {isSignUp && (
+          {{isSignUp && (
             <div className="auth-field">
-              <label>Warrior Nickname</label>
+              <label>{ctx["name_field_label"]}</label>
               <input
                 type="text"
                 className="input-modern"
-                placeholder="Shadow Slayer"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                required={isSignUp}
+                placeholder="{ctx["demo_name"]}"
+                value={{name}}
+                onChange={{e => setName(e.target.value)}}
+                required={{isSignUp}}
               />
             </div>
-          )}
+          )}}
 
           <div className="auth-field">
             <label>Email Address</label>
             <input
               type="email"
               className="input-modern"
-              placeholder="warrior@shadowduel.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
+              placeholder="{ctx["demo_email"]}"
+              value={{email}}
+              onChange={{e => setEmail(e.target.value)}}
               required
             />
           </div>
@@ -1339,30 +1462,30 @@ export default function LoginPage({ isOpen, onClose, onLoginSuccess }: LoginPage
               type="password"
               className="input-modern"
               placeholder="••••••••••••"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
+              value={{password}}
+              onChange={{e => setPassword(e.target.value)}}
               required
             />
-            {password && (
+            {{password && (
               <div className="strength-meter-wrapper">
                 <div className="strength-bar-track">
                   <div
                     className="strength-bar-fill"
-                    style={{ width: `${strength.score}%`, backgroundColor: strength.color }}
+                    style={{{{ width: `${{strength.score}}%`, backgroundColor: strength.color }}}}
                   />
                 </div>
-                <span className="strength-text" style={{ color: strength.color }}>
-                  {strength.label} Security
+                <span className="strength-text" style={{{{ color: strength.color }}}}>
+                  {{strength.label}} Security
                 </span>
               </div>
-            )}
+            )}}
           </div>
 
           <div className="social-login-grid">
-            <button type="button" className="btn-social google" onClick={handleQuickFill}>
+            <button type="button" className="btn-social google" onClick={{handleQuickFill}}>
               <span>G</span> Google SSO
             </button>
-            <button type="button" className="btn-social github" onClick={handleQuickFill}>
+            <button type="button" className="btn-social github" onClick={{handleQuickFill}}>
               <span>⌨</span> GitHub
             </button>
           </div>
@@ -1371,40 +1494,40 @@ export default function LoginPage({ isOpen, onClose, onLoginSuccess }: LoginPage
             <label className="auth-remember">
               <input
                 type="checkbox"
-                checked={rememberMe}
-                onChange={e => setRememberMe(e.target.checked)}
+                checked={{rememberMe}}
+                onChange={{e => setRememberMe(e.target.checked)}}
               />
               <span>Keep session alive for 30 days</span>
             </label>
           </div>
 
           <div className="auth-actions">
-            <button type="submit" className="btn-primary auth-submit-btn modern-gradient" disabled={isLoading}>
-              {isLoading ? 'Decrypting Credentials...' : (isSignUp ? 'Create Warrior Account' : 'Sign In to Arena')}
+            <button type="submit" className="btn-primary auth-submit-btn modern-gradient" disabled={{isLoading}}>
+              {{isLoading ? 'Authenticating...' : (isSignUp ? '{ctx["register_button"]}' : '{ctx["action_button"]}')}}
             </button>
-            <button type="button" className="btn-secondary auth-demo-btn neon-subtle" onClick={handleQuickFill}>
-              ⚡ Quick Fill Demo Ninja
+            <button type="button" className="btn-secondary auth-demo-btn neon-subtle" onClick={{handleQuickFill}}>
+              {ctx["quick_fill_label"]}
             </button>
           </div>
         </form>
       </div>
     </div>
   );
-}
+}}
 """
         changes.append({"file_path": "frontend/src/components/LoginPage.tsx", "content": improved_login_tsx})
 
         # B. Updated index.html with improved design
         existing_index = current_files.get("frontend/index.html") or current_files.get("index.html") or ""
-        updated_index = self._inject_improved_design_into_html(existing_index, project.name)
+        updated_index = self._inject_improved_design_into_html(existing_index, project.name, project)
         changes.append({"file_path": "frontend/index.html", "content": updated_index})
 
         summary = (
             f"Significantly improved login page design for {project.name}:\n"
-            f"• Upgraded to modern glassmorphic theme with `backdrop-filter: blur(20px)`, dark translucent card background, and glowing neon purple/cyan borders.\n"
-            f"• Added interactive animated password strength meter with real-time feedback (Weak, Medium, Strong, Legendary).\n"
-            f"• Added social sign-in buttons for Google and GitHub SSO with custom micro-animations.\n"
-            f"• Polished input fields with floating focus rings, hover transitions, and clean typography.\n"
+            f"• Upgraded to modern glassmorphic theme with `backdrop-filter: blur(20px)` and domain styling.\n"
+            f"• Added interactive animated password strength meter with real-time feedback.\n"
+            f"• Added social sign-in buttons for Google and GitHub SSO with instant fill.\n"
+            f"• Polished input fields with floating focus rings and clean typography.\n"
             f"• Updated Live Preview with high-fidelity visual styling."
         )
         return changes, summary, {"feature": "improved_design", "files_count": len(changes)}
@@ -1442,7 +1565,7 @@ async def forgot_password(email: str):
 
         # C. Updated index.html with forgot password link & modal
         existing_index = current_files.get("frontend/index.html") or current_files.get("index.html") or ""
-        updated_index = self._inject_forgot_password_into_html(existing_index)
+        updated_index = self._inject_forgot_password_into_html(existing_index, project.name, project)
         changes.append({"file_path": "frontend/index.html", "content": updated_index})
 
         summary = (
@@ -1496,18 +1619,6 @@ async def forgot_password(email: str):
     grid-template-columns: 1fr !important;
     gap: 0.5rem !important;
   }
-
-  .shadow-header-top {
-    flex-direction: column !important;
-    align-items: center !important;
-    gap: 0.75rem !important;
-  }
-
-  .shadow-auth-ctrl {
-    width: 100% !important;
-    display: flex !important;
-    justify-content: center !important;
-  }
 }
 
 @media (max-width: 480px) {
@@ -1531,14 +1642,14 @@ async def forgot_password(email: str):
 
         # B. Updated index.html with responsive viewport & CSS rules
         existing_index = current_files.get("frontend/index.html") or current_files.get("index.html") or ""
-        updated_index = self._inject_responsive_into_html(existing_index)
+        updated_index = self._inject_responsive_into_html(existing_index, project.name, project)
         changes.append({"file_path": "frontend/index.html", "content": updated_index})
 
         summary = (
             f"Optimized login interface and application shell for full responsiveness:\n"
             f"• Added mobile-first responsive viewport settings and fluid percentage-based card dimensions (`92vw - 96vw`).\n"
             f"• Implemented 48px minimum touch targets on all input fields and action buttons to meet mobile accessibility standards.\n"
-            f"• Added `@media (max-width: 768px)` and `@media (max-width: 480px)` stylesheets for mobile navigation and social button stacking.\n"
+            f"• Added `@media (max-width: 768px)` and `@media (max-width: 480px)` stylesheets for mobile layout.\n"
             f"• Prevented mobile viewport auto-zoom by enforcing 16px baseline input typography.\n"
             f"• Live Preview updated and fully responsive across mobile, tablet, and desktop viewports."
         )
@@ -1554,14 +1665,13 @@ async def forgot_password(email: str):
         user_message: str,
     ) -> Tuple[List[Dict[str, str]], str, Dict[str, Any]]:
         changes = []
-        # Update App.tsx or index.html to include search bar
         existing_index = current_files.get("frontend/index.html") or current_files.get("index.html") or ""
         search_html = existing_index.replace(
             "</h1>",
-            '</h1><div class="search-bar-wrap" style="max-width:500px;margin:0.75rem auto;"><input type="text" id="live-search-input" placeholder="🔍 Search skills, warriors, combos..." style="width:100%;padding:0.6rem 1rem;border-radius:9999px;background:rgba(15,23,42,0.8);border:1px solid rgba(168,85,247,0.3);color:#fff;font-size:0.9rem;" onkeyup="filterLiveItems(this.value)"></div>'
+            f'</h1><div class="search-bar-wrap" style="max-width:500px;margin:0.75rem auto;"><input type="text" id="live-search-input" placeholder="🔍 Search {project.name or "items"}..." style="width:100%;padding:0.6rem 1rem;border-radius:9999px;background:rgba(15,23,42,0.8);border:1px solid rgba(99,102,241,0.3);color:#fff;font-size:0.9rem;" onkeyup="filterLiveItems(this.value)"></div>'
         )
         changes.append({"file_path": "frontend/index.html", "content": search_html})
-        summary = f"Added interactive real-time search bar to {project.name} header with instant skill and warrior filtering."
+        summary = f"Added interactive real-time search bar to {project.name} header with instant filtering."
         return changes, summary, {"feature": "search_bar", "files_count": len(changes)}
 
     def _build_dark_mode_changes(
@@ -1588,7 +1698,7 @@ async def forgot_password(email: str):
     ) -> Tuple[List[Dict[str, str]], str, Dict[str, Any]]:
         changes = []
         existing_index = current_files.get("frontend/index.html") or current_files.get("index.html") or ""
-        badge_addition = f'<div class="feature-banner" style="background:rgba(168,85,247,0.15);border:1px solid rgba(168,85,247,0.4);color:#c084fc;padding:0.4rem 1rem;border-radius:8px;margin:0.5rem auto;max-width:700px;text-align:center;font-size:0.85rem;">✨ Implemented: {user_message[:60]}</div>'
+        badge_addition = f'<div class="feature-banner" style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.4);color:#a5b4fc;padding:0.4rem 1rem;border-radius:8px;margin:0.5rem auto;max-width:700px;text-align:center;font-size:0.85rem;">✨ Implemented: {user_message[:60]}</div>'
         updated_index = existing_index.replace('<div class="header">', f'<div class="header">{badge_addition}')
         changes.append({"file_path": "frontend/index.html", "content": updated_index})
         summary = f"Implemented requested feature: '{user_message}' across project source files and refreshed Live Preview."
@@ -1597,9 +1707,18 @@ async def forgot_password(email: str):
     # -------------------------------------------------------------------------
     # HTML INJECTION HELPERS (Ensuring source-to-preview fidelity)
     # -------------------------------------------------------------------------
-    def _inject_login_into_html(self, html: str, project_name: str) -> str:
+    def _inject_login_into_html(self, html: str, project_name: str, project: Optional[Project] = None) -> str:
         if "auth-modal-overlay" in html:
             return html
+
+        if project:
+            ctx = self._get_project_auth_context(project)
+        else:
+            class DummyProject:
+                def __init__(self, name):
+                    self.name = name
+                    self.description = ""
+            ctx = self._get_project_auth_context(DummyProject(project_name))
 
         auth_styles = """
     /* Authentication Overlay & Controls */
@@ -1612,8 +1731,8 @@ async def forgot_password(email: str):
       max-width: 1100px;
     }
     .btn-auth-trigger {
-      background: linear-gradient(135deg, rgba(168,85,247,0.2), rgba(6,182,212,0.2));
-      border: 1px solid var(--border-glow, rgba(168,85,247,0.5));
+      background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.2));
+      border: 1px solid var(--border-glow, rgba(99,102,241,0.5));
       color: #f8fafc;
       padding: 0.45rem 1.1rem;
       border-radius: 9999px;
@@ -1626,9 +1745,9 @@ async def forgot_password(email: str):
       transition: all 0.2s ease;
     }
     .btn-auth-trigger:hover {
-      background: rgba(168,85,247,0.35);
-      border-color: #c084fc;
-      box-shadow: 0 0 15px rgba(168,85,247,0.4);
+      background: rgba(99,102,241,0.35);
+      border-color: #818cf8;
+      box-shadow: 0 0 15px rgba(99,102,241,0.4);
     }
     .auth-logged-in-pill {
       display: inline-flex;
@@ -1675,12 +1794,12 @@ async def forgot_password(email: str):
     }
     .auth-card {
       background: #0f172a;
-      border: 1px solid rgba(168, 85, 247, 0.3);
+      border: 1px solid rgba(99, 102, 241, 0.3);
       border-radius: 16px;
       width: 90%;
       max-width: 420px;
       padding: 1.75rem;
-      box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.7), 0 0 25px rgba(168, 85, 247, 0.2);
+      box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.7), 0 0 25px rgba(99, 102, 241, 0.2);
       color: #f8fafc;
     }
     .auth-card-header {
@@ -1707,7 +1826,7 @@ async def forgot_password(email: str):
       font-size: 0.85rem;
     }
     .auth-tab.active {
-      background: rgba(168, 85, 247, 0.3);
+      background: rgba(99, 102, 241, 0.3);
       color: #f8fafc;
     }
     .auth-close-btn {
@@ -1730,7 +1849,7 @@ async def forgot_password(email: str):
     .auth-field input {
       width: 100%;
       background: rgba(30, 41, 59, 0.7);
-      border: 1px solid rgba(168, 85, 247, 0.25);
+      border: 1px solid rgba(99, 102, 241, 0.25);
       border-radius: 8px;
       padding: 0.65rem 0.85rem;
       color: #f8fafc;
@@ -1738,8 +1857,8 @@ async def forgot_password(email: str):
       outline: none;
     }
     .auth-field input:focus {
-      border-color: #a855f7;
-      box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
+      border-color: #6366f1;
+      box-shadow: 0 0 10px rgba(99, 102, 241, 0.3);
     }
     .auth-actions {
       display: flex;
@@ -1748,7 +1867,7 @@ async def forgot_password(email: str):
       margin-top: 1.25rem;
     }
     .auth-submit-btn {
-      background: linear-gradient(135deg, #a855f7, #6366f1);
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
       border: none;
       color: #fff;
       padding: 0.75rem;
@@ -1759,8 +1878,8 @@ async def forgot_password(email: str):
     }
     .auth-demo-btn {
       background: rgba(30, 41, 59, 0.7);
-      border: 1px dashed rgba(168, 85, 247, 0.4);
-      color: #c084fc;
+      border: 1px dashed rgba(99, 102, 241, 0.4);
+      color: #a5b4fc;
       padding: 0.6rem;
       border-radius: 8px;
       font-weight: 600;
@@ -1779,7 +1898,7 @@ async def forgot_password(email: str):
 """
         html = html.replace("</style>", f"{auth_styles}\n  </style>")
 
-        header_bar_html = """
+        header_bar_html = f"""
   <!-- Top Auth Navigation Bar -->
   <div class="auth-header-bar">
     <div id="auth-guest-view">
@@ -1787,8 +1906,8 @@ async def forgot_password(email: str):
     </div>
     <div id="auth-logged-in-view" style="display:none;" class="auth-logged-in-pill">
       <span>👤</span>
-      <span id="auth-user-name" style="font-weight:700;">Master Shadow</span>
-      <span class="user-rank-badge">Rank: Grandmaster</span>
+      <span id="auth-user-name" style="font-weight:700;">{ctx["demo_name"]}</span>
+      <span class="user-rank-badge">{ctx["user_rank"]}</span>
       <button id="btn-logout" class="btn-logout" onclick="logoutUser()">Log Out</button>
     </div>
   </div>
@@ -1798,7 +1917,7 @@ async def forgot_password(email: str):
         elif "<body>" in html:
             html = html.replace("<body>", f"<body>\n{header_bar_html}")
 
-        modal_html = """
+        modal_html = f"""
   <!-- Interactive Authentication Modal -->
   <div id="auth-modal-overlay" class="auth-modal-overlay" style="display:none;" onclick="if(event.target===this)closeAuthModal()">
     <div class="auth-card" onclick="event.stopPropagation()">
@@ -1814,13 +1933,13 @@ async def forgot_password(email: str):
         <div id="auth-error-msg" class="auth-error-banner" style="display:none;"></div>
 
         <div id="field-name-wrap" class="auth-field" style="display:none;">
-          <label>Warrior Name</label>
-          <input type="text" id="auth-name-input" placeholder="Shadow Slayer">
+          <label>{ctx["name_field_label"]}</label>
+          <input type="text" id="auth-name-input" placeholder="{ctx["demo_name"]}">
         </div>
 
         <div class="auth-field">
           <label>Email Address</label>
-          <input type="email" id="auth-email-input" placeholder="ninja@shadowduel.com">
+          <input type="email" id="auth-email-input" placeholder="{ctx["demo_email"]}">
         </div>
 
         <div class="auth-field">
@@ -1829,8 +1948,8 @@ async def forgot_password(email: str):
         </div>
 
         <div class="auth-actions">
-          <button type="button" id="btn-submit-auth" class="auth-submit-btn" onclick="submitAuth()">Sign In to Arena</button>
-          <button type="button" id="btn-quick-fill" class="auth-demo-btn" onclick="quickFillNinja()">👤 Quick Fill Demo Ninja</button>
+          <button type="button" id="btn-submit-auth" class="auth-submit-btn" onclick="submitAuth()">{ctx["action_button"]}</button>
+          <button type="button" id="btn-quick-fill" class="auth-demo-btn" onclick="quickFillDemo()">{ctx["quick_fill_label"]}</button>
         </div>
       </div>
     </div>
@@ -1839,96 +1958,96 @@ async def forgot_password(email: str):
   <script>
     let isRegisterMode = false;
 
-    function openAuthModal() {
+    function openAuthModal() {{
       const modal = document.getElementById('auth-modal-overlay');
       if (modal) modal.style.display = 'flex';
-    }
+    }}
 
-    function closeAuthModal() {
+    function closeAuthModal() {{
       const modal = document.getElementById('auth-modal-overlay');
       if (modal) modal.style.display = 'none';
-    }
+    }}
 
-    function switchAuthTab(mode) {
+    function switchAuthTab(mode) {{
       isRegisterMode = (mode === 'register');
       document.getElementById('tab-login').classList.toggle('active', !isRegisterMode);
       document.getElementById('tab-register').classList.toggle('active', isRegisterMode);
       document.getElementById('field-name-wrap').style.display = isRegisterMode ? 'block' : 'none';
-      document.getElementById('btn-submit-auth').innerText = isRegisterMode ? 'Create Account' : 'Sign In';
+      document.getElementById('btn-submit-auth').innerText = isRegisterMode ? '{ctx["register_button"]}' : '{ctx["action_button"]}';
       document.getElementById('auth-error-msg').style.display = 'none';
-    }
+    }}
 
-    function quickFillNinja() {
-      document.getElementById('auth-email-input').value = 'developer@se-intelliplatform.local';
-      document.getElementById('auth-pwd-input').value = 'password123';
+    function quickFillDemo() {{
+      document.getElementById('auth-email-input').value = '{ctx["demo_email"]}';
+      document.getElementById('auth-pwd-input').value = '{ctx["demo_password"]}';
       const nameInput = document.getElementById('auth-name-input');
-      if (nameInput) nameInput.value = 'Lead Developer';
+      if (nameInput) nameInput.value = '{ctx["demo_name"]}';
       document.getElementById('auth-error-msg').style.display = 'none';
-    }
+    }}
+    // Backward compatibility alias
+    function quickFillNinja() {{ quickFillDemo(); }}
 
-    async function submitAuth() {
+    async function submitAuth() {{
       const email = document.getElementById('auth-email-input').value.trim();
       const pwd = document.getElementById('auth-pwd-input').value.trim();
       const errBox = document.getElementById('auth-error-msg');
 
-      if (!email || !pwd) {
+      if (!email || !pwd) {{
         errBox.innerText = 'Please enter both email and password.';
         errBox.style.display = 'block';
         return;
-      }
+      }}
 
       errBox.style.display = 'none';
       const displayName = email.split('@')[0];
       const finalName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
 
-      try {
+      try {{
         const endpoint = isRegisterMode ? '/api/auth/register' : '/api/auth/login';
-        const res = await fetch(endpoint, {
+        const res = await fetch(endpoint, {{
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password: pwd, name: finalName })
-        });
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify({{ email, password: pwd, name: finalName }})
+        }});
         const data = await res.json();
         const tok = data.token || ('sess_' + Date.now());
         localStorage.setItem('se_auth_token', tok);
-      } catch (e) {
+      }} catch (e) {{
         localStorage.setItem('se_auth_token', 'sess_' + Date.now());
-      }
+      }}
 
       localStorage.setItem('se_auth_user', finalName);
 
-      // Update state to logged in
       document.getElementById('auth-user-name').innerText = finalName;
       document.getElementById('auth-guest-view').style.display = 'none';
       document.getElementById('auth-logged-in-view').style.display = 'inline-flex';
       closeAuthModal();
-    }
+    }}
 
-    function logoutUser() {
-      try {
-        fetch('/api/auth/logout', { method: 'POST' });
-      } catch (e) {}
+    function logoutUser() {{
+      try {{
+        fetch('/api/auth/logout', {{ method: 'POST' }});
+      }} catch (e) {{}}
       localStorage.removeItem('se_auth_token');
       localStorage.removeItem('se_auth_user');
       document.getElementById('auth-guest-view').style.display = 'block';
       document.getElementById('auth-logged-in-view').style.display = 'none';
-      openAuthModal();
-    }
+    }}
 
-    function initAuthOnLoad() {
+    function initAuthOnLoad() {{
       const tok = localStorage.getItem('se_auth_token');
-      const user = localStorage.getItem('se_auth_user') || 'Lead Developer';
-      if (tok) {
+      const user = localStorage.getItem('se_auth_user') || '{ctx["demo_name"]}';
+      if (tok) {{
         document.getElementById('auth-user-name').innerText = user;
         document.getElementById('auth-guest-view').style.display = 'none';
         document.getElementById('auth-logged-in-view').style.display = 'inline-flex';
         closeAuthModal();
-      } else {
+      }} else {{
         document.getElementById('auth-guest-view').style.display = 'block';
         document.getElementById('auth-logged-in-view').style.display = 'none';
-        openAuthModal();
-      }
-    }
+        // Non-intrusive: Keep modal closed initially so the user views the authentic application interface
+      }}
+    }}
 
     document.addEventListener('DOMContentLoaded', initAuthOnLoad);
     setTimeout(initAuthOnLoad, 100);
@@ -1937,24 +2056,24 @@ async def forgot_password(email: str):
         html = html.replace("</body>", f"{modal_html}\n</body>")
         return html
 
-    def _inject_improved_design_into_html(self, html: str, project_name: str) -> str:
+    def _inject_improved_design_into_html(self, html: str, project_name: str, project: Optional[Project] = None) -> str:
         if "auth-modal-overlay" not in html:
-            html = self._inject_login_into_html(html, project_name)
+            html = self._inject_login_into_html(html, project_name, project)
         improved_styles = """
     /* Glassmorphism & High-Fidelity Design Upgrade */
     .auth-card {
       background: rgba(15, 23, 42, 0.88) !important;
       backdrop-filter: blur(20px) !important;
-      border: 1px solid rgba(168, 85, 247, 0.45) !important;
-      box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.8), 0 0 30px rgba(168, 85, 247, 0.25) !important;
+      border: 1px solid rgba(99, 102, 241, 0.45) !important;
+      box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.8), 0 0 30px rgba(99, 102, 241, 0.25) !important;
     }
     .auth-badge-pill {
       font-size: 0.72rem;
       letter-spacing: 0.08em;
       font-weight: 700;
-      color: #c084fc;
-      background: rgba(168, 85, 247, 0.15);
-      border: 1px solid rgba(168, 85, 247, 0.3);
+      color: #a5b4fc;
+      background: rgba(99, 102, 241, 0.15);
+      border: 1px solid rgba(99, 102, 241, 0.3);
       padding: 0.2rem 0.6rem;
       border-radius: 9999px;
       margin-bottom: 0.5rem;
@@ -1968,7 +2087,7 @@ async def forgot_password(email: str):
     }
     .btn-social {
       background: rgba(30, 41, 59, 0.7);
-      border: 1px solid rgba(168, 85, 247, 0.2);
+      border: 1px solid rgba(99, 102, 241, 0.2);
       color: #f1f5f9;
       padding: 0.5rem;
       border-radius: 8px;
@@ -1982,8 +2101,8 @@ async def forgot_password(email: str):
       transition: all 0.2s ease;
     }
     .btn-social:hover {
-      background: rgba(168, 85, 247, 0.25);
-      border-color: #a855f7;
+      background: rgba(99, 102, 241, 0.25);
+      border-color: #6366f1;
     }
     .pwd-meter-container {
       margin-top: 0.35rem;
@@ -2016,8 +2135,8 @@ async def forgot_password(email: str):
         </div>
 
         <div class="social-login-grid">
-          <button type="button" class="btn-social" onclick="quickFillNinja()"><span>G</span> Google SSO</button>
-          <button type="button" class="btn-social" onclick="quickFillNinja()"><span>⌨</span> GitHub</button>
+          <button type="button" class="btn-social" onclick="quickFillDemo()"><span>G</span> Google SSO</button>
+          <button type="button" class="btn-social" onclick="quickFillDemo()"><span>⌨</span> GitHub</button>
         </div>
 """
         if '<div class="auth-actions">' in html:
@@ -2045,7 +2164,7 @@ async def forgot_password(email: str):
             label.innerText = 'Password Security: Medium';
           } else {
             bar.style.width = '100%';
-            bar.style.backgroundColor = '#a855f7';
+            bar.style.backgroundColor = '#6366f1';
             label.innerText = 'Password Security: Legendary';
           }
         });
@@ -2058,21 +2177,20 @@ async def forgot_password(email: str):
     def _inject_forgot_password_into_tsx(self, content: str) -> str:
         if "isForgotPassword" in content or "forgot-password" in content:
             return content
-        # Add forgot password link and form toggle
         return content.replace(
             "<span>Remember me</span>\n            </label>",
             "<span>Remember me</span>\n            </label>\n            <button type=\"button\" className=\"btn-link auth-forgot-link\" onClick={() => alert('Password reset link sent to your email.')}>Forgot password?</button>"
         )
 
-    def _inject_forgot_password_into_html(self, html: str, project_name: str = "Shadow Duel") -> str:
+    def _inject_forgot_password_into_html(self, html: str, project_name: str = "Application", project: Optional[Project] = None) -> str:
         if "auth-modal-overlay" not in html:
-            html = self._inject_login_into_html(html, project_name)
+            html = self._inject_login_into_html(html, project_name, project)
         if "link-forgot-password" in html:
             return html
 
         forgot_styles = """
     .auth-forgot-link {
-      color: #c084fc;
+      color: #818cf8;
       font-size: 0.8rem;
       text-decoration: underline;
       cursor: pointer;
@@ -2082,7 +2200,7 @@ async def forgot_password(email: str):
       border: none;
     }
     .auth-forgot-link:hover {
-      color: #e9d5ff;
+      color: #c7d2fe;
     }
 """
         html = html.replace("</style>", f"{forgot_styles}\n  </style>")
@@ -2098,16 +2216,16 @@ async def forgot_password(email: str):
 
         forgot_script = """
     function triggerForgotPassword() {
-      const email = document.getElementById('auth-email-input').value.trim() || 'ninja@shadowduel.com';
+      const email = document.getElementById('auth-email-input').value.trim() || 'demo@inventory.local';
       alert('✓ Password recovery link has been generated and dispatched to ' + email + ' (Simulated Token: pwd-reset-2026-auth)');
     }
 """
         html = html.replace("</script>", f"{forgot_script}\n  </script>")
         return html
 
-    def _inject_responsive_into_html(self, html: str, project_name: str = "Shadow Duel") -> str:
+    def _inject_responsive_into_html(self, html: str, project_name: str = "Application", project: Optional[Project] = None) -> str:
         if "auth-modal-overlay" not in html:
-            html = self._inject_login_into_html(html, project_name)
+            html = self._inject_login_into_html(html, project_name, project)
         if "/* Responsive Media Queries */" in html:
             return html
 
