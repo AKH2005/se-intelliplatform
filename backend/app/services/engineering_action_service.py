@@ -705,6 +705,12 @@ class EngineeringActionService:
             logger.error(f"Action '{normalized_action_id}' execution failed: {e}", exc_info=True)
             duration_ms = int((time.monotonic() - start_time) * 1000)
 
+            # Roll back failed transaction immediately to restore session state
+            try:
+                await self.session.rollback()
+            except Exception as rb_err:
+                logger.warning(f"Error rolling back session after action failure: {rb_err}")
+
             await ExecutionEventPublisher.emit(
                 event_type=ExecutionEventType.EXECUTION_FAILED,
                 project_id=str(project_id),
@@ -721,27 +727,36 @@ class EngineeringActionService:
                 },
             )
 
-            audit = AssistantActionAudit(
-                message_id=message_id,
-                project_id=project_id,
-                action_id=normalized_action_id,
-                category=definition.category.value,
-                parameters=clean_params,
-                result_status=ActionStatus.FAILED.value,
-                confirmed_by=user_id if definition.requires_confirmation else None,
-                confirmed_at=datetime.now(timezone.utc) if definition.requires_confirmation else None,
-                execution_duration_ms=duration_ms,
-                metadata_payload={"error": str(e)},
-            )
-            self.session.add(audit)
-            await self.session.commit()
+            audit_ref = None
+            try:
+                audit = AssistantActionAudit(
+                    message_id=message_id,
+                    project_id=project_id,
+                    action_id=normalized_action_id,
+                    category=definition.category.value,
+                    parameters=clean_params,
+                    result_status=ActionStatus.FAILED.value,
+                    confirmed_by=user_id if definition.requires_confirmation else None,
+                    confirmed_at=datetime.now(timezone.utc) if definition.requires_confirmation else None,
+                    execution_duration_ms=duration_ms,
+                    metadata_payload={"error": str(e)},
+                )
+                self.session.add(audit)
+                await self.session.commit()
+                audit_ref = str(audit.id)
+            except Exception as audit_err:
+                logger.warning(f"Could not persist failure audit record: {audit_err}")
+                try:
+                    await self.session.rollback()
+                except Exception:
+                    pass
 
             return ActionResult(
                 action_id=normalized_action_id,
                 status=ActionStatus.FAILED,
                 summary=f"Action '{normalized_action_id}' failed: {e}",
                 errors=[str(e)],
-                audit_reference=str(audit.id),
+                audit_reference=audit_ref,
             )
 
     async def confirm_action(
@@ -1839,6 +1854,7 @@ class EngineeringActionService:
                 summary=f"Assistant code modification: {parameters['reason']}",
             )
             wf_exec = WorkflowExecution(
+                id=uuid.uuid4(),
                 workflow_execution_id=wf_id,
                 project_id=project_id,
                 workflow_id="assistant-code-change",
@@ -1848,9 +1864,15 @@ class EngineeringActionService:
                 completed_at=datetime.now(timezone.utc),
                 step_count=1,
                 completed_steps=1,
+                failed_steps=0,
+                skipped_steps=0,
                 artifacts={"code-generation": code_out.model_dump(mode="json")},
+                errors=[],
+                warnings=[],
+                metadata_payload={"source": "assistant-code-change", "reason": parameters.get("reason", "")},
             )
             self.session.add(wf_exec)
+            await self.session.flush([wf_exec])
 
             files_manifest = [
                 {

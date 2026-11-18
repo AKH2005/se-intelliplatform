@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, foreign
 from sqlalchemy.types import JSON
 
 from app.models.base import Base, UUIDPrimaryKeyMixin
@@ -169,6 +169,11 @@ class WorkflowExecution(Base, UUIDPrimaryKeyMixin):
     # Relationships
     project: Mapped["Project"] = relationship("Project")  # noqa: F821
     context_snapshot: Mapped["ContextSnapshot | None"] = relationship("ContextSnapshot")  # noqa: F821
+    development_versions: Mapped[list["DevelopmentVersion"]] = relationship(
+        "DevelopmentVersion",
+        primaryjoin="WorkflowExecution.workflow_execution_id == foreign(DevelopmentVersion.workflow_execution_id)",
+        viewonly=True,
+    )
 
     __table_args__ = (
         Index("ix_workflow_executions_project_status", "project_id", "status"),

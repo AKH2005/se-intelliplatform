@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, foreign
 from sqlalchemy.types import JSON
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -176,6 +176,10 @@ class DevelopmentVersion(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     parent_version: Mapped["DevelopmentVersion | None"] = relationship(
         "DevelopmentVersion",
         remote_side="DevelopmentVersion.id",
+    )
+    workflow_execution: Mapped["WorkflowExecution | None"] = relationship(
+        "WorkflowExecution",
+        primaryjoin="foreign(DevelopmentVersion.workflow_execution_id) == WorkflowExecution.workflow_execution_id",
     )
 
     __table_args__ = (

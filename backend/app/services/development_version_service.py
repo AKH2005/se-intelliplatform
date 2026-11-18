@@ -1198,6 +1198,7 @@ class DevelopmentVersionService:
             summary=f"Candidate version v{new_version_num}: {reason}",
         )
         wf_exec = WorkflowExecution(
+            id=uuid.uuid4(),
             workflow_execution_id=wf_id,
             project_id=project_id,
             workflow_id="candidate-version-creation",
@@ -1205,9 +1206,17 @@ class DevelopmentVersionService:
             status=WorkflowExecutionStatus.COMPLETED,
             started_at=datetime.now(timezone.utc),
             completed_at=datetime.now(timezone.utc),
+            step_count=1,
+            completed_steps=1,
+            failed_steps=0,
+            skipped_steps=0,
             artifacts={"code-generation": code_out.model_dump(mode="json")},
+            errors=[],
+            warnings=[],
+            metadata_payload={"reason": reason},
         )
         self.session.add(wf_exec)
+        await self.session.flush([wf_exec])
 
         files_manifest = [
             VersionFileSummary(
@@ -2151,16 +2160,27 @@ class DevelopmentVersionService:
             summary=f"User edit to {safe_path} saved in Code Studio.",
         )
         wf_exec = WorkflowExecution(
+            id=uuid.uuid4(),
             workflow_execution_id=wf_id,
             project_id=project_id,
             workflow_id="code-studio-edit",
             workflow_version="1.0.0",
             status=WorkflowExecutionStatus.COMPLETED,
+            started_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(timezone.utc),
+            step_count=1,
+            completed_steps=1,
+            failed_steps=0,
+            skipped_steps=0,
             artifacts={
                 "code-generation": code_output.model_dump(mode="json"),
             },
+            errors=[],
+            warnings=[],
+            metadata_payload={"edited_file": safe_path},
         )
         self.session.add(wf_exec)
+        await self.session.flush([wf_exec])
 
         # 12. Create files_manifest summaries
         files_manifest = [
