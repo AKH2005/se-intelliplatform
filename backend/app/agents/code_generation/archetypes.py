@@ -552,6 +552,15 @@ def get_archetype_file_content(
     """Return syntactically valid, production-grade source code for a given archetype file."""
     norm_path = path.replace("\\", "/").strip()
 
+    # Authoritative Enterprise Domain Templates (P0 Milestone 2 Upgrade)
+    try:
+        from app.agents.code_generation.domain_templates import get_domain_file_content
+        domain_code = get_domain_file_content(archetype, norm_path, project_name, project_desc)
+        if domain_code is not None:
+            return domain_code
+    except Exception:
+        pass
+
     # -------------------------------------------------------------
     # Archetype: SPACE ARCADE DEFENDER (space_arcade)
     # -------------------------------------------------------------

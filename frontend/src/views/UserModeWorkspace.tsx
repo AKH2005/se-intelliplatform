@@ -1949,9 +1949,10 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
                     <input
                       type="text"
                       value={promptInput}
+                      disabled={isPlanning}
                       onChange={(e) => setPromptInput(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
+                        if (e.key === 'Enter' && !isPlanning) {
                           handleAnalyzePrompt();
                         }
                       }}
@@ -1984,6 +1985,65 @@ Synthesized by SE IntelliPlatform autonomous AI software engineering engine.
                     </Button>
                   </div>
                 </div>
+
+                {/* AI Planning Active Status */}
+                {isPlanning && (
+                  <div
+                    data-testid="ai-planning-progress"
+                    style={{
+                      background: 'rgba(124, 58, 237, 0.12)',
+                      border: '1px solid rgba(139, 92, 246, 0.35)',
+                      borderRadius: '10px',
+                      padding: '0.75rem 1rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.75rem',
+                      color: '#ddd6fe',
+                      fontSize: '0.86rem',
+                    }}
+                  >
+                    <Sparkles size={18} color="#a78bfa" />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                      <span style={{ fontWeight: 600, color: '#f3e8ff' }}>
+                        Synthesizing Architecture & Requirements with AI...
+                      </span>
+                      <span style={{ fontSize: '0.76rem', color: '#c4b5fd' }}>
+                        Designing database models, component contracts, and feature blueprints.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error Banner if Blueprint Synthesis Failed in AI Mode */}
+                {planError && activeCreationMode === 'ai' && (
+                  <div
+                    data-testid="plan-error-banner"
+                    style={{
+                      background: 'rgba(239, 68, 68, 0.15)',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      borderRadius: '10px',
+                      padding: '0.75rem 1rem',
+                      color: '#fca5a5',
+                      fontSize: '0.85rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '0.75rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                      <span>{planError}</span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      onClick={() => handleAnalyzePrompt()}
+                      style={{ fontSize: '0.75rem', padding: '0.25rem 0.65rem', color: '#fca5a5', border: '1px solid rgba(239, 68, 68, 0.4)' }}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                )}
 
                 {/* Suggested Prompts Pills */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>

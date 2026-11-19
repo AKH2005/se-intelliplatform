@@ -113,6 +113,27 @@ def build_code_generation_workflow() -> WorkflowDefinition:
                 depends_on=["code-generation-planning"],
                 description="Generate verified, syntactically valid source files strictly matching the planned manifest",
             ),
+            WorkflowStep(
+                step_id="test-case-generation",
+                agent_id="test-case-generation",
+                required=False,
+                depends_on=["code-generation"],
+                description="Generate boundary, integration, and unit test suites for generated software",
+            ),
+            WorkflowStep(
+                step_id="code-review",
+                agent_id="code-review",
+                required=False,
+                depends_on=["code-generation"],
+                description="Perform automated code review, security check, and quality verification",
+            ),
+            WorkflowStep(
+                step_id="explainability-insights",
+                agent_id="explainability-insights",
+                required=False,
+                depends_on=["code-generation"],
+                description="Synthesize architecture trade-offs, file structure, and technical summary",
+            ),
         ],
     )
 
@@ -303,9 +324,27 @@ def resolve_step_kwargs(
             "architecture_recommendation": arch_out,
         }, None
 
-    # 3. Code Review routing: requires external CodeReviewInput payload
+    # 3. Code Review routing: requires external CodeReviewInput payload or generated files from code-generation
     if agent_id == "code-review":
         if workflow_input.code_review_input is None:
+            cg_out = artifacts.get("code-generation") or artifacts.get("code_generation")
+            if cg_out and hasattr(cg_out, "generated_files") and cg_out.generated_files:
+                try:
+                    from app.agents.code_review.contracts import CodeFile, CodeReviewInput
+                    files_to_review = [
+                        CodeFile(path=f.path, content=f.content)
+                        for f in cg_out.generated_files
+                        if f.path.endswith((".py", ".tsx", ".ts"))
+                    ][:5]
+                    if files_to_review:
+                        return {
+                            "code_input": CodeReviewInput(
+                                files=files_to_review,
+                                review_scope="Full SDLC automated code review and quality verification",
+                            )
+                        }, None
+                except Exception:
+                    pass
             return {}, "CodeReviewInput was not provided in workflow input."
         return {"code_input": workflow_input.code_review_input}, None
 

@@ -143,7 +143,14 @@ async def create_guided_app_plan(
     current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
 ) -> GuidedAppPlanResponse:
     """Synthesize a structured application blueprint from natural language."""
-    provider = get_llm_provider()
+    try:
+        provider = get_llm_provider()
+    except Exception as exc:
+        logger.error(f"Failed to initialize LLM provider: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"AI Assistant service is currently configuring or unavailable: {exc}",
+        ) from exc
 
     llm_req = LLMRequest(
         messages=[
@@ -157,16 +164,51 @@ async def create_guided_app_plan(
         temperature=0.3,
     )
 
+    import asyncio
     try:
-        res = await provider.generate(llm_req)
-        raw_text = res.content.strip()
+        # Enforce 28s provider timeout so backend always responds before client's 45s timeout
+        res = await asyncio.wait_for(provider.generate(llm_req), timeout=28.0)
+    except asyncio.TimeoutError as t_err:
+        logger.warning(f"AI planning request timed out waiting for provider {provider.provider_name}")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="AI planning request timed out waiting for AI provider response. Please try again.",
+        ) from t_err
+    except (TransientProviderError,) as tp_err:
+        logger.warning(f"LLM Transient error during guided-app-plan: {tp_err}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"AI service provider is temporarily busy or rate-limited: {str(tp_err)}. Please wait a moment and try again.",
+        ) from tp_err
+    except (ProviderError,) as p_err:
+        logger.error(f"LLM Provider error during guided-app-plan: {p_err}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"AI service provider encountered an issue: {str(p_err)}",
+        ) from p_err
+    except Exception as exc:
+        logger.error(f"Unexpected error in guided app plan generation: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while generating application blueprint: {str(exc)}",
+        ) from exc
 
-        # Clean any potential markdown code fence markers
-        if raw_text.startswith("```"):
-            raw_text = re.sub(r"^```[a-zA-Z]*\n?", "", raw_text)
-            raw_text = re.sub(r"\n?```$", "", raw_text).strip()
+    raw_text = res.content.strip()
 
-        parsed = json.loads(raw_text)
+    # Clean any potential markdown code fence markers
+    if raw_text.startswith("```"):
+        raw_text = re.sub(r"^```[a-zA-Z]*\n?", "", raw_text)
+        raw_text = re.sub(r"\n?```$", "", raw_text).strip()
+
+    # Try extracting JSON object if surrounded by preamble/postamble
+    match = re.search(r"(\{[\s\S]*\})", raw_text)
+    if match:
+        raw_json = match.group(1)
+    else:
+        raw_json = raw_text
+
+    try:
+        parsed = json.loads(raw_json)
         reqs = [
             AppRequirementItem(
                 title=r.get("title", "Core Feature"),
@@ -189,255 +231,9 @@ async def create_guided_app_plan(
             requirements=reqs,
             suggested_features=features,
         )
-    except Exception as exc:
-        logger.info(f"Fallback to heuristic blueprint synthesis: {exc}")
-        # Deterministic heuristic fallback if LLM response is non-JSON or fails
-        prompt_lower = request.prompt.strip().lower()
-
-        # 1. E-Commerce Store & Catalog
-        if any(k in prompt_lower for k in ["ecommerce", "e-commerce", "shop", "store", "catalog", "checkout", "cart", "product"]):
-            return GuidedAppPlanResponse(
-                name="ShopSphere E-Commerce Store",
-                slug="shopsphere-ecommerce-store",
-                description="Interactive online storefront with product catalog, category filters, sliding shopping cart, and multi-step checkout workflow.",
-                requirements=[
-                    AppRequirementItem(
-                        title="Product Catalog with Taxonomy & Search Filters",
-                        description="Browse products with responsive cards, category facets, price sorting, and live search.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Interactive Shopping Cart with Live Subtotals",
-                        description="Add, modify quantities, and remove items with instant subtotal calculations and stock availability gating.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Multi-Step Checkout & Order Confirmation Workflow",
-                        description="Customer shipping information form, payment simulation, and persistent order receipt generation.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Responsive Storefront UI & Fast Navigation",
-                        description="Modern dark slate e-commerce layout adapting gracefully from mobile devices to desktop viewports.",
-                        type="NON_FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                ],
-                suggested_features=["Filterable product grid", "Sliding cart drawer", "Checkout modal", "Persistent orders database"],
-            )
-
-        # 2. Event Management & Booking Hub
-        if any(k in prompt_lower for k in ["event", "booking", "conference", "summit", "reservation", "attendee", "ticket"]):
-            return GuidedAppPlanResponse(
-                name="EventHub Conference & Booking Portal",
-                slug="eventhub-conference-portal",
-                description="Event discovery and conference booking platform with venue details, seat capacity limits, and attendee registration.",
-                requirements=[
-                    AppRequirementItem(
-                        title="Event Discovery Catalog & Category Filtering",
-                        description="Discover upcoming conferences and summits with date filtering, venue details, and capacity indicators.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Attendee Registration with Real-Time Capacity Gating",
-                        description="Registration modal that books tickets and decrements available seats, preventing over-booking.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Reservation Management & Seat Recovery",
-                        description="Cancel reservations to immediately replenish seat capacity quotas and update attendee records.",
-                        type="FUNCTIONAL",
-                        priority="MEDIUM",
-                    ),
-                    AppRequirementItem(
-                        title="Modern Responsive Event Interface",
-                        description="Event card grid with date badges, capacity status pills, and accessible booking modal.",
-                        type="NON_FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                ],
-                suggested_features=["Event catalog", "Attendee booking form", "Seat availability tracking", "Ticket cancellation"],
-            )
-
-        # 3. Inventory & Warehouse Management
-        if any(k in prompt_lower for k in ["inventory", "warehouse", "stock", "sku", "supply chain", "replenishment"]):
-            return GuidedAppPlanResponse(
-                name="Apex Inventory & Warehouse Manager",
-                slug="apex-inventory-warehouse",
-                description="Enterprise inventory control system with real-time stock levels, low-stock threshold alerts, inbound/outbound adjustments, and audit log.",
-                requirements=[
-                    AppRequirementItem(
-                        title="SKU Inventory Catalog & Unit Economics",
-                        description="Browse warehouse SKU catalog with search, category filtering, unit prices, and warehouse locations.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Stock In/Out Adjustment Ledger",
-                        description="Interactive stock adjustment modal recording inbound receipts and outbound dispatches with reason audit trail.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Low-Stock Threshold Alert Badges",
-                        description="Automated threshold warnings highlighting critical items requiring immediate supplier reorders.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Transaction Audit Log & CSV Export",
-                        description="Complete transaction history with timestamped stock changes and one-click CSV export.",
-                        type="NON_FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                ],
-                suggested_features=["SKU tracking table", "Stock adjustment modal", "Low-stock alert badges", "CSV audit export"],
-            )
-
-        # 4. Learning Management System (LMS)
-        if any(k in prompt_lower for k in ["lms", "learning", "course", "lesson", "academy", "curriculum", "student", "quiz"]):
-            return GuidedAppPlanResponse(
-                name="SkillForge Online Academy & LMS",
-                slug="skillforge-online-academy",
-                description="Online learning platform with course catalog, video/text lesson player, student progress tracking, and interactive quizzes.",
-                requirements=[
-                    AppRequirementItem(
-                        title="Course Curriculum Catalog & Enrollment",
-                        description="Explore multi-track course curriculum with level filtering, instructor details, and enrollment triggers.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Interactive Course Player & Lesson Progression",
-                        description="Dedicated course player with lesson checklist, completion toggles, and live progress percentage bar.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Knowledge Check Quiz Module with Instant Grading",
-                        description="Interactive multiple-choice quiz questions assessing lesson comprehension with instant scoring.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Student Learning Dashboard & Certification",
-                        description="Student overview displaying enrolled courses, completed hours, mastery scores, and certificates.",
-                        type="NON_FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                ],
-                suggested_features=["Course catalog", "Lesson player", "Quiz assessment module", "Progress percentage tracking"],
-            )
-
-        # 5. Canvas 2D Arcade Game (Space Shooter - NOT Snake)
-        if any(k in prompt_lower for k in ["arcade", "space", "galaxy", "shooter", "alien", "fighter", "laser"]) and "snake" not in prompt_lower:
-            return GuidedAppPlanResponse(
-                name="Space Arcade Defender",
-                slug="space-arcade-defender",
-                description="High-performance 60 FPS HTML5 Canvas space combat shooter with player ship controls, laser cannons, descending alien waves, and high score tracking.",
-                requirements=[
-                    AppRequirementItem(
-                        title="60 FPS HTML5 Canvas Space Combat Loop",
-                        description="Smooth 60 FPS animation loop with starfield background, projectile physics, and particle explosions.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Directional Ship Controls & Laser Cannons",
-                        description="Responsive keyboard (Arrow keys / WASD) and Spacebar firing controls with cooldown management.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Alien Fleet Waves & Collision Detection",
-                        description="Descending alien armada with progressive speed, projectile collisions, and shield damage.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Avionics HUD & Persistent High Scores",
-                        description="Live HUD tracking shield health, wave counter, score, and local high score persistence.",
-                        type="NON_FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                ],
-                suggested_features=["60 FPS canvas loop", "Ship navigation & laser firing", "Alien wave progression", "Persistent high score"],
-            )
-
-        # 6. Retro Snake Game (ONLY when explicitly requested)
-        if any(k in prompt_lower for k in ["snake", "slither", "nibbles"]):
-            return GuidedAppPlanResponse(
-                name="Arcade Snake Retro",
-                slug="arcade-snake-retro",
-                description="Classic 2D retro Snake game with grid movement, food generation, speed ramping, and high scores.",
-                requirements=[
-                    AppRequirementItem(
-                        title="2D Grid Movement Engine",
-                        description="Responsive snake movement with directional Arrow / WASD controls.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Food Spawning & Growth Mechanics",
-                        description="Apples spawn randomly; eating increases length and accelerates speed.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Game Over & Restart Flow",
-                        description="Boundary and self-collision detection with instant restart capability.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                ],
-                suggested_features=["Grid movement", "Food spawning", "Speed progression", "Score leaderboard"],
-            )
-
-        if any(k in prompt_lower for k in ["analytics", "kpi", "dashboard", "metric", "executive"]):
-            return GuidedAppPlanResponse(
-                name="Executive Analytics Dashboard",
-                slug="executive-analytics-dashboard",
-                description="Executive analytics dashboard with revenue charts, user retention metrics, conversion funnel, and team performance KPIs",
-                requirements=[
-                    AppRequirementItem(
-                        title="Executive KPI Summary Cards (Revenue, Workspaces, Conversions, Churn)",
-                        description="Key performance indicator cards with trend badges, formatted currency, and period comparison.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Interactive Revenue Trajectory & Conversion Funnel Charts",
-                        description="Dynamic SVG charts illustrating recurring revenue trajectory and multi-stage funnel drop-off.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Filterable & Sortable Team Performance Metrics Table",
-                        description="Searchable and sortable performance metrics table with status indicators and category tabs.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Metric Creation Modal & CSV Export Capabilities",
-                        description="Interactive dialog to record custom KPIs and one-click export of data to CSV.",
-                        type="FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                    AppRequirementItem(
-                        title="Responsive Multi-Device Layout (Desktop, Tablet, Mobile)",
-                        description="Optimized layout adjusting seamlessly across wide desktop, dual-column tablet, and single-column mobile viewports.",
-                        type="NON_FUNCTIONAL",
-                        priority="HIGH",
-                    ),
-                ],
-                suggested_features=["Real-time revenue charts", "Funnel analytics", "Table sorting and CSV export", "Dark mode toggle"],
-            )
-
+    except Exception as parse_exc:
+        logger.info(f"Model output was not valid JSON ({parse_exc}), synthesizing blueprint directly from prompt")
+        # Synthesize directly from the user's prompt text (never hijacking into an unrelated template)
         words = request.prompt.strip().split()
         title_words = words[:4]
         name = " ".join(title_words).title() or "Custom Application"
@@ -449,23 +245,23 @@ async def create_guided_app_plan(
             description=request.prompt.strip(),
             requirements=[
                 AppRequirementItem(
-                    title="User Interface & Navigation",
-                    description=f"Modern, responsive web interface tailored for {name}.",
+                    title="User Interface & Interactive Navigation",
+                    description=f"Modern, responsive interface tailored for {name}.",
                     type="FUNCTIONAL",
                     priority="HIGH",
                 ),
                 AppRequirementItem(
-                    title="Data Management & CRUD",
-                    description="Standardized REST APIs and persistent storage for core entities.",
+                    title="Data Management & Core Operations",
+                    description=f"Standardized state management and persistent data handling for {name}.",
                     type="FUNCTIONAL",
                     priority="HIGH",
                 ),
                 AppRequirementItem(
-                    title="Interactive Preview Integration",
-                    description="Live prototype runtime on SE IntelliPlatform preview runtime.",
+                    title="Real-Time Verification & Preview",
+                    description="Continuous feedback and live runtime integration on SE IntelliPlatform.",
                     type="NON_FUNCTIONAL",
                     priority="HIGH",
                 ),
             ],
-            suggested_features=["Search and filtering", "Export data", "Real-time updates"],
+            suggested_features=["Interactive Dashboard", "Search & Filtering", "Audit & Reporting"],
         )

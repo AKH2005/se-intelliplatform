@@ -136,12 +136,6 @@ class Settings(BaseSettings):
         elif self.DATABASE_URL.startswith("postgresql://"):
             # Ensure async psycopg driver is explicitly targeted
             self.DATABASE_URL = self.DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
-        elif "sqlite" in self.DATABASE_URL and ("pytest" in sys.modules or os.environ.get("ENVIRONMENT") == "testing"):
-            if self.POSTGRES_HOST == "localhost" and self.POSTGRES_PORT == 5432:
-                self.DATABASE_URL = (
-                    f"postgresql+psycopg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@"
-                    f"{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-                )
 
         # Build REDIS_URL if omitted
         if not self.REDIS_URL:

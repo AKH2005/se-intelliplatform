@@ -29,6 +29,13 @@ from app.models.project import Project
 from app.runtime.preview_runtime_manager import preview_runtime_manager
 from app.services.development_version_service import DevelopmentVersionService, FileValidator
 from app.services.engineering_action_service import EngineeringActionService
+from app.services.assistant_features import (
+    build_complete_auth_changes,
+    build_database_search_changes,
+    build_role_authorization_changes,
+    build_autonomous_debugging_changes,
+    build_pagination_changes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +104,36 @@ class ApplicationDeveloperService:
             ("endpoint" in msg or "api route" in msg or "backend route" in msg) and ("add" in msg or "create" in msg or "filter" in msg or "date" in msg)
         ):
             return "ADD_BACKEND_ENDPOINT"
+
+        # 0. Autonomous Debugging & Error Remediation
+        debugging_cues = [
+            "fix this application build error", "fix application build error", "fix build error",
+            "fix build", "build error", "syntax error", "diagnose error", "fix defect",
+            "repair error", "debug application", "autonomous debugging", "investigate error",
+        ]
+        if any(cue in msg for cue in debugging_cues) or (
+            any(w in msg for w in ["build", "syntax", "compile", "exception", "traceback"]) and
+            any(w in msg for w in ["fix", "repair", "debug", "correct", "solve"])
+        ):
+            return "AUTONOMOUS_DEBUGGING"
+
+        # 0. Role-based Authorization & Admin Console
+        role_cues = [
+            "admin role", "role authorization", "role-based", "rbac", "protected admin",
+            "admin routes", "role permission", "role access", "admin privileges", "admin console",
+        ]
+        if any(cue in msg for cue in role_cues) or (
+            "role" in msg and any(w in msg for w in ["admin", "permission", "protect", "authorize", "access"])
+        ):
+            return "ADD_ROLE_AUTHORIZATION"
+
+        # 0. Pagination
+        pagination_cues = [
+            "pagination", "paginate", "page size", "next page", "previous page",
+            "add pagination", "page navigation", "table pagination", "products table pagination",
+        ]
+        if any(cue in msg for cue in pagination_cues):
+            return "ADD_PAGINATION"
 
         # 1. Responsive optimization
         if any(term in msg for term in ["responsive", "mobile", "tablet", "screen size", "viewport", "touch"]):
@@ -274,22 +311,29 @@ class ApplicationDeveloperService:
         user_message: str,
     ) -> Tuple[List[Dict[str, str]], str, Dict[str, Any]]:
         """Generate targeted source changes based on application type and intent."""
-        if intent == "REPAIR_MODAL_VISIBILITY":
+        ctx = self._get_project_auth_context(project)
+        if intent == "AUTONOMOUS_DEBUGGING":
+            return build_autonomous_debugging_changes(project, current_files, user_message, ctx)
+        elif intent == "ADD_ROLE_AUTHORIZATION":
+            return build_role_authorization_changes(project, current_files, user_message, ctx)
+        elif intent == "ADD_PAGINATION":
+            return build_pagination_changes(project, current_files, user_message, ctx)
+        elif intent == "ADD_SEARCH_BAR":
+            return build_database_search_changes(project, current_files, user_message, ctx)
+        elif intent == "ADD_LOGIN_PAGE":
+            return build_complete_auth_changes(project, current_files, user_message, ctx)
+        elif intent == "REPAIR_MODAL_VISIBILITY":
             return self._build_repair_modal_changes(project, current_files, user_message)
         elif intent == "REPAIR_UI_DEFECT":
             return self._build_repair_ui_defect_changes(project, current_files, user_message)
         elif intent == "ADD_BACKEND_ENDPOINT":
             return self._build_backend_endpoint_changes(project, current_files, user_message)
-        elif intent == "ADD_LOGIN_PAGE":
-            return self._build_login_page_changes(project, current_files, user_message)
         elif intent == "IMPROVE_LOGIN_DESIGN":
             return self._build_improved_design_changes(project, current_files, user_message)
         elif intent == "ADD_FORGOT_PASSWORD":
             return self._build_forgot_password_changes(project, current_files, user_message)
         elif intent == "MAKE_RESPONSIVE":
             return self._build_responsive_changes(project, current_files, user_message)
-        elif intent == "ADD_SEARCH_BAR":
-            return self._build_search_bar_changes(project, current_files, user_message)
         elif intent == "ADD_DARK_MODE":
             return self._build_dark_mode_changes(project, current_files, user_message)
         else:
@@ -979,6 +1023,15 @@ class AnalyticsMetricsResponse(BaseModel):
         current_files: Dict[str, str],
         user_message: str,
     ) -> Tuple[List[Dict[str, str]], str, Dict[str, Any]]:
+        ctx = self._get_project_auth_context(project)
+        return build_complete_auth_changes(project, current_files, user_message, ctx)
+
+    def _build_legacy_login_modal_changes(
+        self,
+        project: Project,
+        current_files: Dict[str, str],
+        user_message: str,
+    ) -> Tuple[List[Dict[str, str]], str, Dict[str, Any]]:
         changes = []
         ctx = self._get_project_auth_context(project)
 
@@ -1659,6 +1712,15 @@ async def forgot_password(email: str):
     # 5. SEARCH BAR & OTHER FEATURES
     # -------------------------------------------------------------------------
     def _build_search_bar_changes(
+        self,
+        project: Project,
+        current_files: Dict[str, str],
+        user_message: str,
+    ) -> Tuple[List[Dict[str, str]], str, Dict[str, Any]]:
+        ctx = self._get_project_auth_context(project)
+        return build_database_search_changes(project, current_files, user_message, ctx)
+
+    def _build_legacy_search_bar_changes(
         self,
         project: Project,
         current_files: Dict[str, str],
